@@ -1,4 +1,20 @@
 /* Design tokens — docs/CONTEXT.md §9. Single source for colours, spacing, radii, motion. */
+
+/* Inter, latin subset, woff2 only (§6.7). The 400 file is also preloaded from index.html. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('@fontsource/inter/files/inter-latin-400-normal.woff2') format('woff2');
+}
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('@fontsource/inter/files/inter-latin-600-normal.woff2') format('woff2');
+}
 :root {
   --color-bg: #0a0c0f;
   --color-surface: #12161b;
@@ -31,6 +47,7 @@
   --font-sans: 'Inter', system-ui, sans-serif;
   --font-size-title: 32px;
   --font-size-body: 14px;
+  --font-size-small: 12px;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -32,4 +32,12 @@ export const config = {
   debug: {
     axesSize: 0.1,
   },
+  // Loading screen (§6.9). T102 replaces the two placeholder stages with the five weighted ones.
+  loading: {
+    irisMs: 600, // lens iris-open on ready
+    tipMs: 5000, // tip rotation period
+    tipFadeMs: 200, // tip cross-fade (motion token range 150–250 ms)
+    downloadWeight: 0.8, // share of the ring filled by the download stage
+    holdFraction: 0.4, // ?holdload freezes the download stage here
+  },
 } as const;

@@ -4,17 +4,177 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>ThoraScope</title>
+    <link rel="stylesheet" href="/src/ui/tokens.css" />
+    <link
+      rel="preload"
+      href="/node_modules/@fontsource/inter/files/inter-latin-400-normal.woff2"
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link rel="preload" href="/models/thorax_sim.opt.glb" as="fetch" crossorigin />
+    <!-- Critical CSS for the loading screen (§6.9): paints before the JS bundle runs. Values come from tokens.css. -->
     <style>
-      html,
-      body {
+      .loading {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: var(--space-4);
+        background: var(--color-bg);
+        transition: opacity var(--iris-ms) var(--ease-out);
+      }
+      .loading.open {
+        opacity: 0;
+        pointer-events: none;
+      }
+      .lens {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: min(60vmin, 360px);
+        aspect-ratio: 1;
+        border-radius: 50%;
+        /* the one soft vignette (§9) */
+        background: radial-gradient(
+          circle,
+          var(--color-elevated) 0%,
+          var(--color-surface) 55%,
+          var(--color-bg) 100%
+        );
+        transition: transform var(--iris-ms) var(--ease-out);
+      }
+      .loading.open .lens {
+        transform: scale(3);
+      }
+      .ring {
+        position: absolute;
+        inset: 0;
+        transform: rotate(-90deg);
+        fill: none;
+        stroke-width: 0.6;
+      }
+      .ring-track {
+        stroke: var(--color-border);
+      }
+      .ring-fill {
+        stroke: var(--color-accent);
+        stroke-dasharray: 100;
+        stroke-dashoffset: 100;
+        stroke-linecap: round;
+        transition: stroke-dashoffset var(--motion-base) var(--ease-out);
+      }
+      .loading.failed .ring-fill {
+        stroke: var(--color-warning);
+      }
+      .lens-text {
+        position: relative;
+        text-align: center;
+        padding: var(--space-3);
+      }
+      .lens-text h1 {
         margin: 0;
-        height: 100%;
-        background: #0a0c0f;
-        color: #e7eaee;
+        font-size: var(--font-size-title);
+        font-weight: 600;
+      }
+      .subtitle,
+      .tip {
+        margin: var(--space-1) 0 0;
+        color: var(--color-muted);
+      }
+      .stage {
+        margin: var(--space-3) 0 0;
+        color: var(--color-accent);
+        font-variant-numeric: tabular-nums;
+      }
+      .tip {
+        max-width: 44ch;
+        min-height: 3em;
+        padding: 0 var(--space-2);
+        text-align: center;
+        transition: opacity var(--motion-base) var(--ease-out);
+      }
+      .loading.failed .tip {
+        display: none;
+      }
+      .error-card {
+        max-width: 360px;
+        padding: var(--space-3);
+        background: var(--color-surface);
+        border: var(--border-width) solid var(--color-border);
+        border-radius: var(--radius-md);
+        text-align: center;
+      }
+      .error-card[hidden] {
+        display: none;
+      }
+      .error-card h2 {
+        margin: 0;
+        font-size: var(--font-size-body);
+        font-weight: 600;
+      }
+      .error-card p {
+        margin: var(--space-1) 0 var(--space-2);
+        color: var(--color-muted);
+      }
+      .error-card button {
+        margin: 0 var(--space-1) 0;
+        padding: var(--space-1) var(--space-2);
+        font: inherit;
+        color: var(--color-text);
+        background: var(--color-elevated);
+        border: var(--border-width) solid var(--color-border);
+        border-radius: var(--radius-sm);
+        cursor: pointer;
+      }
+      .error-card button.primary {
+        border-color: var(--color-accent);
+      }
+      .review {
+        position: absolute;
+        bottom: var(--space-3);
+        margin: 0;
+        padding: calc(var(--space-1) / 2) var(--space-1);
+        font-size: var(--font-size-small);
+        color: var(--color-warning);
+        border: var(--border-width) solid var(--color-border);
+        border-radius: var(--radius-sm);
       }
     </style>
   </head>
   <body>
+    <div id="loading" class="loading">
+      <div
+        id="load-lens"
+        class="lens"
+        role="progressbar"
+        aria-label="Loading simulator"
+        aria-valuemin="0"
+        aria-valuemax="100"
+        aria-valuenow="0"
+      >
+        <svg class="ring" viewBox="0 0 100 100" aria-hidden="true">
+          <circle class="ring-track" cx="50" cy="50" r="49" pathLength="100" />
+          <circle id="load-ring" class="ring-fill" cx="50" cy="50" r="49" pathLength="100" />
+        </svg>
+        <div class="lens-text">
+          <h1>ThoraScope</h1>
+          <p class="subtitle">VATS right middle lobectomy simulator</p>
+          <p id="load-stage" class="stage">Starting…</p>
+        </div>
+      </div>
+      <p id="load-tip" class="tip"></p>
+      <div id="load-error" class="error-card" role="alert" hidden>
+        <h2>The simulator could not start</h2>
+        <p id="load-error-msg"></p>
+        <button id="load-retry" class="primary" type="button">Retry</button>
+        <button id="load-low" type="button">Low quality</button>
+      </div>
+      <p class="review">Pending clinician review</p>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

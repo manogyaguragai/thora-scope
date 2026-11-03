@@ -1,4 +1,4 @@
-import { Box3 } from 'three';
+import { Box3, LoaderUtils } from 'three';
 import type { Object3D, WebGLRenderer } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
@@ -15,11 +15,33 @@ export interface LoadedModel {
   axis: string;
 }
 
-export async function loadModel(renderer: WebGLRenderer): Promise<LoadedModel> {
+/** Download progress in bytes; total is 0 when the server sends no Content-Length. */
+export type ByteProgress = (loaded: number, total: number) => void;
+
+/** Streamed fetch so progress is real bytes (§6.9 stage 1). Matches the `<link rel="preload" as="fetch">`. */
+async function fetchModel(url: string, onProgress: ByteProgress): Promise<ArrayBuffer> {
+  const res = await fetch(url);
+  if (!res.ok || !res.body) throw new Error(`Model download failed (HTTP ${res.status}).`);
+  const total = Number(res.headers.get('content-length')) || 0;
+  const reader = res.body.getReader();
+  const chunks: Uint8Array<ArrayBuffer>[] = [];
+  let loaded = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    loaded += value.byteLength;
+    onProgress(loaded, total);
+  }
+  return new Blob(chunks).arrayBuffer();
+}
+
+export async function loadModel(renderer: WebGLRenderer, onProgress: ByteProgress): Promise<LoadedModel> {
   const ktx2 = new KTX2Loader().setTranscoderPath(config.decoderPath).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
   try {
-    const gltf = await loader.loadAsync(config.modelUrl);
+    const data = await fetchModel(config.modelUrl, onProgress);
+    const gltf = await loader.parseAsync(data, LoaderUtils.extractUrlBase(config.modelUrl));
     const axis = checkAxis(gltf.scene);
     console.info(axis);
     return { gltf, axis };

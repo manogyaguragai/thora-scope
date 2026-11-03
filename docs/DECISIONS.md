@@ -29,3 +29,9 @@ Textures go to KTX2 per CONTEXT §6.10: UASTC (level 2, zstd 18) for normal maps
 - Per-preset caps: one glb serves all presets. KTX2 cannot be cheaply downscaled at load, and ~40 MB already fits Low. If a smaller tier is ever needed, emit a second glb from this script with a lower resize cap.
 - Runtime: KTX2Loader needs `public/decoders/basis_transcoder.{js,wasm}` (copied from the pinned three by the script). The meshopt decoder is bundled from `three/examples/jsm/libs/meshopt_decoder.module.js`. No Draco decoder is needed.
 - quantize puts the dequantisation transform into each mesh node's local matrix, so mesh-node TRS differs from the source but world-space geometry does not. Ports must be read from `extras` (CONTEXT §7.2).
+
+## ADR-007 UI = plain TypeScript DOM components (no framework)
+UI is hand-written TS over plain DOM (no Preact/React/lit). The initial-JS budget is 250 KB gzip and three.js alone takes
+most of it; a framework buys little for a handful of panels with event-driven updates (§6.7: no per-frame DOM writes).
+The loading screen markup + critical CSS live in `index.html` so it paints before the bundle runs; `src/ui/loadingScreen.ts`
+only drives it. Revisit if panel count/complexity makes manual DOM updates error-prone.
