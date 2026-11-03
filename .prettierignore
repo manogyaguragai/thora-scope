@@ -8,3 +8,5 @@ tasks.md
 CLAUDE.md
 .claude
 package-lock.json
+.cache
+public/decoders
