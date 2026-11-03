@@ -15,6 +15,7 @@ import { config } from './core/config';
 import { armReady } from './core/perf';
 import { createRenderer, startLoop } from './core/renderer';
 import { loadModel } from './scene/loader';
+import { applyRealism } from './scene/materials';
 import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
 import type { MorphBindings } from './scene/morphs';
 import { tickSim } from './sim/physiology';
@@ -169,6 +170,7 @@ async function main(): Promise<void> {
   controls.update();
   scene.add(model);
   sim.morphs = buildMorphBindings(collectMorphMeshes(model));
+  await applyRealism(scene, renderer, camera); // T104 look: headlight, env, tissue variants (X-ray variants compiled)
   await renderer.compileAsync(scene, camera); // compile every program before "ready" (§6.10: 0 new programs after)
   armReady();
   setOverall(1);
