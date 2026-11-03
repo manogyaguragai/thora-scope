@@ -35,3 +35,8 @@ UI is hand-written TS over plain DOM (no Preact/React/lit). The initial-JS budge
 most of it; a framework buys little for a handful of panels with event-driven updates (§6.7: no per-frame DOM writes).
 The loading screen markup + critical CSS live in `index.html` so it paints before the bundle runs; `src/ui/loadingScreen.ts`
 only drives it. Revisit if panel count/complexity makes manual DOM updates error-prone.
+
+## ADR-008 Warm-up renders to the (hidden) canvas
+Stage 5 renders 2 frames per glTF camera + outside view to the default framebuffer behind the opaque loading screen,
+because rendering to a render target compiles different programs (no tone mapping/linear output) and would not warm
+the on-screen ones. Post-FX targets warm via `registerWarmupHook`.

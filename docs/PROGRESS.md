@@ -15,3 +15,5 @@
 - 2026-11-03 T101 loading screen PASS (4d1c368): FCP ~500 ms headless, woff2 only, ADR-007 plain TS DOM UI. Rule added: browser runs serialised via flock /tmp/claude-1000/thorascope-e2e.lock.
 - 2026-11-03 T005 perf:probe PASS (86b34b3), programs 20→20, bundle 187 KB gz. T005b (orchestrator trivial fix): probe always serves own dist on free port, playwright reuseExistingServer=false, PERF log entries tagged PASS/FAIL, check uses CI_STRICT=1.
 - 2026-11-03 M0 GATE PASS (audit at 8d7fb58): check exit 0, 31/31 frames, programs 20→20. Notes: viewer e2e ~60 s under SwiftShader; ?debug adds 1 program (21) vs probe 20.
+- 2026-11-03 T103 state/morphs/physiology PASS (e3c10c0): 237 bindings/48 meshes, 14 unit tests, programs 20→20. Minor: tween started before first tick completes instantly (state.ts:77) — fold into T108.
+- 2026-11-03 T102 five-stage loader PASS (b0d639c): stages in order, programs 20→20, headless preset=low; warm-up renders to hidden canvas (ADR-worthy: RT renders compile different programs).
