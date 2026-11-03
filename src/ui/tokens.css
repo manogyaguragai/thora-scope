@@ -1,0 +1,57 @@
+/* Design tokens — docs/CONTEXT.md §9. Single source for colours, spacing, radii, motion. */
+:root {
+  --color-bg: #0a0c0f;
+  --color-surface: #12161b;
+  --color-elevated: #181d24;
+  --color-border: #232a33;
+  --color-text: #e7eaee;
+  --color-muted: #8b95a3;
+  --color-accent: #38b2ac;
+  --color-warning: #e0a030;
+
+  --space-1: 8px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+
+  --radius-sm: 12px;
+  --radius-md: 14px;
+  --radius-lg: 16px;
+  --border-width: 1px;
+
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 250ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --focus-ring: 0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-accent);
+
+  --font-sans: 'Inter', system-ui, sans-serif;
+  --font-size-title: 32px;
+  --font-size-body: 14px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+}
+
+:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}

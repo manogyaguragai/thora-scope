@@ -5,3 +5,4 @@ playwright-report
 .cache
 assets_src/
 *.log
+qa/screenshots/*.png

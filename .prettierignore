@@ -1,0 +1,10 @@
+assets_src
+dist
+test-results
+playwright-report
+qa
+docs
+tasks.md
+CLAUDE.md
+.claude
+package-lock.json
