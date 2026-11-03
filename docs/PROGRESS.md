@@ -10,3 +10,5 @@
 - 2026-11-03 T000 reference docs done: 31/31 frames catalogued; 32-row practice sequence PA01–PA32; 14 conflicts resolved. ADR-003 (5:4 rounded-rect mask), ADR-004 (port roles), ADR-005 (order).
 - 2026-11-03 T002 asset inspection PASS (4e97c1b): 767k tris, 8 morph names, axis check PASS, 0 missing names; ports+cameras sit outside thorax_root (logged).
 - 2026-11-03 T003 built (db7f8b6): opt glb 11.07 MB (8.6 MiB gz), KTX2 + meshopt, verify PASS; awaiting QA. Renumbered duplicate ADR-003 (pipeline) → ADR-006. Note for T004+: mesh node transforms carry meshopt dequant scale/offset → use port extras, not node positions.
+- 2026-11-03 T003 QA PASS: opt glb byte-reproducible (sha1 7c59006d), 11,071,400 B, verify PASS.
+- 2026-11-03 T004 viewer PASS (3315a00): headless ready ~1.6–3.9 s, 21 programs, 93 draw calls, 821k tris, initial JS 193 KB gz (budget 250 — keep later UI lazy). M1 planned (T101–T109).

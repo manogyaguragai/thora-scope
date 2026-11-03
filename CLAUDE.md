@@ -68,7 +68,9 @@ Report: files, summary, commands + exit codes, perf delta, open issues (≤12 li
 
 ## Commands
 `npm run dev | build | preview | lint | test | test:e2e | perf:probe | assets:optimize | check`
-(`check` = lint + test + build + e2e + perf:probe). Playwright uses Chromium with SwiftShader if no GPU.
+(`check` = lint + build + test + e2e + perf:probe). Playwright uses Chromium with SwiftShader if no GPU.
+Parallel agents share port 4173: ALWAYS wrap browser runs in the lock, e.g.
+`flock /tmp/claude-1000/thorascope-e2e.lock npm run test:e2e` (same for `perf:probe` and `check`).
 
 ## Layout
 `src/core` renderer/loop/config/keybindings/quality/perf · `src/scene` loader/materials/morphs/cameras/lights/postfx ·
