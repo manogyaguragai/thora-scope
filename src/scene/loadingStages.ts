@@ -1,6 +1,6 @@
 // Five honest, weighted loading stages (§6.9): download → decode → GPU upload → shader compile → warm-up.
 // Everything that compiles or uploads happens here, before "ready" (§6.10: 0 new programs after).
-import type { Camera, Object3D, Scene, Texture, WebGLRenderer } from 'three';
+import type { Camera, Object3D, Scene, Texture, WebGLRenderer, WebGLRenderTarget } from 'three';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { config } from '../core/config';
 import { setOverall, setStage } from '../ui/loadingScreen';
@@ -36,6 +36,12 @@ export function registerWarmupObject(obj: Object3D): void {
 
 export function registerWarmupHook(fn: WarmupHook): void {
   warmupHooks.push(fn);
+}
+
+let sceneTarget: WebGLRenderTarget | null = null;
+/** The target the scene is rendered into at runtime (post-FX HDR target); compile + warm-up render into it too. */
+export function setWarmupTarget(target: WebGLRenderTarget): void {
+  sceneTarget = target;
 }
 
 let current: StageId | null = null;
@@ -131,6 +137,8 @@ export async function runLoadingStages(
   }
 
   enter('compile');
+  // Program keys depend on the render target (tone mapping/output colour space), so compile against the runtime one.
+  renderer.setRenderTarget(sceneTarget);
   // Program keys don't depend on which perspective camera is used, so one compile covers cam_1..cam_7 too.
   await withAllVisible(scene, () => renderer.compileAsync(scene, camera));
   for (let k = 0; k < warmupObjects.length; k++) {
@@ -140,8 +148,8 @@ export async function runLoadingStages(
   }
 
   enter('warmup');
-  // Renders go to the canvas, which the opaque loading screen still covers: an offscreen target would compile
-  // different (untone-mapped, linear-output) programs than the ones used on screen. Post-FX targets use hooks.
+  // Scene renders go to the same target as at runtime; hooks then draw the post-FX pass to the canvas, which the
+  // opaque loading screen still covers.
   const cams = [...loaded.gltf.cameras, camera];
   const steps = cams.length * config.loading.warmupFrames + warmupHooks.length;
   let s = 0;
@@ -152,6 +160,7 @@ export async function runLoadingStages(
       await tick();
     }
   }
+  renderer.setRenderTarget(null);
   for (const hook of warmupHooks) {
     await hook(renderer);
     progress(++s / steps);

@@ -14,8 +14,10 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { config } from './core/config';
 import { armReady } from './core/perf';
 import { pickQuality } from './core/quality';
+import type { QualityPreset } from './core/quality';
 import { createRenderer, startLoop } from './core/renderer';
 import { runLoadingStages } from './scene/loadingStages';
+import { createPostFx } from './scene/postfx';
 import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
 import type { MorphBindings } from './scene/morphs';
 import { tickSim } from './sim/physiology';
@@ -72,11 +74,14 @@ if (params.has('holdload')) {
   );
 }
 
-function makeRenderer(app: HTMLElement): ReturnType<typeof createRenderer> {
+function makeRenderer(app: HTMLElement): {
+  renderer: ReturnType<typeof createRenderer>;
+  preset: QualityPreset;
+} {
   const { name, preset } = pickQuality(params); // throws if WebGL2 is missing
   window.__perf.preset = name;
   try {
-    return createRenderer(app, preset);
+    return { renderer: createRenderer(app, preset), preset };
   } catch {
     throw new Error('WebGL2 is not available. Use a current desktop Chrome, Edge, Firefox or Safari.');
   }
@@ -85,8 +90,9 @@ function makeRenderer(app: HTMLElement): ReturnType<typeof createRenderer> {
 async function main(): Promise<void> {
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
-  const renderer = makeRenderer(app);
+  const { renderer, preset } = makeRenderer(app);
   if (params.has('failload')) throw new Error('Forced load failure (?failload).');
+  const post = createPostFx(renderer, preset);
   const scene = new Scene();
   const camera = new PerspectiveCamera(
     config.camera.fovDeg,
@@ -148,7 +154,7 @@ async function main(): Promise<void> {
     hover(now);
   }
 
-  const { axis } = await runLoadingStages(renderer, scene, camera, (gltf) => {
+  const { axis, gltf } = await runLoadingStages(renderer, scene, camera, (gltf) => {
     model = gltf.scene;
     const root = model.getObjectByName('thorax_root') ?? model;
     const box = new Box3().setFromObject(root);
@@ -163,8 +169,19 @@ async function main(): Promise<void> {
   });
   axisLine = axis;
   if (overlay) overlay.textContent = `${axisLine}\nhover: ${hoverName}`;
+  // Debug ?scope: view through a glTF camera with scope optics (T106 replaces this with the camera rig).
+  const scopeCam = params.has('scope')
+    ? gltf.cameras.find((c): c is PerspectiveCamera => c.name === config.debug.scopeCamera)
+    : undefined;
+  const view = scopeCam ?? camera;
+  if (scopeCam) {
+    scopeCam.aspect = window.innerWidth / window.innerHeight;
+    scopeCam.updateProjectionMatrix();
+    scopeCam.add(headlight); // co-axial scope light (same light count: no recompile)
+    post.uniforms.uScopeMode.value = 1;
+  }
   // Visible loop only after all five stages; "ready" once the lens has opened.
-  startLoop(renderer, scene, camera, frame);
+  startLoop(renderer, view, frame, (now) => post.render(scene, view, now));
   await irisOpen();
   armReady();
 }

@@ -1,25 +1,25 @@
 {
-  "date": "2026-11-03T07:30:35.764Z",
+  "date": "2026-11-03T07:47:50.411Z",
   "headless": true,
   "note": "SwiftShader/headless: fps and long-frame numbers are NOT representative of real hardware.",
   "script": "orbit",
-  "fcpMs": 132,
-  "readyMs": 11163,
-  "transferMB": 11.31,
+  "fcpMs": 156,
+  "readyMs": 12287,
+  "transferMB": 11.32,
   "programs": {
-    "before": 20,
-    "after": 20
+    "before": 22,
+    "after": 22
   },
-  "textures": 166,
+  "textures": 168,
   "phases": {
     "orbit": {
-      "drawCalls": 92,
-      "triangles": 821385,
-      "longFrames": 58
+      "drawCalls": 94,
+      "triangles": 821387,
+      "longFrames": 62
     }
   },
-  "longFrames": 58,
-  "maxFrameMs": 6333,
+  "longFrames": 62,
+  "maxFrameMs": 8850,
   "heapMB": {
     "before": 5.7,
     "after": 6.1
