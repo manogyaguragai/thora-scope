@@ -17,3 +17,5 @@
 - 2026-11-03 M0 GATE PASS (audit at 8d7fb58): check exit 0, 31/31 frames, programs 20→20. Notes: viewer e2e ~60 s under SwiftShader; ?debug adds 1 program (21) vs probe 20.
 - 2026-11-03 T103 state/morphs/physiology PASS (e3c10c0): 237 bindings/48 meshes, 14 unit tests, programs 20→20. Minor: tween started before first tick completes instantly (state.ts:77) — fold into T108.
 - 2026-11-03 T102 five-stage loader PASS (b0d639c): stages in order, programs 20→20, headless preset=low; warm-up renders to hidden canvas (ADR-worthy: RT renders compile different programs).
+- 2026-11-03 T105 post-FX PASS (4fbc114): single HDR RT + one fullscreen pass (no EffectComposer), auto-exposure 16x16 @4Hz async, programs 22→22, +2 draw calls.
+- 2026-11-03 T104 materials built on branch worktree-agent-adbd9e8e77ec24a92 (eeb1d3f): programs 23, X-ray swap 0 new, draw calls 87. Merge pending until T106 commits (main.ts/config.ts overlap). Killed 13 orphaned vite preview servers (probe spawns via npx → kill misses vite).
