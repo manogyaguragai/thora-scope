@@ -48,12 +48,23 @@ export async function loadModel(
     const data = await fetchModel(config.modelUrl, onProgress);
     onDecode();
     const gltf = await loader.parseAsync(data, LoaderUtils.extractUrlBase(config.modelUrl));
+    freezeStatic(gltf.scene);
     const axis = checkAxis(gltf.scene);
     console.info(axis);
     return { gltf, axis };
   } finally {
     ktx2.dispose(); // all textures are in the one glb; free the transcoder workers
   }
+}
+
+/**
+ * §6.10: nothing in the glb moves (morphs aside; the camera rig drives its own camera), so compute matrices
+ * once and skip the whole subtree in every frame's matrix update.
+ */
+function freezeStatic(root: Object3D): void {
+  root.updateMatrixWorld(true);
+  root.traverse((o) => (o.matrixAutoUpdate = false));
+  root.matrixWorldAutoUpdate = false;
 }
 
 /** §7.1: +Y = patient's right (up). Right-lung bbox centre Y must exceed heart_rest's (same method as inspect-assets). */

@@ -109,10 +109,12 @@ export function createPostFx(renderer: WebGLRenderer, preset: QualityPreset): Po
     // Compiles the meter + post programs (mode is a uniform, so both modes share one program).
     drawMeter();
     r.setRenderTarget(null);
-    for (const mode of [1, 0]) {
-      uniforms.uScopeMode.value = mode;
+    const mode = uniforms.uScopeMode.value; // set by the camera rig before warm-up; restore it
+    for (const m of [1, 0]) {
+      uniforms.uScopeMode.value = m;
       quad.render(r);
     }
+    uniforms.uScopeMode.value = mode;
   });
 
   return {

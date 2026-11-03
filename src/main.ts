@@ -1,33 +1,31 @@
-import {
-  AmbientLight,
-  AxesHelper,
-  Box3,
-  PerspectiveCamera,
-  PointLight,
-  Raycaster,
-  Scene,
-  Vector2,
-  Vector3,
-} from 'three';
+import { AmbientLight, AxesHelper, PerspectiveCamera, PointLight, Raycaster, Scene, Vector2 } from 'three';
 import type { Intersection, Object3D } from 'three';
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { config } from './core/config';
+import { keybindings } from './core/keybindings';
 import { armReady } from './core/perf';
 import { pickQuality } from './core/quality';
 import type { QualityPreset } from './core/quality';
 import { createRenderer, startLoop } from './core/renderer';
 import { runLoadingStages } from './scene/loadingStages';
+import { createCameraRig } from './scene/cameras';
+import type { CameraRig, ViewMode } from './scene/cameras';
 import { createPostFx } from './scene/postfx';
 import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
 import type { MorphBindings } from './scene/morphs';
 import { tickSim } from './sim/physiology';
 import { clampRMLReinflate, createState, releaseClamp, setLobe, startOLV } from './sim/state';
 import type { AppState, Lobe } from './sim/state';
+import { applyStep, applyVisibility, createStepVisibility, STEPS } from './sim/steps';
 import { irisOpen, setOverall, setStage, showError } from './ui/loadingScreen';
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
 const { holdFraction, stages } = config.loading;
+// ?view=scope|outside (?scope = legacy alias from T105) and ?step=N (implies a step camera for the scope).
+const urlStep = Number(params.get('step'));
+const initialStep = STEPS.some((s) => s.step === urlStep) ? urlStep : 0;
+const initialView: ViewMode =
+  params.get('view') === 'scope' || (!params.has('view') && params.has('scope')) ? 'scope' : 'outside';
 
 declare global {
   interface Window {
@@ -40,6 +38,11 @@ declare global {
         release: () => void;
         setLobe: (lobe: Lobe, v: number) => void;
       };
+      /** Apply procedure step n (state tweens, hidden set, step camera); instant skips tweens/transition. */
+      setStep: (n: number, instant?: boolean) => void;
+      setView: (mode: ViewMode, instant?: boolean) => void;
+      /** null until the model is loaded. */
+      rig: CameraRig | null;
     };
   }
 }
@@ -54,6 +57,9 @@ const sim: Window['__sim'] = {
     release: () => releaseClamp(state),
     setLobe: (lobe, v) => setLobe(state, lobe, v),
   },
+  setStep: () => {},
+  setView: () => {},
+  rig: null,
 };
 window.__sim = sim;
 
@@ -94,18 +100,18 @@ async function main(): Promise<void> {
   if (params.has('failload')) throw new Error('Forced load failure (?failload).');
   const post = createPostFx(renderer, preset);
   const scene = new Scene();
+  // viewCamera: the one rendered camera; the rig (created at load) drives its pose for scope + outside views.
   const camera = new PerspectiveCamera(
     config.camera.fovDeg,
     window.innerWidth / window.innerHeight,
     config.camera.near,
     config.camera.far,
   );
-  // Temporary outside view (T004): dim ambient + camera-attached headlight. M1 replaces the look.
+  // Temporary look (T004): dim ambient + co-axial headlight on viewCamera. M1 (T104) replaces the look.
   scene.add(new AmbientLight(0xffffff, config.viewer.ambientIntensity));
   const headlight = new PointLight(0xffffff, config.viewer.headlightIntensity, 0, 0);
   camera.add(headlight);
   scene.add(camera);
-  const controls = new OrbitControls(camera, renderer.domElement);
 
   let overlay: HTMLDivElement | null = null;
   if (debug) {
@@ -150,38 +156,46 @@ async function main(): Promise<void> {
 
   function frame(now: number): void {
     tickSim(state, now);
+    sim.rig?.update(now);
     if (sim.morphs) updateMorphs(sim.morphs, state);
     hover(now);
   }
 
-  const { axis, gltf } = await runLoadingStages(renderer, scene, camera, (gltf) => {
-    model = gltf.scene;
-    const root = model.getObjectByName('thorax_root') ?? model;
-    const box = new Box3().setFromObject(root);
-    const center = box.getCenter(new Vector3());
-    const radius = box.getSize(new Vector3()).length() / 2;
-    const dist = (radius * config.viewer.frameMargin) / Math.sin((config.camera.fovDeg * Math.PI) / 360);
-    camera.position.copy(center).addScaledVector(new Vector3(...config.viewer.viewDir).normalize(), dist);
-    controls.target.copy(center);
-    controls.update();
-    scene.add(model);
-    sim.morphs = buildMorphBindings(collectMorphMeshes(model));
+  const { axis } = await runLoadingStages(renderer, scene, camera, (gltf) => {
+    const m = (model = gltf.scene);
+    scene.add(m);
+    sim.morphs = buildMorphBindings(collectMorphMeshes(m));
+    const v = createStepVisibility((name) => m.getObjectByName(name));
+    applyVisibility(v, state); // default_hidden
+    const r = (sim.rig = createCameraRig(
+      camera,
+      renderer.domElement,
+      m.getObjectByName('thorax_root') ?? m,
+      gltf.cameras,
+      post.uniforms.uScopeMode,
+      (mode) => {
+        v.scope = mode === 'scope';
+        applyVisibility(v, state);
+      },
+    ));
+    sim.setStep = (n, instant = false) => r.setScopeCamera(applyStep(v, state, n, instant).camera, instant);
+    sim.setView = (mode, instant = false) => {
+      if (mode === 'scope' && !state.step) sim.setStep(config.steps.defaultStep, instant);
+      r.setView(mode, instant);
+    };
+    if (initialStep) sim.setStep(initialStep, true);
+    sim.setView(initialView, true);
+    r.update(0);
   });
   axisLine = axis;
   if (overlay) overlay.textContent = `${axisLine}\nhover: ${hoverName}`;
-  // Debug ?scope: view through a glTF camera with scope optics (T106 replaces this with the camera rig).
-  const scopeCam = params.has('scope')
-    ? gltf.cameras.find((c): c is PerspectiveCamera => c.name === config.debug.scopeCamera)
-    : undefined;
-  const view = scopeCam ?? camera;
-  if (scopeCam) {
-    scopeCam.aspect = window.innerWidth / window.innerHeight;
-    scopeCam.updateProjectionMatrix();
-    scopeCam.add(headlight); // co-axial scope light (same light count: no recompile)
-    post.uniforms.uScopeMode.value = 1;
-  }
+  window.addEventListener('keydown', (e) => {
+    const { rig } = sim;
+    if (rig && !e.repeat && e.code === keybindings.toggleView.code)
+      sim.setView(rig.target === 'scope' ? 'outside' : 'scope');
+  });
   // Visible loop only after all five stages; "ready" once the lens has opened.
-  startLoop(renderer, view, frame, (now) => post.render(scene, view, now));
+  startLoop(renderer, camera, frame, (now) => post.render(scene, camera, now));
   await irisOpen();
   armReady();
 }

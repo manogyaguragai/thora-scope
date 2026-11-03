@@ -1,10 +1,10 @@
 {
-  "date": "2026-11-03T07:47:50.411Z",
+  "date": "2026-11-03T08:42:44.801Z",
   "headless": true,
   "note": "SwiftShader/headless: fps and long-frame numbers are NOT representative of real hardware.",
   "script": "orbit",
-  "fcpMs": 156,
-  "readyMs": 12287,
+  "fcpMs": 144,
+  "readyMs": 25038,
   "transferMB": 11.32,
   "programs": {
     "before": 22,
@@ -13,17 +13,52 @@
   "textures": 168,
   "phases": {
     "orbit": {
-      "drawCalls": 94,
-      "triangles": 821387,
+      "drawCalls": 91,
+      "triangles": 785960,
       "longFrames": 62
+    },
+    "scope-step1": {
+      "drawCalls": 65,
+      "triangles": 600256,
+      "longFrames": 2
+    },
+    "scope-step2": {
+      "drawCalls": 44,
+      "triangles": 549176,
+      "longFrames": 2
+    },
+    "scope-step3": {
+      "drawCalls": 53,
+      "triangles": 546482,
+      "longFrames": 2
+    },
+    "scope-step4": {
+      "drawCalls": 51,
+      "triangles": 530047,
+      "longFrames": 1
+    },
+    "scope-step5": {
+      "drawCalls": 47,
+      "triangles": 513754,
+      "longFrames": 2
+    },
+    "scope-step6": {
+      "drawCalls": 48,
+      "triangles": 516233,
+      "longFrames": 1
+    },
+    "scope-step7": {
+      "drawCalls": 43,
+      "triangles": 455096,
+      "longFrames": 1
     }
   },
-  "longFrames": 62,
-  "maxFrameMs": 8850,
+  "longFrames": 73,
+  "maxFrameMs": 4916,
   "heapMB": {
     "before": 5.7,
-    "after": 6.1
+    "after": 6.2
   },
-  "fpsHeadless": 1.1,
+  "fpsHeadless": 1.3,
   "errors": []
 }

@@ -4,6 +4,7 @@ export default defineConfig({
   testDir: 'tests/e2e',
   outputDir: 'test-results',
   reporter: 'list',
+  workers: 2, // SwiftShader WebGL pages are CPU-bound; more in parallel just starve each other into timeouts
   use: {
     baseURL: 'http://localhost:4173',
     viewport: { width: 1280, height: 720 },

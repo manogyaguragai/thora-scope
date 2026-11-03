@@ -27,6 +27,10 @@ export interface AppState extends Record<TweenKey, number> {
   breathingOn: boolean;
   hrBpm: number;
   rrPerMin: number;
+  /** Active procedure step (1–7, 0 = none applied), its glTF camera and the scope's port (UI, M2/M3). */
+  step: number;
+  camera: string;
+  port: string;
   /** Once divided, the RML stays collapsed: releaseClamp does not re-inflate it. */
   rmlDivided: boolean;
   /** Sim clock (ms) of the last tick; commands start tweens here. 0 = not started. */
@@ -51,6 +55,9 @@ export function createState(): AppState {
     breathingOn: true,
     hrBpm: procedure.heart_rate_bpm,
     rrPerMin: procedure.resp_rate_per_min,
+    step: 0,
+    camera: '',
+    port: '',
     rmlDivided: false,
     t: 0,
     heartPhase: 0,

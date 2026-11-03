@@ -16,6 +16,7 @@ const SETTLE_MS = 1000; // > one __perf sample period, so sampled stats are fres
 const ORBIT_MS = 3000;
 const ORBIT_STEPS = 60;
 const ORBIT_RADIUS_PX = 200;
+const STEP_COUNT = 7; // procedure_steps.json
 const VIEWPORT = { width: 1280, height: 720 };
 // Same as playwright.config.ts.
 const CHROMIUM_ARGS = ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'];
@@ -147,6 +148,18 @@ async function main() {
     } else {
       await setPhase(page, 'orbit');
       await orbit(page);
+      // Scope view through each step camera (scope far-field set hidden). Phase starts after a fresh
+      // __perf sample so the previous view's draw calls aren't attributed to it.
+      for (let n = 1; n <= STEP_COUNT; n++) {
+        await setPhase(page, '');
+        await page.evaluate((step) => {
+          window.__sim.setStep(step, true);
+          window.__sim.setView('scope', true);
+        }, n);
+        await sleep(SETTLE_MS);
+        await setPhase(page, `scope-step${n}`);
+        await sleep(SETTLE_MS);
+      }
     }
     await sleep(SETTLE_MS);
     const after = await readPerf(page);

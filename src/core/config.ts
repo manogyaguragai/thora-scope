@@ -39,10 +39,38 @@ export const config = {
       highMinMemoryGB: 4,
     },
   },
+  // Outside (orbit) camera.
   camera: {
     fovDeg: 45,
     near: 0.001, // §7.5: ≤ 1 mm
     far: 5,
+    orbitMinDistance: 0.12, // OrbitControls limits around the thorax centre (m)
+    orbitMaxDistance: 1.5,
+  },
+  // Scope view through the glTF step cameras (§7.5) + scope ⇄ outside transitions.
+  scope: {
+    near: 0.001, // ≤ 1 mm
+    far: 0.6, // tightened vs. the glTF 1 m: the right hemithorax spans < 0.4 m from any step camera
+    transitionMs: 1000, // eased pose transition; 0 with prefers-reduced-motion
+    // Far-field meshes no step camera can see (behind the mediastinum or outside the parietal pleura):
+    // hidden in scope view only, to cut draw calls (§6.10 per-step visibility set). Outside view shows them.
+    hidden: [
+      'lung_upper_lobe_left',
+      'lung_lower_lobe_left',
+      'arteries_left_intrapulm',
+      'skin',
+      'subcutaneous_fat',
+      'chest_wall_muscle',
+      'scapula_left',
+      'scapula_right',
+      'clavicula_left',
+      'clavicula_right',
+      ...Array.from({ length: 12 }, (_, i) => `rib_L${i + 1}`),
+    ],
+  },
+  steps: {
+    defaultStep: 1, // ?view=scope without ?step=
+    stateMs: 1500, // deflate/retract tween when a step is applied
   },
   pick: {
     hoverHz: 30, // §6.10: hover picking ≤ 30 Hz
@@ -61,7 +89,6 @@ export const config = {
   },
   debug: {
     axesSize: 0.1,
-    scopeCamera: 'cam_1_inspection', // ?scope views through this glTF camera with scope optics on
   },
   // Single combined post-FX pass (§6.10, §8 Optics, ADR-003). Values tuned against docs/REFERENCE_FRAMES.md "Optics".
   postfx: {
