@@ -6,3 +6,4 @@ playwright-report
 assets_src/
 *.log
 qa/screenshots/*.png
+.claude/worktrees/
