@@ -18,3 +18,19 @@ Measure real fps with `?perf` on real hardware (see README).
 | JS heap growth over 3 full practice runs | < 10 % | | perf:probe |
 
 ## Probe log
+
+### 2026-11-03T06:36:47.755Z (headless SwiftShader, script: orbit)
+- FCP 132 ms · ready 3928 ms · transfer 11.29 MB
+- programs 20 → 20 · textures 166
+- ready: 92 draw calls, 821385 tris
+- orbit: 92 draw calls, 821385 tris
+- heap 5.6 → 5.9 MB
+- long frames 64 (max 2733 ms), fps 1.4 — NOT representative (headless)
+
+### 2026-11-03T06:40:00.061Z (headless SwiftShader, script: orbit)
+- FCP 136 ms · ready 1383 ms · transfer 11.29 MB
+- programs 20 → 20 · textures 166
+- ready: 92 draw calls, 821385 tris
+- orbit: 92 draw calls, 821385 tris
+- heap 5.6 → 5.9 MB
+- long frames 62 (max 3167 ms), fps 1.4 — NOT representative (headless)

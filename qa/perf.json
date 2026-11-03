@@ -1,0 +1,34 @@
+{
+  "date": "2026-11-03T06:40:00.061Z",
+  "headless": true,
+  "note": "SwiftShader/headless: fps and long-frame numbers are NOT representative of real hardware.",
+  "script": "orbit",
+  "fcpMs": 136,
+  "readyMs": 1383,
+  "transferMB": 11.29,
+  "programs": {
+    "before": 20,
+    "after": 20
+  },
+  "textures": 166,
+  "phases": {
+    "ready": {
+      "drawCalls": 92,
+      "triangles": 821385,
+      "longFrames": 1
+    },
+    "orbit": {
+      "drawCalls": 92,
+      "triangles": 821385,
+      "longFrames": 61
+    }
+  },
+  "longFrames": 62,
+  "maxFrameMs": 3167,
+  "heapMB": {
+    "before": 5.6,
+    "after": 5.9
+  },
+  "fpsHeadless": 1.4,
+  "errors": []
+}
