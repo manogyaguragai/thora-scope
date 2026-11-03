@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm install:*)",
+      "Bash(npm i:*)",
+      "Bash(npm run:*)",
+      "Bash(npm test:*)",
+      "Bash(npm view:*)",
+      "Bash(npm ls:*)",
+      "Bash(npx playwright:*)",
+      "Bash(npx vitest:*)",
+      "Bash(npx eslint:*)",
+      "Bash(npx prettier:*)",
+      "Bash(npx tsc:*)",
+      "Bash(npx vite:*)",
+      "Bash(npx gltf-transform:*)",
+      "Bash(npx @gltf-transform/cli:*)",
+      "Bash(node scripts/:*)",
+      "Bash(node -v)",
+      "Bash(node -e:*)",
+      "Bash(git status:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git show:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(playwright:*)",
+      "Bash(ffmpeg:*)",
+      "Bash(curl -I http://localhost:*)"
+    ]
+  }
+}
