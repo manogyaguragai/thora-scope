@@ -28,6 +28,13 @@ test('?failload shows the in-theme error card', async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
+test('?quality=high overrides the device check', async ({ page }) => {
+  // ?failload stops right after the renderer is created, so the preset is already chosen.
+  await page.goto('/?quality=high&failload');
+  await expect(page.locator('#load-error')).toBeVisible();
+  expect(await page.evaluate(() => window.__perf.preset)).toBe('high');
+});
+
 test('normal load reaches ready and removes the loading screen', async ({ page }) => {
   test.setTimeout(180_000); // SwiftShader is slow
   const errors: string[] = [];
@@ -38,5 +45,19 @@ test('normal load reaches ready and removes the loading screen', async ({ page }
   await page.goto('/');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   await expect(page.locator('#loading')).toHaveCount(0);
+  const { log, timings, preset } = await page.evaluate(() => ({
+    log: window.__loadStageLog,
+    timings: window.__perf.loadStages,
+    preset: window.__perf.preset,
+  }));
+  console.log(`preset ${preset} · ${timings.map((t) => `${t.name} ${t.ms} ms`).join(' · ')}`);
+  expect(log).toEqual([
+    'Downloading model',
+    'Decoding',
+    'Uploading textures',
+    'Compiling shaders',
+    'Warming up',
+  ]);
+  expect(timings.map((t) => t.name)).toEqual(['download', 'decode', 'upload', 'compile', 'warmup']);
   expect(errors).toEqual([]);
 });

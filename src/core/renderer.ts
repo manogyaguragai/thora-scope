@@ -2,17 +2,18 @@ import { ACESFilmicToneMapping, SRGBColorSpace, WebGLRenderer } from 'three';
 import type { PerspectiveCamera, Scene } from 'three';
 import { config } from './config';
 import { resetPerfClock, tickPerf } from './perf';
+import type { QualityPreset } from './quality';
 
-export function createRenderer(container: HTMLElement): WebGLRenderer {
+export function createRenderer(container: HTMLElement, preset: QualityPreset): WebGLRenderer {
   const renderer = new WebGLRenderer({
-    antialias: config.renderer.antialias,
+    antialias: preset.antialias,
     powerPreference: 'high-performance',
   });
   renderer.outputColorSpace = SRGBColorSpace;
   renderer.toneMapping = ACESFilmicToneMapping; // placeholder; tone mapping moves into the post-FX pass in M1
   renderer.toneMappingExposure = config.renderer.toneMappingExposure;
   renderer.shadowMap.enabled = false;
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, config.renderer.maxPixelRatio));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, preset.maxPixelRatio));
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.domElement.style.display = 'block';
   container.append(renderer.domElement);

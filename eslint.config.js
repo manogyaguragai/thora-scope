@@ -12,6 +12,7 @@ export default tseslint.config(
       'playwright-report',
       'qa',
       '.cache',
+      '.claude', // agent worktrees (prettier already ignores it)
       'public/decoders',
     ],
   },

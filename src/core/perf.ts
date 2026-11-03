@@ -9,6 +9,10 @@ export interface PerfStats {
   textures: number;
   fps: number;
   frameTimeP95: number;
+  /** Quality preset in use (core/quality.ts). */
+  preset: string;
+  /** Per-stage load timings (scene/loadingStages.ts). */
+  loadStages: { name: string; ms: number }[];
 }
 
 declare global {
@@ -25,6 +29,8 @@ const stats: PerfStats = {
   textures: 0,
   fps: 0,
   frameTimeP95: 0,
+  preset: '',
+  loadStages: [],
 };
 window.__perf = stats;
 

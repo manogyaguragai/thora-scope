@@ -5,9 +5,39 @@ export const config = {
   modelUrl: `${base}models/thorax_sim.opt.glb`,
   decoderPath: `${base}decoders/`,
   renderer: {
-    antialias: true,
-    maxPixelRatio: 1.5,
-    toneMappingExposure: 1,
+    toneMappingExposure: 1, // antialias + pixel-ratio cap come from the quality preset
+  },
+  // Quality presets (§6.9 device check, §6.10). Default picked by core/quality.ts; `?quality=` overrides.
+  quality: {
+    presets: {
+      low: {
+        maxPixelRatio: 1,
+        antialias: false,
+        postFx: { distortion: true, chromaticAberration: false, grain: false, halfRes: true },
+        particleCap: 64, // per pool (smoke, blood, bubbles)
+        textureDownscale: true,
+      },
+      medium: {
+        maxPixelRatio: 1.25,
+        antialias: true,
+        postFx: { distortion: true, chromaticAberration: true, grain: true, halfRes: true },
+        particleCap: 256,
+        textureDownscale: false,
+      },
+      high: {
+        maxPixelRatio: 1.5, // §6.10: adaptive resolution never exceeds min(dpr, 1.5)
+        antialias: true,
+        postFx: { distortion: true, chromaticAberration: true, grain: true, halfRes: false },
+        particleCap: 512,
+        textureDownscale: false,
+      },
+    },
+    device: {
+      lowMaxCores: 2, // ≤ this many logical cores → low
+      lowMaxMemoryGB: 2, // navigator.deviceMemory ≤ this → low
+      highMinCores: 4, // discrete GPU still drops to medium below these
+      highMinMemoryGB: 4,
+    },
   },
   camera: {
     fovDeg: 45,
@@ -45,12 +75,21 @@ export const config = {
     retractGate: [0.9, 1] as const, // smoothstep on min(deflate) — retraction morphs authored on collapsed lung
     morphEpsilon: 1e-4, // influence written only when |new − old| exceeds this
   },
-  // Loading screen (§6.9). T102 replaces the two placeholder stages with the five weighted ones.
+  // Loading screen (§6.9).
   loading: {
     irisMs: 600, // lens iris-open on ready
     tipMs: 5000, // tip rotation period
     tipFadeMs: 200, // tip cross-fade (motion token range 150–250 ms)
-    downloadWeight: 0.8, // share of the ring filled by the download stage
     holdFraction: 0.4, // ?holdload freezes the download stage here
+    // Five weighted stages (sum 1) in order; the ring shows the weighted total.
+    stages: {
+      download: { label: 'Downloading model', weight: 0.6 },
+      decode: { label: 'Decoding', weight: 0.1 },
+      upload: { label: 'Uploading textures', weight: 0.1 },
+      compile: { label: 'Compiling shaders', weight: 0.15 },
+      warmup: { label: 'Warming up', weight: 0.05 },
+    },
+    uploadYieldEvery: 4, // textures uploaded between event-loop yields (lets the ring repaint)
+    warmupFrames: 2, // offscreen frames rendered per camera in the warm-up stage
   },
 } as const;

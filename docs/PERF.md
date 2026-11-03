@@ -42,3 +42,17 @@ Measure real fps with `?perf` on real hardware (see README).
 - orbit: 92 draw calls, 821385 tris
 - heap 5.7 → 6 MB
 - long frames 62 (max 2500 ms), fps 1.5 — NOT representative (headless)
+
+### 2026-11-03T07:29:13.216Z PASS (headless SwiftShader, script: orbit)
+- FCP 148 ms · ready 6167 ms · transfer 11.31 MB
+- programs 20 → 20 · textures 166
+- orbit: 92 draw calls, 821385 tris
+- heap 5.7 → 6 MB
+- long frames 59 (max 10333 ms), fps 1 — NOT representative (headless)
+
+### 2026-11-03T07:30:35.764Z PASS (headless SwiftShader, script: orbit)
+- FCP 132 ms · ready 11163 ms · transfer 11.31 MB
+- programs 20 → 20 · textures 166
+- orbit: 92 draw calls, 821385 tris
+- heap 5.7 → 6.1 MB
+- long frames 58 (max 6333 ms), fps 1.1 — NOT representative (headless)

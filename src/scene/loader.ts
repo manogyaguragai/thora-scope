@@ -36,11 +36,17 @@ async function fetchModel(url: string, onProgress: ByteProgress): Promise<ArrayB
   return new Blob(chunks).arrayBuffer();
 }
 
-export async function loadModel(renderer: WebGLRenderer, onProgress: ByteProgress): Promise<LoadedModel> {
+/** Download (bytes via onProgress), then decode; onDecode fires between the two (§6.9 stages 1–2). */
+export async function loadModel(
+  renderer: WebGLRenderer,
+  onProgress: ByteProgress,
+  onDecode: () => void,
+): Promise<LoadedModel> {
   const ktx2 = new KTX2Loader().setTranscoderPath(config.decoderPath).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
   try {
     const data = await fetchModel(config.modelUrl, onProgress);
+    onDecode();
     const gltf = await loader.parseAsync(data, LoaderUtils.extractUrlBase(config.modelUrl));
     const axis = checkAxis(gltf.scene);
     console.info(axis);

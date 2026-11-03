@@ -13,8 +13,9 @@ import type { Intersection, Object3D } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { config } from './core/config';
 import { armReady } from './core/perf';
+import { pickQuality } from './core/quality';
 import { createRenderer, startLoop } from './core/renderer';
-import { loadModel } from './scene/loader';
+import { runLoadingStages } from './scene/loadingStages';
 import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
 import type { MorphBindings } from './scene/morphs';
 import { tickSim } from './sim/physiology';
@@ -24,8 +25,7 @@ import { irisOpen, setOverall, setStage, showError } from './ui/loadingScreen';
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
-const DOWNLOAD = 'Downloading model';
-const { downloadWeight, holdFraction } = config.loading;
+const { holdFraction, stages } = config.loading;
 
 declare global {
   interface Window {
@@ -57,14 +57,13 @@ window.__sim = sim;
 
 if (params.has('holdload')) {
   // Debug only (screenshots): freeze at the download stage; never loads.
-  setStage(DOWNLOAD, holdFraction);
-  setOverall(holdFraction * downloadWeight);
+  setStage(stages.download.label, holdFraction);
+  setOverall(holdFraction * stages.download.weight);
 } else {
   main().catch((e: unknown) =>
     showError(e instanceof Error ? e.message : String(e), {
       onRetry: () => location.reload(),
       onLowQuality: () => {
-        // ponytail: sets ?quality=low only; nothing reads it until quality presets land.
         const url = new URL(location.href);
         url.searchParams.set('quality', 'low');
         location.assign(url);
@@ -74,8 +73,10 @@ if (params.has('holdload')) {
 }
 
 function makeRenderer(app: HTMLElement): ReturnType<typeof createRenderer> {
+  const { name, preset } = pickQuality(params); // throws if WebGL2 is missing
+  window.__perf.preset = name;
   try {
-    return createRenderer(app);
+    return createRenderer(app, preset);
   } catch {
     throw new Error('WebGL2 is not available. Use a current desktop Chrome, Edge, Firefox or Safari.');
   }
@@ -84,7 +85,6 @@ function makeRenderer(app: HTMLElement): ReturnType<typeof createRenderer> {
 async function main(): Promise<void> {
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
-  setStage(DOWNLOAD, 0);
   const renderer = makeRenderer(app);
   if (params.has('failload')) throw new Error('Forced load failure (?failload).');
   const scene = new Scene();
@@ -148,30 +148,23 @@ async function main(): Promise<void> {
     hover(now);
   }
 
-  startLoop(renderer, scene, camera, frame);
-
-  const { gltf, axis } = await loadModel(renderer, (loaded, total) => {
-    const f = total ? loaded / total : NaN;
-    setStage(DOWNLOAD, f);
-    setOverall(f * downloadWeight);
+  const { axis } = await runLoadingStages(renderer, scene, camera, (gltf) => {
+    model = gltf.scene;
+    const root = model.getObjectByName('thorax_root') ?? model;
+    const box = new Box3().setFromObject(root);
+    const center = box.getCenter(new Vector3());
+    const radius = box.getSize(new Vector3()).length() / 2;
+    const dist = (radius * config.viewer.frameMargin) / Math.sin((config.camera.fovDeg * Math.PI) / 360);
+    camera.position.copy(center).addScaledVector(new Vector3(...config.viewer.viewDir).normalize(), dist);
+    controls.target.copy(center);
+    controls.update();
+    scene.add(model);
+    sim.morphs = buildMorphBindings(collectMorphMeshes(model));
   });
-  setStage('Preparing scene', NaN);
-  setOverall(downloadWeight);
   axisLine = axis;
-  model = gltf.scene;
-  const root = model.getObjectByName('thorax_root') ?? model;
-  const box = new Box3().setFromObject(root);
-  const center = box.getCenter(new Vector3());
-  const radius = box.getSize(new Vector3()).length() / 2;
-  const dist = (radius * config.viewer.frameMargin) / Math.sin((config.camera.fovDeg * Math.PI) / 360);
-  camera.position.copy(center).addScaledVector(new Vector3(...config.viewer.viewDir).normalize(), dist);
-  controls.target.copy(center);
-  controls.update();
-  scene.add(model);
-  sim.morphs = buildMorphBindings(collectMorphMeshes(model));
-  await renderer.compileAsync(scene, camera); // compile every program before "ready" (§6.10: 0 new programs after)
-  armReady();
-  setOverall(1);
   if (overlay) overlay.textContent = `${axisLine}\nhover: ${hoverName}`;
+  // Visible loop only after all five stages; "ready" once the lens has opened.
+  startLoop(renderer, scene, camera, frame);
   await irisOpen();
+  armReady();
 }
