@@ -14,3 +14,4 @@
 - 2026-11-03 T004 viewer PASS (3315a00): headless ready ~1.6–3.9 s, 21 programs, 93 draw calls, 821k tris, initial JS 193 KB gz (budget 250 — keep later UI lazy). M1 planned (T101–T109).
 - 2026-11-03 T101 loading screen PASS (4d1c368): FCP ~500 ms headless, woff2 only, ADR-007 plain TS DOM UI. Rule added: browser runs serialised via flock /tmp/claude-1000/thorascope-e2e.lock.
 - 2026-11-03 T005 perf:probe PASS (86b34b3), programs 20→20, bundle 187 KB gz. T005b (orchestrator trivial fix): probe always serves own dist on free port, playwright reuseExistingServer=false, PERF log entries tagged PASS/FAIL, check uses CI_STRICT=1.
+- 2026-11-03 M0 GATE PASS (audit at 8d7fb58): check exit 0, 31/31 frames, programs 20→20. Notes: viewer e2e ~60 s under SwiftShader; ?debug adds 1 program (21) vs probe 20.
