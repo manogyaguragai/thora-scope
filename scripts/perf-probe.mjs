@@ -9,7 +9,6 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { chromium } from '@playwright/test';
 
 const ROOT = new URL('..', import.meta.url).pathname;
-const DEFAULT_PORT = 4173;
 const READY_TIMEOUT_MS = 180_000; // SwiftShader is slow
 const SERVER_TIMEOUT_MS = 30_000;
 const LONG_FRAME_MS = 50;
@@ -44,7 +43,7 @@ function freePort() {
 }
 
 async function startServer() {
-  if (await isServing(DEFAULT_PORT)) return { port: DEFAULT_PORT, proc: null };
+  // Always serve this checkout's dist on a free port (never reuse a foreign server).
   if (!existsSync(`${ROOT}dist/index.html`)) {
     console.log('dist missing — running npm run build');
     if (spawnSync('npm', ['run', 'build'], { cwd: ROOT, stdio: 'inherit' }).status !== 0) process.exit(1);
@@ -196,7 +195,7 @@ async function main() {
 
     const md = [
       '',
-      `### ${result.date} (headless SwiftShader, script: ${result.script})`,
+      `### ${result.date} ${after.programs === before.programs ? 'PASS' : 'FAIL'} (headless SwiftShader, script: ${result.script})`,
       `- FCP ${result.fcpMs} ms · ready ${readyMs} ms · transfer ${result.transferMB} MB`,
       `- programs ${before.programs} → ${after.programs} · textures ${after.textures}`,
       ...Object.entries(probe.phases).map(

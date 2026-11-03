@@ -12,3 +12,5 @@
 - 2026-11-03 T003 built (db7f8b6): opt glb 11.07 MB (8.6 MiB gz), KTX2 + meshopt, verify PASS; awaiting QA. Renumbered duplicate ADR-003 (pipeline) → ADR-006. Note for T004+: mesh node transforms carry meshopt dequant scale/offset → use port extras, not node positions.
 - 2026-11-03 T003 QA PASS: opt glb byte-reproducible (sha1 7c59006d), 11,071,400 B, verify PASS.
 - 2026-11-03 T004 viewer PASS (3315a00): headless ready ~1.6–3.9 s, 21 programs, 93 draw calls, 821k tris, initial JS 193 KB gz (budget 250 — keep later UI lazy). M1 planned (T101–T109).
+- 2026-11-03 T101 loading screen PASS (4d1c368): FCP ~500 ms headless, woff2 only, ADR-007 plain TS DOM UI. Rule added: browser runs serialised via flock /tmp/claude-1000/thorascope-e2e.lock.
+- 2026-11-03 T005 perf:probe PASS (86b34b3), programs 20→20, bundle 187 KB gz. T005b (orchestrator trivial fix): probe always serves own dist on free port, playwright reuseExistingServer=false, PERF log entries tagged PASS/FAIL, check uses CI_STRICT=1.
