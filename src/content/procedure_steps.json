@@ -1,0 +1,350 @@
+{
+  "version": "v3",
+  "fps": 24,
+  "heart_rate_bpm": 75,
+  "resp_rate_per_min": 15,
+  "state_to_morph": {
+    "collapse_RUL": "deflate_RUL",
+    "collapse_RML": "deflate_RML",
+    "collapse_RLL": "deflate_RLL",
+    "mediastinal_shift": "max(deflate_RUL,deflate_RML,deflate_RLL)",
+    "retract_posterior": "retract_posterior",
+    "retract_fissure": "retract_fissure",
+    "heartbeat": "heartbeat (0 diastole..1 systole)",
+    "breath_left": "breath (0 expiration..1 inspiration)"
+  },
+  "default_hidden": [
+    "hilar_connective_tissue_window",
+    "mediastinal_fat_window"
+  ],
+  "physiology_timeline": [
+    {
+      "frame": 1,
+      "label": "Two-lung ventilation"
+    },
+    {
+      "frame": 192,
+      "label": "OLV: right lung collapsing"
+    },
+    {
+      "frame": 312,
+      "label": "Right lung down (operate)"
+    },
+    {
+      "frame": 432,
+      "label": "RML bronchus clamped: RUL+RLL re-inflate"
+    },
+    {
+      "frame": 600,
+      "label": "Clamp released"
+    }
+  ],
+  "steps": [
+    {
+      "step": 1,
+      "label": "Step 1 - Inspect the pleural cavity and confirm the right lung is deflated",
+      "start_frame": 721,
+      "camera": "cam_1_inspection",
+      "lens_mm": 18.0,
+      "sensor_width_mm": 36,
+      "port": "port_camera_8ICS",
+      "scope_angle_deg": 29.7,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_posterior": 0.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": [
+        "hilar_connective_tissue_window",
+        "mediastinal_fat_window"
+      ]
+    },
+    {
+      "step": 2,
+      "label": "Step 2 - Retract the lung posteriorly: anterior hilum, phrenic nerve, superior pulmonary vein",
+      "start_frame": 811,
+      "camera": "cam_2_anterior_hilum",
+      "lens_mm": 20.0,
+      "sensor_width_mm": 36,
+      "port": "port_camera_8ICS",
+      "scope_angle_deg": 29.4,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_posterior": 1.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": [
+        "hilar_connective_tissue_window",
+        "mediastinal_fat_window"
+      ]
+    },
+    {
+      "step": 3,
+      "label": "Step 3 - Middle lobe vein (V4/V5): isolate it and confirm the upper lobe vein is preserved",
+      "start_frame": 901,
+      "camera": "cam_3_RML_vein_zoom",
+      "lens_mm": 28.0,
+      "sensor_width_mm": 36,
+      "port": "port_retraction_8ICS",
+      "scope_angle_deg": 26.0,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_posterior": 1.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": [
+        "hilar_connective_tissue",
+        "mediastinal_fat"
+      ]
+    },
+    {
+      "step": 4,
+      "label": "Step 4 - Vein divided: clear nodes 11R/12R and expose the middle lobe bronchus",
+      "start_frame": 991,
+      "camera": "cam_4_bronchus_nodes",
+      "lens_mm": 26.0,
+      "sensor_width_mm": 36,
+      "port": "port_utility_5ICS",
+      "scope_angle_deg": 44.3,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_posterior": 1.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": [
+        "V4_lateral",
+        "V5_medial",
+        "V_RML_accessory_1",
+        "V_RML_accessory_2",
+        "V_RML_common",
+        "hilar_connective_tissue",
+        "mediastinal_fat"
+      ]
+    },
+    {
+      "step": 5,
+      "label": "Step 5 - Bronchus divided: the 1-2 middle lobe arteries (A4/A5) lie just above it",
+      "start_frame": 1081,
+      "camera": "cam_5_RML_arteries",
+      "lens_mm": 28.0,
+      "sensor_width_mm": 36,
+      "port": "port_utility_5ICS",
+      "scope_angle_deg": 28.4,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_posterior": 1.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": [
+        "B4_lateral",
+        "B5_medial",
+        "B_RML_common",
+        "LN_11R",
+        "LN_12R",
+        "V4_lateral",
+        "V5_medial",
+        "V_RML_accessory_1",
+        "V_RML_accessory_2",
+        "V_RML_common",
+        "hilar_connective_tissue",
+        "mediastinal_fat"
+      ]
+    },
+    {
+      "step": 6,
+      "label": "Step 6 - Complete the horizontal and oblique fissures (RUL up, RLL down, RML lifted)",
+      "start_frame": 1171,
+      "camera": "cam_6_fissures",
+      "lens_mm": 20.0,
+      "sensor_width_mm": 36,
+      "port": "port_camera_8ICS",
+      "scope_angle_deg": 30.6,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_posterior": 0.0,
+        "retract_fissure": 1.0
+      },
+      "hidden": [
+        "A4_lateral",
+        "A5_medial",
+        "A_RML_accessory_1",
+        "A_RML_accessory_2",
+        "A_RML_common",
+        "A_RML_extra_1",
+        "B4_lateral",
+        "B5_medial",
+        "B_RML_common",
+        "LN_11R",
+        "LN_12R",
+        "V4_lateral",
+        "V5_medial",
+        "V_RML_accessory_1",
+        "V_RML_accessory_2",
+        "V_RML_common",
+        "hilar_connective_tissue",
+        "mediastinal_fat"
+      ]
+    },
+    {
+      "step": 7,
+      "label": "Step 7 - Lobe removed: re-inflate RUL and RLL, check the bronchial stump",
+      "start_frame": 1261,
+      "camera": "cam_7_reinflation",
+      "lens_mm": 18.0,
+      "sensor_width_mm": 36,
+      "port": "port_camera_8ICS",
+      "scope_angle_deg": 29.9,
+      "state": {
+        "deflate_RUL": 0.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 0.0,
+        "retract_posterior": 0.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": [
+        "A4_lateral",
+        "A5_medial",
+        "A_RML_accessory_1",
+        "A_RML_accessory_2",
+        "A_RML_common",
+        "A_RML_extra_1",
+        "B4_lateral",
+        "B5_medial",
+        "B_RML_common",
+        "LN_11R",
+        "LN_12R",
+        "V4_lateral",
+        "V5_medial",
+        "V_RML_accessory_1",
+        "V_RML_accessory_2",
+        "V_RML_common",
+        "hilar_connective_tissue",
+        "lung_middle_lobe_right",
+        "mediastinal_fat"
+      ]
+    }
+  ],
+  "layer_groups": {
+    "Bones": [
+      "clavicula_left",
+      "clavicula_right",
+      "costal_cartilages",
+      "rib_L1",
+      "rib_L10",
+      "rib_L11",
+      "rib_L12",
+      "rib_L2",
+      "rib_L3",
+      "rib_L4",
+      "rib_L5",
+      "rib_L6",
+      "rib_L7",
+      "rib_L8",
+      "rib_L9",
+      "rib_R1",
+      "rib_R10",
+      "rib_R11",
+      "rib_R12",
+      "rib_R2",
+      "rib_R3",
+      "rib_R4",
+      "rib_R5",
+      "rib_R6",
+      "rib_R7",
+      "rib_R8",
+      "rib_R9",
+      "scapula_left",
+      "scapula_right",
+      "spine",
+      "sternum"
+    ],
+    "ChestWall": [
+      "chest_wall_muscle",
+      "intercostal_muscles",
+      "parietal_pleura_wall",
+      "skin",
+      "subcutaneous_fat"
+    ],
+    "Hilar_vessels_airway": [
+      "tree_airway_base",
+      "tree_pulm_artery_base",
+      "tree_pulm_vein_base"
+    ],
+    "Lobes": [
+      "lung_lower_lobe_left",
+      "lung_lower_lobe_right",
+      "lung_middle_lobe_right",
+      "lung_upper_lobe_left",
+      "lung_upper_lobe_right"
+    ],
+    "Lymph_nodes": [
+      "LN_10R",
+      "LN_11R",
+      "LN_12R",
+      "LN_4R",
+      "LN_7"
+    ],
+    "Mediastinum": [
+      "aorta",
+      "azygos_vein",
+      "brachiocephalic_trunk",
+      "brachiocephalic_vein_left",
+      "brachiocephalic_vein_right",
+      "esophagus",
+      "heart_rest",
+      "inferior_pulmonary_ligament",
+      "inferior_vena_cava",
+      "pericardium",
+      "phrenic_nerve_right",
+      "superior_vena_cava",
+      "vagus_nerve_right"
+    ],
+    "Ports": [
+      "port_camera_8ICS",
+      "port_retraction_8ICS",
+      "port_utility_5ICS"
+    ],
+    "Pulmonary_arteries": [
+      "arteries_left_intrapulm",
+      "pa_left"
+    ],
+    "Pulmonary_veins_LA": [
+      "left_atrium_provisional"
+    ],
+    "RML_hilum": [
+      "A4_lateral",
+      "A5_medial",
+      "A_RML_accessory_1",
+      "A_RML_accessory_2",
+      "A_RML_common",
+      "A_RML_extra_1",
+      "B4_lateral",
+      "B5_medial",
+      "B_RML_common",
+      "V4_lateral",
+      "V5_medial",
+      "V_RML_accessory_1",
+      "V_RML_accessory_2",
+      "V_RML_common"
+    ],
+    "Soft_tissue": [
+      "diaphragm",
+      "hilar_connective_tissue",
+      "hilar_connective_tissue_window",
+      "mediastinal_fat",
+      "mediastinal_fat_window"
+    ]
+  }
+}

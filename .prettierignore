@@ -10,3 +10,4 @@ CLAUDE.md
 package-lock.json
 .cache
 public/decoders
+src/content/procedure_steps.json

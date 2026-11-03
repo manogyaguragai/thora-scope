@@ -15,12 +15,45 @@ import { config } from './core/config';
 import { armReady } from './core/perf';
 import { createRenderer, startLoop } from './core/renderer';
 import { loadModel } from './scene/loader';
+import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
+import type { MorphBindings } from './scene/morphs';
+import { tickSim } from './sim/physiology';
+import { clampRMLReinflate, createState, releaseClamp, setLobe, startOLV } from './sim/state';
+import type { AppState, Lobe } from './sim/state';
 import { irisOpen, setOverall, setStage, showError } from './ui/loadingScreen';
 
 const params = new URLSearchParams(location.search);
 const debug = params.has('debug');
 const DOWNLOAD = 'Downloading model';
 const { downloadWeight, holdFraction } = config.loading;
+
+declare global {
+  interface Window {
+    __sim: {
+      state: AppState;
+      morphs: MorphBindings | null;
+      cmd: {
+        startOLV: () => void;
+        clamp: () => void;
+        release: () => void;
+        setLobe: (lobe: Lobe, v: number) => void;
+      };
+    };
+  }
+}
+
+const state = createState();
+const sim: Window['__sim'] = {
+  state,
+  morphs: null,
+  cmd: {
+    startOLV: () => startOLV(state),
+    clamp: () => clampRMLReinflate(state),
+    release: () => releaseClamp(state),
+    setLobe: (lobe, v) => setLobe(state, lobe, v),
+  },
+};
+window.__sim = sim;
 
 if (params.has('holdload')) {
   // Debug only (screenshots): freeze at the download stage; never loads.
@@ -109,7 +142,13 @@ async function main(): Promise<void> {
     overlay.textContent = `${axisLine}\nhover: ${hoverName}`;
   }
 
-  startLoop(renderer, scene, camera, hover);
+  function frame(now: number): void {
+    tickSim(state, now);
+    if (sim.morphs) updateMorphs(sim.morphs, state);
+    hover(now);
+  }
+
+  startLoop(renderer, scene, camera, frame);
 
   const { gltf, axis } = await loadModel(renderer, (loaded, total) => {
     const f = total ? loaded / total : NaN;
@@ -129,6 +168,7 @@ async function main(): Promise<void> {
   controls.target.copy(center);
   controls.update();
   scene.add(model);
+  sim.morphs = buildMorphBindings(collectMorphMeshes(model));
   await renderer.compileAsync(scene, camera); // compile every program before "ready" (§6.10: 0 new programs after)
   armReady();
   setOverall(1);

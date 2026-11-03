@@ -32,6 +32,19 @@ export const config = {
   debug: {
     axesSize: 0.1,
   },
+  // Physiology + morph controller (§6.1 Physiology lab, §7.3). HR/RR defaults come from procedure_steps.json.
+  physiology: {
+    olvMs: 5000, // startOLV: all lobes deflate → 1
+    clampMs: 4000, // clamp RML bronchus: RUL, RLL re-inflate → 0
+    releaseMs: 4000, // release clamp: RML re-inflates → 0 (only if not divided)
+    refHrBpm: 75,
+    systoleMsAtRef: 300, // systole ≈ 0.3 s at 75 bpm; fraction of cycle kept constant as HR changes
+    inspFraction: 0.4, // inspiration share of the breath cycle
+    rightLobeBreathAmp: 0.08, // ventilated right lobe collapse offset at end-expiration
+    rightLobeBreathMaxDeflate: 0.2, // offset fades to 0 as deflate → this value; collapsed lobes don't breathe
+    retractGate: [0.9, 1] as const, // smoothstep on min(deflate) — retraction morphs authored on collapsed lung
+    morphEpsilon: 1e-4, // influence written only when |new − old| exceeds this
+  },
   // Loading screen (§6.9). T102 replaces the two placeholder stages with the five weighted ones.
   loading: {
     irisMs: 600, // lens iris-open on ready
