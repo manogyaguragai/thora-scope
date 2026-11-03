@@ -20,7 +20,7 @@ const OUT = join(root, 'public/models/thorax_sim.opt.glb');
 const DECODERS = join(root, 'public/decoders');
 const BASIS_DIR = join(root, 'node_modules/three/examples/jsm/libs/basis');
 const MAX_BYTES = 12_000_000; // CONTEXT §6.10: glb ≤ ~12 MB
-const NORMAL_CAP = 512; // UASTC normals at 1024 overshoot the 12 MB budget (ADR-003)
+const NORMAL_CAP = 512; // UASTC normals at 1024 overshoot the 12 MB budget (ADR-006)
 const NORMAL_SLOTS = /normal/i;
 const KTX = {
   version: '4.4.2',

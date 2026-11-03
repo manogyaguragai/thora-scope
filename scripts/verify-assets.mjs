@@ -180,7 +180,7 @@ ${rows.map((r) => `| ${r.join(' | ')} |`).join('\n')}
 
 Verify: **${result}** — identical node-name set (${opt.count}), node extras deep-equal (incl. port \`skin_point\`/\`pleura_point\`/\`axis_into_chest\`), camera params + transforms equal, morph target names per mesh equal (by name), ${morphChecks} world-space AABB checks of base pose and each morph at full influence within ${BOUNDS_TOL_M * 1000} mm.
 
-Pipeline: dedup (unique names kept) → prune (leaves, extras, attributes, flat textures kept) → weld → WebP→PNG, normals capped 512 → KTX2 (UASTC normals, ETC1S colour/roughness, mipmapped) → meshopt (reorder, quantize incl. morph deltas, EXT_meshopt_compression) → Draco removed. No simplification. See ADR-003.
+Pipeline: dedup (unique names kept) → prune (leaves, extras, attributes, flat textures kept) → weld → WebP→PNG, normals capped 512 → KTX2 (UASTC normals, ETC1S colour/roughness, mipmapped) → meshopt (reorder, quantize incl. morph deltas, EXT_meshopt_compression) → Draco removed. No simplification. See ADR-006.
 
 Loader notes: mesh nodes carry the KHR_mesh_quantization dequantisation in their local matrix, so mesh-node TRS differs from the source (world-space geometry does not); use port \`extras\`, not port node transforms. Decoders: \`public/decoders/basis_transcoder.{js,wasm}\` (KTX2Loader); meshopt decoder is bundled from \`three/examples/jsm/libs/meshopt_decoder.module.js\`; no Draco decoder needed.
 

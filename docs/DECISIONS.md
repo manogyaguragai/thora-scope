@@ -21,7 +21,7 @@ Scored Practice order follows ch.32 + video + procedure_steps: vein → bronchus
 arteries → fissure → extraction → optional 4R/7 → water test. Both LN_11R and LN_12R required, any order.
 Pericardium colour follows frames (lavender-mauve), not the §8 text (bluish-white).
 
-## ADR-003 Asset pipeline: meshopt + KTX2, normals capped at 512
+## ADR-006 Asset pipeline: meshopt + KTX2, normals capped at 512
 `npm run assets:optimize` builds `public/models/thorax_sim.opt.glb` (Draco → meshopt + KHR_mesh_quantization, morph deltas included; no simplification — 11.07 MB vs the 12 MB budget, 767k tris unchanged).
 Textures go to KTX2 per CONTEXT §6.10: UASTC (level 2, zstd 18) for normal maps, ETC1S (q128) for colour and roughness, all mipmapped. `ktx`/`toktx` come from the pinned KTX-Software 4.4.2 Linux tarball, fetched once into `.cache/ktx` (sha1-checked, gitignored, no sudo).
 - Size: KTX2 is larger on the wire than the source WebP (3.39 MiB vs 1.55 MiB). UASTC normals at 1024 put the glb at ~12.9 MB, so normals are capped at 512 (the source normal maps are low-frequency: 110 KB of WebP for 12 MP). Colour/roughness keep their source sizes (max 1024).

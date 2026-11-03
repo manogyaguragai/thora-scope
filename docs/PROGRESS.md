@@ -8,3 +8,5 @@
 - toktx/KTX-Software not installed (needed for KTX2 encode; T003 handles).
 - 2026-11-03 T001 scaffold PASS (c4df56f). QA notes for M1: drop legacy .woff from @fontsource (woff2 only); move inline title style to a class.
 - 2026-11-03 T000 reference docs done: 31/31 frames catalogued; 32-row practice sequence PA01–PA32; 14 conflicts resolved. ADR-003 (5:4 rounded-rect mask), ADR-004 (port roles), ADR-005 (order).
+- 2026-11-03 T002 asset inspection PASS (4e97c1b): 767k tris, 8 morph names, axis check PASS, 0 missing names; ports+cameras sit outside thorax_root (logged).
+- 2026-11-03 T003 built (db7f8b6): opt glb 11.07 MB (8.6 MiB gz), KTX2 + meshopt, verify PASS; awaiting QA. Renumbered duplicate ADR-003 (pipeline) → ADR-006. Note for T004+: mesh node transforms carry meshopt dequant scale/offset → use port extras, not node positions.
