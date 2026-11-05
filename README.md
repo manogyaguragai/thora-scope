@@ -37,7 +37,8 @@ Bindings live in one file, `src/core/keybindings.ts`; press `?` in the app for t
 | `1`–`9`, `Q` / `E`                   | Select a tool slot / cycle previous–next (press the active key again for its sub-option) |
 | Left-drag, wheel                     | Hands: pivot the scope about its port, insert / withdraw                                 |
 | `Z` / `X`, `H`, `+` / `-`            | 30° optic rotation, horizon lock, digital zoom                                           |
-| `P`, `V`, `R`                        | Cycle scope port, snap to the step view, reset view                                      |
+| `P`, `V`, `R`                        | Cycle scope port (`Shift+P` with a tool), snap to the step view, reset view              |
+| Port chip (click / Enter)            | Any tool or mode: move the scope to that port                                            |
 | Right-drag, wheel, left-click / hold | Tool: steer the tip, set depth, snap to a structure / close, fire, activate              |
 | `?`                                  | Help overlay                                                                             |
 

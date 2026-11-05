@@ -19,7 +19,11 @@ export const keybindings = {
   opticRight: { code: 'KeyX', label: '30° optic: rotate light post right', group: 'Scope' },
   zoomIn: { code: 'Equal', alt: ['NumpadAdd'], label: 'Digital zoom in', group: 'Scope' },
   zoomOut: { code: 'Minus', alt: ['NumpadSubtract'], label: 'Digital zoom out', group: 'Scope' },
-  nextPort: { code: 'KeyP', label: 'Move the scope to the next port', group: 'Scope' },
+  nextPort: {
+    code: 'KeyP',
+    label: 'Move the scope to the next port (Shift+P with an instrument; P then moves the instrument)',
+    group: 'Scope',
+  },
   snapToStep: { code: 'KeyV', label: 'Snap to the step view', group: 'Scope' },
   resetScope: { code: 'KeyR', label: 'Reset the scope view', group: 'Scope' },
   rollHeadLeft: { code: 'Comma', label: 'Roll the camera head left (unlocks the level)', group: 'Scope' },

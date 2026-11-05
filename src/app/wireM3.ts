@@ -201,12 +201,30 @@ export function wireM3(ctx: M3Context): M3 {
     } else if (matchesKey(K.toggleLabels, c)) {
       if (!e.repeat) labels.toggleAll();
     } else if (matchesKey(K.dismissLabel, c)) labels.dismiss();
-    else if (hands() && scopeKey(c, e.repeat)) syncScope();
+    else if (matchesKey(K.nextPort, c) && (hands() || e.shiftKey)) {
+      if (!e.repeat) nextPort(); // P with a tool moves the instrument (M4); Shift+P moves the scope from any tool
+    } else if (hands() && scopeKey(c, e.repeat)) syncScope();
     else return;
     e.preventDefault();
   });
 
-  /** Scope keys (§6.2); true if handled. Port switch / snap / reset ease to the new pose. */
+  /** Next port the scope may enter (M4: occupancy / capacity); stays put + toasts the first refusal if none. */
+  function nextPort(): void {
+    const i = portIds.indexOf(scope.port.id);
+    let why = '';
+    for (let k = 1; k < portIds.length; k++) {
+      const id = portIds[(i + k) % portIds.length] as string;
+      const r = portHooks.refusal(id);
+      if (!r) {
+        moveScope(id);
+        return;
+      }
+      why ||= r;
+    }
+    if (why) portHooks.toast(why);
+  }
+
+  /** Scope keys (§6.2); true if handled. Snap / reset ease to the new pose. */
   function scopeKey(c: string, repeat: boolean): boolean {
     if (matchesKey(K.opticLeft, c)) scope.rotateOptic(-R.opticStepDeg);
     else if (matchesKey(K.opticRight, c)) scope.rotateOptic(R.opticStepDeg);
@@ -216,17 +234,7 @@ export function wireM3(ctx: M3Context): M3 {
     else if (matchesKey(K.rollHeadRight, c)) scope.rollHead(config.actions.headRollStepDeg);
     else if (repeat) return false;
     else if (matchesKey(K.horizonLock, c)) scope.setHorizonLock(!scope.horizonLock);
-    else if (matchesKey(K.nextPort, c)) {
-      // Next port the scope may enter (M4: occupancy / capacity); stays put if none.
-      const i = portIds.indexOf(scope.port.id);
-      for (let k = 1; k < portIds.length; k++) {
-        const id = portIds[(i + k) % portIds.length] as string;
-        if (!portHooks.canEnter(id)) continue;
-        scope.switchPort(id);
-        rig.easeScope();
-        break;
-      }
-    } else if (matchesKey(K.snapToStep, c)) {
+    else if (matchesKey(K.snapToStep, c)) {
       snapStep();
       rig.easeScope();
     } else if (matchesKey(K.resetScope, c)) {
@@ -305,6 +313,7 @@ export function wireM3(ctx: M3Context): M3 {
     syncScope,
     reapplyLayers,
     portHooks,
+    moveScope,
     update(now) {
       let tweening = false;
       for (let i = 0; i < TWEEN_KEYS.length && !tweening; i++)

@@ -90,7 +90,7 @@ const REASONS: Readonly<Record<string, string>> = {
   'wrong-tool': 'Wrong instrument or sub-option for this structure',
   'poor-angle': 'Poor stapler angle from this port: try another port (P)',
   'retraction-in-port': 'This port holds the retraction: transfer it via another port (G), then retry',
-  'port-full': 'This port is occupied: move the scope (Hands, P) or use another port (P)',
+  'port-full': 'This port is occupied: move the scope (port chips, Shift+P) or use another port (P)',
   'not-collapsed': 'Collapse the lung first (one-lung ventilation)',
   'not-stapleable': 'This structure is not stapled',
   'wrong-cartridge': 'Wrong cartridge for this tissue: press 7 again to change it',
@@ -237,7 +237,16 @@ export function wireM4(ctx: M4Context): M4 {
   ): boolean => !m4.gate || m4.gate({ tool, subOption: sub, target, port, kind, point });
 
   const refreshPorts = (): void => m3.syncScope();
-  m3.portHooks.canEnter = (id) => occupancy.hasRoom(id);
+  // T808: why the scope may not enter a port (toast text), '' = it may.
+  m3.portHooks.refusal = (id) =>
+    occupancy.hasRoom(id)
+      ? ''
+      : occupancy.heldPort === id
+        ? `${portLabel(id)} holds the retraction: transfer it via another port (G) first`
+        : occupancy.activePort === id
+          ? `${portLabel(id)} is occupied by the ${toolName(occupancy.activeTool).toLowerCase()}: withdraw it (Esc) or move it (P)`
+          : `${portLabel(id)} is full`;
+  m3.portHooks.toast = toast;
   m3.portHooks.occupant = (id) => {
     const a = occupancy.activePort === id ? toolName(occupancy.activeTool) : '';
     const h = occupancy.heldPort === id ? `Held: ${toolName(occupancy.heldTool)}` : '';
@@ -454,7 +463,7 @@ export function wireM4(ctx: M4Context): M4 {
       occupancy.withdraw();
       m4.target = null;
       refreshPorts();
-    } else if (tool && matchesKey(K.nextPort, c)) nextToolPort();
+    } else if (tool && !e.shiftKey && matchesKey(K.nextPort, c)) nextToolPort(); // Shift+P: scope (M3)
     else if (c === CONTEXT_KEYS.hold) {
       if (!tool || !m4.target || !occupancy.hold(m4.target)) {
         toast('Nothing to hold: place a retractor first');
