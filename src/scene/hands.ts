@@ -1,7 +1,7 @@
 // Procedural gloved hands (CONTEXT §6.4 Gloved hands, §8): two low-poly grips (scope camera head, instrument handle)
 // merged at load into one geometry each, ONE shared glove material (latex/nitrile = colour change only, §6.10).
 // Hands follow target objects each frame allocation-free and render only in the outside view and the PiP inset —
-// never in the scope view. T819: gloves hidden everywhere (GLOVES_SHOWN); only the scope body is drawn.
+// never in the scope view. T819: gloves hidden everywhere (config.hands.showGloves); only the scope body is drawn.
 // Grip frame: handle axis = +Z (toward the tip, same as instruments.ts), palm on +X.
 import {
   CapsuleGeometry,
@@ -25,10 +25,6 @@ import { config } from '../core/config';
 import { instrumentGeom } from './instruments.config';
 
 export const HANDS_CONFIG = config.hands; // values in src/core/config.ts
-/** T819: the procedural gloves read as unrealistic, so they are never drawn (scope, outside or PiP); the instrument
- *  handles (instruments.ts) and the scope body carry the outside view. Gloves still follow their targets so they can
- *  return once a convincing hand model exists. ponytail: belongs in config.hands (config.ts owned elsewhere). */
-export const GLOVES_SHOWN = false;
 
 export type GloveKind = 'latex' | 'nitrile';
 export type HandId = keyof typeof HANDS_CONFIG.hands;
@@ -181,7 +177,7 @@ export function buildHands(glove: GloveKind = HANDS_CONFIG.glove): Hands {
     update() {
       for (const s of slots) {
         const t = s.target;
-        s.mesh.visible = GLOVES_SHOWN && t !== null && t.visible;
+        s.mesh.visible = HANDS_CONFIG.showGloves && t !== null && t.visible;
         if (!t || !t.visible) continue;
         t.updateWorldMatrix(true, false);
         s.mesh.matrix.multiplyMatrices(t.matrixWorld, s.offset);

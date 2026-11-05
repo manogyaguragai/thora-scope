@@ -10,8 +10,8 @@ export const retractionConfig = {
   releaseTo: 0,
   releaseMs: 700,
   /** Guided steps 2–6: a static held grasper whose tip rides the `target` vertex nearest `at` (un-morphed world
-   *  point, picked so the tip shows in that step's camera; step 2's camera sees no lobe, only the shaft edge), shaft
-   *  through `port` (never the step's scope port). */
+   *  point on the lobe face the step camera sees), shaft through `port` (never the step's scope port). Pending visual
+   *  tuning: only step 6 frames the grasper clearly; in 2–5 the tip sits behind hilar tissue / out of frame. */
   guided: {
     2: { port: 'port_retraction_8ICS', target: 'lung_upper_lobe_right', at: [-0.0258, 0.0577, 0.0712] },
     3: { port: 'port_retraction_8ICS', target: 'lung_middle_lobe_right', at: [-0.0404, 0.0316, 0.0904] },

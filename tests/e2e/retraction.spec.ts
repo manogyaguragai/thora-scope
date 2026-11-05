@@ -55,7 +55,7 @@ test('retraction: grasp → drag → hold → cautery in another port → releas
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const programs = (): Promise<number> => page.evaluate(() => window.__perf.programs);
   const before = await programs();
-  await expect(page.getByRole('button', { name: 'Hold (G)' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Hold · G' })).toBeVisible();
   await expect(page.locator('.retraction-btn[data-action=release]')).toBeDisabled();
 
   await page.evaluate(() => {
@@ -79,7 +79,7 @@ test('retraction: grasp → drag → hold → cautery in another port → releas
   expect(h1.shown).toBe(1);
   expect(h1.tool).toBeNull();
   const heldPort = h1.holds[0]?.split('@')[1];
-  await expect(page.locator('.retraction-btn[data-action=release]')).toContainText('1 held');
+  await expect(page.locator('.retraction-btn[data-action=release]')).toContainText('(1)');
 
   // Second held instrument: the upper lobe pushed posteriorly via the access incision (anterior hilum).
   expect(await place(page, 'grasper', RUL, 'retractor', UTIL)).toBe('ok');
@@ -88,7 +88,7 @@ test('retraction: grasp → drag → hold → cautery in another port → releas
   await page.keyboard.press('KeyG');
   expect((await held(page)).holds).toEqual([`grasper@${heldPort}`, `grasper@${UTIL}`]);
   expect(await posterior(page)).toBeGreaterThan(0.9);
-  await expect(page.locator('.retraction-btn[data-action=release]')).toContainText('2 held');
+  await expect(page.locator('.retraction-btn[data-action=release]')).toContainText('(2)');
 
   // Cautery through another port; the lung stays retracted and the held grasper stays drawn.
   expect(await place(page, 'cautery', 'hilar_connective_tissue', undefined, UTIL)).toBe('ok');

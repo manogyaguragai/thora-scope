@@ -52,7 +52,7 @@ export const CONTEXT_ACTIONS = [
     code: CONTEXT_KEYS.hold,
     key: 'G',
     icon: 'i-hold',
-    label: 'Hand retraction to assistant / hold',
+    label: 'Hold the retraction in its port (Shift+G releases the last hold)',
   },
   {
     id: 'chestTube',

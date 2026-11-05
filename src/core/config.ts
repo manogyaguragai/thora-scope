@@ -448,6 +448,9 @@ export const config = {
   },
   // Gloved hands + PiP inset (src/scene/hands.ts, src/ui/pip.ts).
   hands: {
+    /** T819: the procedural gloves read as unrealistic, so they are never drawn (scope, outside or PiP); the
+     *  instrument handles and the scope body carry the outside view. Gloves still follow their targets. */
+    showGloves: false as boolean,
     glove: 'nitrile' as 'latex' | 'nitrile', // selected at load; setGlove() swaps colour uniforms only
     gloves: {
       latex: { color: '#e8d6b4', sheenColor: '#fff4e0' }, // cream latex

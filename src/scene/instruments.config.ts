@@ -10,11 +10,12 @@ const deg = Math.PI / 180;
 
 export const instrumentLook = {
   // Matte black insulation; the brushed map (× roughness) gives it a faint uneven sheen.
-  shaft: { color: '#121214', roughness: 0.5, metalness: 0, envMapIntensity: 1.5 },
+  shaft: { color: '#121214', roughness: 0.5, metalness: 0, envMapIntensity: 1 },
   // Satin steel (needs env for reflections). T807c: metalness 0.85 + high env intensity so the tips glint in the dim
   // warm cavity env instead of reading maroon. T819: roughness × brushed map (min … 1) → 0.2 … 0.4 streaks, and
   // metalness 0.7: the near headlight then spreads into the frames' broad silver highlight (0.12 read dark brown).
-  steel: { color: '#dcdad6', roughness: 0.4, metalness: 0.7, envMapIntensity: 8 },
+  // T821: envMapIntensity only counts since the instruments got their own neutral env (env below); 8 then blew out.
+  steel: { color: '#dcdad6', roughness: 0.4, metalness: 0.85, envMapIntensity: 1.6 },
   white: { color: '#e8e6e0', roughness: 0.45, metalness: 0 }, // depth bands, cautery collar, handle buttons
   accent: { roughness: 0.45, metalness: 0, glowColor: '#ff8a3c' }, // cartridge insert / cautery tip
   gauze: { color: '#e6ded0', roughness: 1, metalness: 0 }, // T806: dull cotton off-white (0:58), not a glossy egg
@@ -27,6 +28,16 @@ export const instrumentLook = {
   cartridge: ['#e6e4de', '#e6e4de', '#2c2a30', '#6c4a8e'],
   cauteryTip: '#8d8f92',
   cauteryGlow: 1.6, // emissive intensity while the cautery is active
+  /** T821: neutral grey reflection env for every instrument material (lights.ts; same shape as config.cavityEnv):
+   *  the warm maroon cavity env + grade turned the black shafts grey-mauve and the steel brown. */
+  env: {
+    surround: '#808082',
+    surroundIntensity: 1,
+    spot: '#ffffff',
+    spotIntensity: 24,
+    spotRadius: 0.15,
+    spotDir: [0, 1, 0.35] as const,
+  },
   /** Brushed-metal roughness map built at load: per-column streak noise (min … 1), `rows` faint cross-variation. */
   brushed: { columns: 256, rows: 8, min: 0.5, rowJitter: 0.06, seed: 0x5eed, uvPerMetre: 50 },
 } as const;

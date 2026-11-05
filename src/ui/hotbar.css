@@ -119,7 +119,8 @@
 }
 .retraction-strip {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column; /* stays inside the side margin with the stacked port chips */
+  align-items: flex-start;
   gap: var(--space-1);
   margin-top: var(--space-1);
   font-size: var(--font-size-small);

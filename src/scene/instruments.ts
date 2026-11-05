@@ -34,6 +34,7 @@ import {
 import type { BufferGeometry, Curve, Material, Object3D } from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { instrumentGeom as G, instrumentLook as L } from './instruments.config';
+import { getInstrumentEnv } from './lights';
 
 /** Hotbar slot ids (src/sim/hotbar.ts) that carry an instrument; 'hands' has none. */
 export const TOOL_IDS = [
@@ -229,6 +230,7 @@ function brushedMap(): DataTexture {
 
 export function buildInstruments(): InstrumentSet {
   const brushed = brushedMap();
+  const envMap = getInstrumentEnv();
   const std = (
     p: { color: string; roughness: number; metalness: number; envMapIntensity?: number },
     name: string,
@@ -240,6 +242,7 @@ export function buildInstruments(): InstrumentSet {
       roughness,
       metalness,
       envMapIntensity,
+      envMap, // T821: neutral env (lights.ts), so envMapIntensity applies
       roughnessMap: brushed,
     });
   };

@@ -182,13 +182,13 @@ export function mountRetractionStrip(
     strip.append(b);
     return b;
   };
-  button('hold', 'Hold (G)', 'Lock the placed grasper / sponge-stick in its port, lung retracted', on.hold);
-  const rel = button('release', 'Release (Shift+G)', 'Let go of the most recent held instrument', on.release);
+  button('hold', 'Hold · G', 'Lock the placed grasper / sponge-stick in its port, lung retracted', on.hold);
+  const rel = button('release', 'Release · Shift+G', 'Let go of the most recent held instrument', on.release);
   host.append(strip);
   const api = {
     setHeld(n: number) {
       rel.disabled = n === 0;
-      const text = n ? `Release (Shift+G) · ${n} held` : 'Release (Shift+G)';
+      const text = n ? `Release · Shift+G (${n})` : 'Release · Shift+G';
       if (rel.textContent !== text) rel.textContent = text;
     },
     dispose: () => strip.remove(),

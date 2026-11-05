@@ -12,8 +12,9 @@ import {
   SphereGeometry,
   SpotLight,
 } from 'three';
-import type { Camera, Scene, Side, WebGLRenderer } from 'three';
+import type { Camera, Scene, Side, Texture, WebGLRenderer } from 'three';
 import { config } from '../core/config';
+import { instrumentLook } from './instruments.config';
 import { look } from './materials.config';
 
 const a = look.ambient;
@@ -36,22 +37,42 @@ export function setupLights(scene: Scene, camera: Camera, renderer: WebGLRendere
   scene.add(ambient);
 
   const pmrem = new PMREMGenerator(renderer);
-  const cavity = cavityScene();
-  scene.environment = pmrem.fromScene(cavity, look.env.sigma).texture;
+  scene.environment = envFrom(pmrem, config.cavityEnv);
   scene.environmentIntensity = look.env.intensity;
+  instrumentEnv = envFrom(pmrem, instrumentLook.env);
+  pmrem.dispose();
+  return headlight;
+}
+
+let instrumentEnv: Texture | null = null;
+/** T821: neutral reflection env for the instruments (built in setupLights, before buildInstruments). As a material
+ *  envMap it also makes the per-material envMapIntensity count (three uses scene.environmentIntensity for
+ *  scene.environment); same PMREM size as the cavity env → same program. null before setupLights (unit tests). */
+export const getInstrumentEnv = (): Texture | null => instrumentEnv;
+
+interface EnvLook {
+  surround: string;
+  surroundIntensity: number;
+  spot: string;
+  spotIntensity: number;
+  spotRadius: number;
+  spotDir: readonly [number, number, number];
+}
+
+function envFrom(pmrem: PMREMGenerator, E: EnvLook): Texture {
+  const cavity = cavityScene(E);
+  const tex = pmrem.fromScene(cavity, look.env.sigma).texture;
   cavity.traverse((o) => {
     if (o instanceof Mesh) {
       o.geometry.dispose(); // shared sphere: a second dispose is a no-op
       (o.material as MeshBasicMaterial).dispose();
     }
   });
-  pmrem.dispose();
-  return headlight;
+  return tex;
 }
 
-/** Warm maroon cavity + one warm lamp patch (config.cavityEnv): the reflection source, rendered once into PMREM. */
-function cavityScene(): ThreeScene {
-  const E = config.cavityEnv;
+/** Surround sphere + one lamp patch (config.cavityEnv: warm maroon cavity), rendered once into PMREM. */
+function cavityScene(E: EnvLook): ThreeScene {
   const env = new ThreeScene();
   const sphere = new SphereGeometry(1, 32, 16);
   const unlit = (hex: string, k: number, side: Side): MeshBasicMaterial =>
