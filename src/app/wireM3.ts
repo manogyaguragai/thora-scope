@@ -62,7 +62,11 @@ export interface M3 {
   reapplyLayers: () => void;
   /** M4 hooks (wireM4 sets them): extra port-chip text, why the scope may not move into a port ('' = it may), and
    *  the shared toast. */
-  portHooks: { occupant: (id: string) => string; refusal: (id: string) => string; toast: (msg: string) => void };
+  portHooks: {
+    occupant: (id: string) => string;
+    refusal: (id: string) => string;
+    toast: (msg: string) => void;
+  };
   /** Move the scope to port `id` (chip click / P): eases to a default view of the step's focus; false + toast if
    *  refused. */
   moveScope: (id: string) => boolean;
@@ -155,6 +159,8 @@ export function wireM3(ctx: M3Context): M3 {
   syncScope();
   rig.followScope(live);
   labels.setFocus(stepFocus(state.step));
+  layers.setFocus(stepFocus(state.step)); // T807 step-focus highlight, fades over the guided window
+  guided.on('stepchange', () => layers.setFocus(stepFocus(state.step)));
   // Guided re-snaps to the step's authored port + view (teaching intent); Explore / Practice keep the user's port.
   let hinted = false;
   guided.on('stepchange', () => {
@@ -330,6 +336,7 @@ export function wireM3(ctx: M3Context): M3 {
         }
       }
       labels.update(now);
+      layers.update(now);
     },
   };
   return m3;

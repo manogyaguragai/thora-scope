@@ -4,6 +4,7 @@
 // Clipping: every variant has the same fixed-length clippingPlanes = [shared cut-away, ...per-mesh division planes],
 // parked far away until used; moving a plane only mutates its values, so programs never change.
 import {
+  Box3,
   Color,
   DataTexture,
   Group,
@@ -13,6 +14,7 @@ import {
   MeshPhysicalMaterial,
   Plane,
   RepeatWrapping,
+  ShaderChunk,
   Vector2,
   Vector3,
   Vector4,
@@ -38,12 +40,19 @@ interface Variants {
   opacity: number; // user opacity (layer panel)
   fade: number; // transient multiplier (guided visibility fades), × opacity
   division: readonly Plane[]; // clippingPlanes[1..N] of both variants
+  own: MeshUniforms; // shared by both variants
+}
+/** T807 per-mesh uniforms: step-focus highlight weight (0..1); ring origin (xyz world, w = 2π / spacing). */
+interface MeshUniforms {
+  uFocus: { value: number };
+  uRingOrigin: { value: Vector4 };
 }
 interface TissueUniforms {
   uTissueMap: { value: Vector4 }; // retint, mapLuma, speckle, lobular
   uTissueWrap: { value: number };
   uTissueScatter: { value: Color }; // colour × strength
   uTissueRim: { value: Color }; // colour × strength
+  uTissueExtra: { value: Vector4 }; // T807: env-reflection scale, ring-groove strength, normal fix (0/1), unused
 }
 
 declare global {
@@ -59,6 +68,8 @@ declare global {
 }
 
 const variants = new Map<Mesh, Variants>();
+const _box = new Box3();
+const _o = new Vector3();
 let xray = false;
 
 const PARK_NORMAL = new Vector3(0, 0, 1);
@@ -88,6 +99,11 @@ uniform vec4 uTissueMap;
 uniform float uTissueWrap;
 uniform vec3 uTissueScatter;
 uniform vec3 uTissueRim;
+uniform vec4 uTissueExtra;
+uniform vec4 uRingOrigin;
+uniform float uFocus;
+uniform vec3 uFocusColor;
+varying vec3 vTissueWorld;
 void RE_Direct_Tissue( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
 	RE_Direct_Physical( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
 	float ndl = dot( geometryNormal, directLight.direction );
@@ -108,13 +124,44 @@ const GRASP_PARS = /* glsl */ `
 uniform vec3 uGraspPoint;
 uniform vec3 uGraspOffset;
 uniform float uGraspRadius;
+varying vec3 vTissueWorld;
 void main() {`;
 const GRASP_VERTEX = /* glsl */ `
 	if ( dot( uGraspOffset, uGraspOffset ) > 0.0 ) {
 		float graspK = 1.0 - smoothstep( 0.0, uGraspRadius, distance( ( modelMatrix * vec4( transformed, 1.0 ) ).xyz, uGraspPoint ) );
 		transformed += inverse( mat3( modelMatrix ) ) * ( uGraspOffset * graspK );
 	}
+	vTissueWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
 #include <project_vertex>`;
+
+// T807: focus rim colour, shared by every tissue program.
+const sharedLook = {
+  uFocusColor: { value: new Color(look.focus.color).multiplyScalar(look.focus.strength) },
+};
+const FOCUS = /* glsl */ `
+#include <emissivemap_fragment>
+	if ( uFocus > 0.0 ) {
+		float focusRim = pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), ${f(look.focus.rimPower)} );
+		totalEmissiveRadiance += uFocus * ( uFocusColor * focusRim + diffuseColor.rgb * ${f(look.focus.self)} );
+	}
+`;
+// T807: the glb morphs are POSITION-only, so collapsed/retracted surfaces keep rest-pose normals; where such a
+// normal turns away from the true (screen-derivative) surface normal it lit as dark blotches. Blend toward the
+// derivative normal there, before three builds its tangent frames from it.
+const TBN_ANCHOR =
+  '#if defined( USE_NORMALMAP_TANGENTSPACE ) || defined( USE_CLEARCOAT_NORMALMAP ) || defined( USE_ANISOTROPY )';
+const NORMAL_BEGIN = ShaderChunk.normal_fragment_begin.replace(
+  TBN_ANCHOR,
+  /* glsl */ `
+	vec3 tissueFlat = normalize( cross( dFdx( vViewPosition ), dFdy( vViewPosition ) ) );
+	if ( uTissueExtra.z > 0.0 ) normal = normalize( mix( tissueFlat, normal, smoothstep( ${f(look.normalFix[0])}, ${f(look.normalFix[1])}, dot( normal, tissueFlat ) ) ) );
+${TBN_ANCHOR}`,
+);
+const ENV = /* glsl */ `
+#include <lights_fragment_maps>
+	radiance *= uTissueExtra.x;
+	clearcoatRadiance *= uTissueExtra.x;
+`;
 
 export interface GraspUniforms {
   uGraspPoint: { value: Vector3 };
@@ -145,16 +192,21 @@ const MAP = /* glsl */ `
 		diffuseColor.rgb *= ( 1.0 - uTissueMap.z * dots ) * ( 1.0 - uTissueMap.w * border );
 	}
 #endif
+	if ( uTissueExtra.y > 0.0 )
+		diffuseColor.rgb *= 1.0 - uTissueExtra.y * smoothstep( ${f(look.rings.groove[0])}, ${f(look.rings.groove[1])}, sin( distance( vTissueWorld, uRingOrigin.xyz ) * uRingOrigin.w ) );
 `;
 
-function patch(shader: WebGLProgramParametersWithUniforms, u: TissueUniforms): void {
-  Object.assign(shader.uniforms, u, graspUniforms);
+function patch(shader: WebGLProgramParametersWithUniforms, u: TissueUniforms, own: MeshUniforms): void {
+  Object.assign(shader.uniforms, u, graspUniforms, sharedLook, own);
   shader.vertexShader = shader.vertexShader
     .replace('void main() {', GRASP_PARS)
     .replace('#include <project_vertex>', GRASP_VERTEX);
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <lights_physical_pars_fragment>', PARS)
-    .replace('#include <map_fragment>', MAP);
+    .replace('#include <map_fragment>', MAP)
+    .replace('#include <normal_fragment_begin>', NORMAL_BEGIN)
+    .replace('#include <emissivemap_fragment>', FOCUS)
+    .replace('#include <lights_fragment_maps>', ENV);
 }
 const cacheKey = (): string => 'tissue-v1'; // one patch for all tissues → programs differ only by three's own params
 
@@ -235,6 +287,7 @@ function makeMaterial(
   src: MeshStandardMaterial,
   cls: TissueClass,
   u: TissueUniforms,
+  own: MeshUniforms,
   noise: DataTexture,
   transparent: boolean,
   opacity: number,
@@ -262,7 +315,7 @@ function makeMaterial(
     forceSinglePass: true, // double-sided transparents: one pass, no per-frame side flips/needsUpdate
     clippingPlanes,
   });
-  m.onBeforeCompile = (shader) => patch(shader, u);
+  m.onBeforeCompile = (shader) => patch(shader, u, own);
   m.customProgramCacheKey = cacheKey;
   return m;
 }
@@ -297,6 +350,12 @@ export function setFade(mesh: Mesh, f: number): void {
   apply(mesh, v);
 }
 
+/** T807 step-focus highlight weight (0 = off … 1 = full rim); a uniform write, never a program change. */
+export function setFocusHighlight(mesh: Mesh, k: number): void {
+  const v = variants.get(mesh);
+  if (v) v.own.uFocus.value = k;
+}
+
 /**
  * Replace every mesh material under root with its tissue variants. Load-time only.
  * Returns proxies (shared geometry + transparent variant) for the loader's compile stage, so X-ray never compiles.
@@ -306,6 +365,13 @@ export function applyMaterials(root: Object3D): Group {
   const noise = buildNoiseTexture();
   const uniforms = new Map<TissueClass, TissueUniforms>();
   const replaced = new Set<Material>();
+  root.updateMatrixWorld(true);
+  /** Ring origin of a mesh: bbox centre of its configured parent airway (rings ⟂ the branch leaving it). */
+  const ringOrigin = (name: string): Vector4 => {
+    const from = root.getObjectByName(look.rings.origins[name] ?? look.rings.defaultOrigin);
+    if (from) _box.setFromObject(from).getCenter(_o);
+    return new Vector4(_o.x, _o.y, _o.z, (2 * Math.PI) / look.rings.spacingM);
+  };
   root.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh || Array.isArray(mesh.material)) return;
@@ -319,6 +385,7 @@ export function applyMaterials(root: Object3D): Group {
         uTissueWrap: { value: t.wrap },
         uTissueScatter: { value: new Color(t.scatter).multiplyScalar(t.scatterStrength) },
         uTissueRim: { value: new Color(t.rim).multiplyScalar(t.rimStrength) },
+        uTissueExtra: { value: new Vector4(t.env ?? 1, t.rings ?? 0, t.normalFix ? 1 : 0, 0) },
       };
       uniforms.set(cls, u);
     }
@@ -326,10 +393,20 @@ export function applyMaterials(root: Object3D): Group {
     const division = Array.from({ length: config.clipping.divisionPlanes }, parked);
     const planes = [cutaway, ...division];
     const blend = src.transparent && baseOpacity < 1; // a config opacity of 1 makes a glTF BLEND mesh truly opaque
-    const opaque = makeMaterial(src, cls, u, noise, blend, baseOpacity, planes);
+    const own: MeshUniforms = {
+      uFocus: { value: 0 },
+      uRingOrigin: { value: t.rings ? ringOrigin(mesh.name) : new Vector4() },
+    };
+    const opaque = makeMaterial(src, cls, u, own, noise, blend, baseOpacity, planes);
     if (blend) opaque.depthWrite = src.depthWrite;
-    const transparent = makeMaterial(src, cls, u, noise, true, baseOpacity, planes);
-    variants.set(mesh, { opaque, transparent, baseOpacity, opacity: 1, fade: 1, division });
+    const transparent = makeMaterial(src, cls, u, own, noise, true, baseOpacity, planes);
+    const bias = look.depthBias[mesh.name] ?? look.depthBias[mesh.parent?.name ?? ''];
+    if (bias)
+      for (const m of [opaque, transparent]) {
+        m.polygonOffset = true;
+        [m.polygonOffsetFactor, m.polygonOffsetUnits] = bias;
+      }
+    variants.set(mesh, { opaque, transparent, baseOpacity, opacity: 1, fade: 1, division, own });
     mesh.material = opaque;
     replaced.add(src);
     proxies.add(new Mesh(mesh.geometry, transparent));

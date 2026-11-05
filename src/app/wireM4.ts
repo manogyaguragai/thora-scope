@@ -463,7 +463,8 @@ export function wireM4(ctx: M4Context): M4 {
       occupancy.withdraw();
       m4.target = null;
       refreshPorts();
-    } else if (tool && !e.shiftKey && matchesKey(K.nextPort, c)) nextToolPort(); // Shift+P: scope (M3)
+    } else if (tool && !e.shiftKey && matchesKey(K.nextPort, c))
+      nextToolPort(); // Shift+P: scope (M3)
     else if (c === CONTEXT_KEYS.hold) {
       if (!tool || !m4.target || !occupancy.hold(m4.target)) {
         toast('Nothing to hold: place a retractor first');

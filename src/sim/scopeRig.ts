@@ -132,7 +132,9 @@ export class ScopeRig {
     const al = MathUtils.degToRad(this.cfg.opticDefaultDeg);
     tS.copy(d).multiplyScalar(Math.cos(al)).addScaledVector(tB.normalize(), -Math.sin(al));
     const p = this.aimPose;
-    p.position.copy(port.pleura).addScaledVector(tS, Math.min(this.cfg.depthM.default, dist * this.cfg.aimDepthFrac));
+    p.position
+      .copy(port.pleura)
+      .addScaledVector(tS, Math.min(this.cfg.depthM.default, dist * this.cfg.aimDepthFrac));
     p.quaternion.setFromRotationMatrix(tM.lookAt(p.position, target, Y_UP));
     p.fov = this.cfg.fovDeg;
     this.snapTo(p, id);

@@ -32,6 +32,7 @@ function fakes() {
     setOpacity: (mesh, a) => calls.push(`opacity:${mesh.name}:${a}`),
     setCutawayPlane: (n, c) => calls.push(`plane:${n.toArray().join(',')}:${c}`),
     parkCutaway: () => calls.push('park'),
+    setFocusHighlight: (mesh, k) => calls.push(`focus:${mesh.name}:${k}`),
   };
   return { calls, mat };
 }
@@ -198,5 +199,36 @@ describe('label budget + group names', () => {
   it('groupLabel maps ids to readable names', () => {
     expect(groupLabel('Hilar_vessels_airway')).toBe('Hilar vessels & airway');
     expect(groupLabel('Lobes')).toBe('Lobes');
+  });
+});
+
+describe('step-focus highlight (T807)', () => {
+  it('fades the focus set in and the previous set out over the guided window; off when disabled', () => {
+    const root = scene(LOBES);
+    const { calls, mat } = fakes();
+    const layers = createLayers({
+      lookup: (n) => root.getObjectByName(n),
+      stepVisible: () => true,
+      bounds: new Box3(),
+      materials: mat,
+    });
+    const T = 1500; // config.guided.transitionMs
+    layers.setFocus(['lung_middle_lobe_right']);
+    layers.update(0);
+    layers.update(T / 2);
+    expect(calls.at(-1)).toBe('focus:lung_middle_lobe_right:0.5');
+    layers.update(T * 2);
+    expect(calls.at(-1)).toBe('focus:lung_middle_lobe_right:1');
+    calls.length = 0;
+    layers.update(T * 3); // settled: no writes
+    expect(calls).toEqual([]);
+    layers.setFocus(['lung_upper_lobe_right']);
+    layers.update(0);
+    layers.update(T);
+    expect(calls).toEqual(['focus:lung_middle_lobe_right:0', 'focus:lung_upper_lobe_right:1']);
+    layers.setHighlight(false);
+    layers.update(0);
+    layers.update(T);
+    expect(calls.at(-1)).toBe('focus:lung_upper_lobe_right:0');
   });
 });

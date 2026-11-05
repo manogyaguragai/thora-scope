@@ -85,6 +85,15 @@ export const config = {
       'pa_left',
       ...Array.from({ length: 12 }, (_, i) => `rib_L${i + 1}`),
     ],
+    // T807: per-step scope-only occluders: in front of the step's STEP_FOCUS targets (pick-ray grid from the step
+    // pose, tests/e2e/closeup.spec.ts) and not used by that step's actions. Outside view still shows them.
+    stepHidden: {
+      2: ['heart_rest', 'left_atrium_provisional', 'inferior_vena_cava'], // bulge through the pericardium over the SPV
+      3: ['A4_lateral', 'A5_medial'], // arteries cross in front of V4/V5 at the cam_3 pose
+      4: ['A5_medial', 'tree_airway_base'], // in front of B5; the airway tree's cut-out shows as large grey sheets
+      // over the stump; the PA tree pokes through the re-inflated RLL surface as blue blotches
+      7: ['mediastinal_fat_window', 'hilar_connective_tissue_window', 'tree_pulm_artery_base'],
+    } as Readonly<Record<number, readonly string[]>>,
   },
   steps: {
     defaultStep: 1, // ?view=scope without ?step=
@@ -125,6 +134,7 @@ export const config = {
     labelMaxCount: 12, // toggle-all name tags shown at once: step focus first, then nearest the view centre
     labelGapPx: 2, // declutter: min gap between tags
     labelNudges: 1, // declutter: rows tried above/below an overlapping tag before it is skipped
+    focusLabelModes: ['guided'] as readonly string[], // T807: L shows only the step-focus structures' tags here
   },
   perf: {
     sampleHz: 4, // window.__perf refresh rate

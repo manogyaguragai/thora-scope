@@ -3,6 +3,7 @@
 // Native <dialog>.showModal() supplies the focus trap (rest of the page inert), Esc close and focus return.
 // Also hosts the quality setting (§6.10 user override): persisted via core/adaptiveResolution, applied by reload.
 import { loadQualityChoice, saveQualityChoice } from '../core/adaptiveResolution';
+import { CREDITS, CREDITS_PREFIX } from '../content/credits';
 import { config } from '../core/config';
 import type { KeyBinding } from '../core/keybindings';
 import type { QualityName } from '../core/quality';
@@ -151,6 +152,21 @@ function el<K extends keyof HTMLElementTagNameMap>(
   return e;
 }
 
+/** Credits footer: "Built by A and B", each name a new-tab link (no prefetch). */
+function renderCredits(): HTMLElement {
+  const foot = el('footer', 'help-credits');
+  foot.append(`${CREDITS_PREFIX} `);
+  CREDITS.forEach((c, i) => {
+    if (i) foot.append(i === CREDITS.length - 1 ? ' and ' : ', ');
+    const a = el('a', 'help-credit-link', c.name);
+    a.href = c.url;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    foot.append(a);
+  });
+  return foot;
+}
+
 function render(groups: readonly HelpGroup[]): HTMLDialogElement {
   const d = el('dialog', 'help');
   d.setAttribute('role', 'dialog');
@@ -179,7 +195,7 @@ function render(groups: readonly HelpGroup[]): HTMLDialogElement {
     sec.append(dl);
     body.append(sec);
   }
-  d.append(head, body, renderQuality());
+  d.append(head, body, renderQuality(), renderCredits());
   // Keep scope/tool shortcuts from firing behind the modal; `?` toggles it closed.
   d.addEventListener('keydown', (e) => {
     e.stopPropagation();

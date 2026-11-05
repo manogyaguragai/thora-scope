@@ -1,6 +1,6 @@
 // Procedure steps (CONTEXT §7.4): apply a step's state targets, hidden set and camera/port.
-// Visibility: the step's `hidden` list (default_hidden before any step), plus config.scope.hidden while the scope
-// view is in effect. A step's list replaces default_hidden rather than adding to it: steps 1–2 list exactly the
+// Visibility: the step's `hidden` list (default_hidden before any step), plus config.scope.hidden and the step's
+// config.scope.stepHidden occluders while the scope view is in effect. A step's list replaces default_hidden rather than adding to it: steps 1–2 list exactly the
 // default (the `_window` tissue variants), steps 3+ hide the intact tissue instead so the `_window` cut-outs show.
 // The morph controller skips hidden meshes and compares against each mesh's stored influences, so a shown
 // mesh catches up on its next frame — no extra dirty flag needed here.
@@ -22,6 +22,8 @@ export interface Step {
 export const STEPS: readonly Step[] = procedure.steps;
 const DEFAULT_HIDDEN: readonly string[] = procedure.default_hidden;
 const SCOPE_HIDDEN: readonly string[] = config.scope.hidden;
+const SCOPE_STEP_HIDDEN = config.scope.stepHidden;
+const NONE: readonly string[] = [];
 
 /** The subset of Object3D used here (unit tests pass plain objects). */
 export interface Toggleable {
@@ -44,7 +46,12 @@ export function getStep(n: number): Step {
 
 /** Load time: resolve all names any hidden list mentions. Missing names are warned about, not fatal. */
 export function createStepVisibility(lookup: (name: string) => Toggleable | undefined): StepVisibility {
-  const names = new Set([...DEFAULT_HIDDEN, ...SCOPE_HIDDEN, ...STEPS.flatMap((s) => s.hidden)]);
+  const names = new Set([
+    ...DEFAULT_HIDDEN,
+    ...SCOPE_HIDDEN,
+    ...Object.values(SCOPE_STEP_HIDDEN).flat(),
+    ...STEPS.flatMap((s) => s.hidden),
+  ]);
   const managed: Toggleable[] = [];
   for (const name of names) {
     const o = lookup(name);
@@ -57,7 +64,8 @@ export function createStepVisibility(lookup: (name: string) => Toggleable | unde
 /** Is node `name` hidden by the current step / scope sets? (Layer-panel toggles AND with this.) */
 export function stepHidden(vis: StepVisibility, s: AppState, name: string): boolean {
   const hidden = s.step ? getStep(s.step).hidden : DEFAULT_HIDDEN;
-  return hidden.includes(name) || (vis.scope && SCOPE_HIDDEN.includes(name));
+  if (hidden.includes(name)) return true;
+  return vis.scope && (SCOPE_HIDDEN.includes(name) || (SCOPE_STEP_HIDDEN[s.step] ?? NONE).includes(name));
 }
 
 /** Re-apply visibility for the current step and view. Allocation-free. */

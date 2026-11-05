@@ -1,6 +1,7 @@
 // Viewing aids: layers panel (§6.5). Per-group/per-structure show/hide + opacity, X-ray, movable cut-away plane.
 // Opacity/X-ray only swap the pre-compiled material variants (materials.ts); the cut-away only mutates plane values,
-// so nothing here can compile a program (§6.10). Event-driven DOM, no per-frame work.
+// so nothing here can compile a program (§6.10). Event-driven DOM; per-frame work only while the step-focus
+// highlight (T807, a per-mesh uniform) fades.
 // Visibility combine rule: node.visible = stepVisible(name) && userVisible(name). The panel applies it on user
 // toggles; the step helper must AND `isUserVisible` when it re-applies a step (wiring pass).
 import { Mesh, Vector3 } from 'three';
@@ -9,6 +10,8 @@ import procedure from '../content/procedure_steps.json';
 import { labelFor } from '../content/labels';
 import { config } from '../core/config';
 import * as realMaterials from '../scene/materials';
+import { look } from '../scene/materials.config';
+import { getMode, onModeChange } from '../sim/modes';
 import './panels.css';
 import './viewing.css';
 
@@ -44,7 +47,7 @@ export function cutawayPlane(axis: CutAxis, pos: number, flip: boolean, outNorma
 
 export type ViewingMaterials = Pick<
   typeof realMaterials,
-  'setXray' | 'setOpacity' | 'setCutawayPlane' | 'parkCutaway'
+  'setXray' | 'setOpacity' | 'setCutawayPlane' | 'parkCutaway' | 'setFocusHighlight'
 >;
 
 export interface LayersDeps {
@@ -64,6 +67,12 @@ export interface Layers {
   setOpacity: (name: string, a: number) => void;
   setXray: (on: boolean) => void;
   setCutaway: (enabled: boolean, axis: CutAxis, pos: number, flip: boolean) => void;
+  /** Step-focus structures (T807): their highlight fades in, the previous set fades out (guided window). */
+  setFocus: (names: readonly string[]) => void;
+  setHighlight: (on: boolean) => void;
+  readonly highlight: boolean;
+  /** Frame loop: advances the highlight fade; no-op when settled. Allocation-free. */
+  update: (now: number) => void;
 }
 
 const _n = new Vector3();
@@ -71,7 +80,8 @@ const _n = new Vector3();
 /** DOM-free controller. Resolves nodes and their meshes once. */
 export function createLayers(deps: LayersDeps): Layers {
   const mat = deps.materials ?? realMaterials;
-  const nodes = new Map<string, { obj: Object3D; meshes: Mesh[] }>();
+  // k = current highlight weight, t = target (0/1).
+  const nodes = new Map<string, { obj: Object3D; meshes: Mesh[]; k: number; t: number }>();
   const groups = new Map<string, string[]>();
   const hidden = new Set<string>();
   for (const [group, names] of Object.entries(LAYER_GROUPS)) {
@@ -83,13 +93,47 @@ export function createLayers(deps: LayersDeps): Layers {
       obj.traverse((o) => {
         if ((o as Mesh).isMesh) meshes.push(o as Mesh);
       });
-      nodes.set(name, { obj, meshes });
+      nodes.set(name, { obj, meshes, k: 0, t: 0 });
       present.push(name);
     }
     if (present.length) groups.set(group, present);
   }
+  const entries = [...nodes.values()];
+  let focus: readonly string[] = [];
+  let highlight = true;
+  let fading = false;
+  let last = NaN; // NaN: the next update starts the fade clock
+  const retarget = (): void => {
+    for (const [name, e] of nodes) e.t = highlight && focus.includes(name) ? 1 : 0;
+    fading = true;
+    last = NaN;
+  };
   return {
     groups,
+    setFocus(names) {
+      focus = names;
+      retarget();
+    },
+    setHighlight(on) {
+      highlight = on;
+      retarget();
+    },
+    get highlight() {
+      return highlight;
+    },
+    update(now) {
+      if (!fading) return;
+      const d = (now - last) / Math.max(1, config.guided.transitionMs);
+      last = now;
+      if (!(d > 0)) return; // first frame after a retarget (NaN) only starts the clock
+      fading = false;
+      for (const e of entries) {
+        if (e.k === e.t) continue;
+        e.k = e.t > e.k ? Math.min(e.t, e.k + d) : Math.max(e.t, e.k - d);
+        for (const m of e.meshes) mat.setFocusHighlight(m, e.k);
+        fading ||= e.k !== e.t;
+      }
+    },
     isUserVisible: (name) => !hidden.has(name),
     setVisible(name, on) {
       if (on) hidden.delete(name);
@@ -163,7 +207,15 @@ export function mountLayersPanel(
   panel.setAttribute('aria-label', 'Layers and viewing aids');
 
   const [xray] = checkbox('X-ray', false, layers.setXray);
-  root.append(h('div', { className: 'panel-group' }, xray));
+  // T807: default on in the look.focus.modes (Guided), off elsewhere; a mode switch resets it to that default.
+  const modeDefault = (): boolean => look.focus.modes.includes(getMode());
+  const [focusToggle, focusInput] = checkbox('Highlight step structures', modeDefault(), layers.setHighlight);
+  layers.setHighlight(modeDefault());
+  onModeChange(() => {
+    focusInput.checked = modeDefault();
+    layers.setHighlight(focusInput.checked);
+  });
+  root.append(h('div', { className: 'panel-group' }, xray, focusToggle));
 
   // Cut-away plane
   let enabled = false;

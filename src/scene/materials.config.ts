@@ -20,6 +20,9 @@ export interface TissueParams {
   lobular: number; // lobular network darkening (needs UVs)
   opacity?: number; // overrides the glTF alpha for BLEND materials (default look)
   bakedMaps?: boolean; // false: drop the glTF colour/normal/roughness maps (broken bakes); default true
+  env?: number; // × env-map reflections (scene.environmentIntensity overrides per-material intensity); default 1
+  rings?: number; // cartilage-ring groove darkening (look.rings), default 0
+  normalFix?: boolean; // shade with the derivative normal where the rest-pose normal is wrong (look.normalFix)
 }
 
 const wet = {
@@ -47,6 +50,7 @@ export const TISSUES = {
     mapLuma: 0.25,
     roughness: 0.4,
     microNormal: 0.8, // T111: breaks the env reflection into wet glints (frames: many small sharp highlights)
+    env: 0.3, // T807: grazing lobe surfaces mirrored the env room as silver bands close up
     speckle: 0.85,
     lobular: 0.22,
     rim: '#ffd0e0',
@@ -63,54 +67,83 @@ export const TISSUES = {
     clearcoat: 1,
     clearcoatRoughness: 0.05,
     microNormal: 0.8,
+    lobular: 0.18, // T807: visible fat lobules
     scatter: '#ff7a20',
   },
+  // T807 clarity classes (teaching sim: readable > literal footage): PA blue-violet, PV darker plum (luminance
+  // contrast too), no baked maps on hilar structures (their dark streaky bakes read as grey chrome), low env.
   vein: {
     ...wet,
-    color: '#5a2c48',
-    mapLuma: 0.035,
-    clearcoat: 1,
-    clearcoatRoughness: 0.06,
-    rim: '#c0a0ff',
-    rimStrength: 0.08,
+    color: '#5a1e44',
+    bakedMaps: false,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.25,
+    microNormal: 0.3,
+    env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
+    normalFix: true,
+    rim: '#e0a0d0',
+    rimStrength: 0.1,
   },
   svc: {
     ...wet,
-    color: '#6a5c8c',
-    mapLuma: 0.045,
-    clearcoat: 1,
-    clearcoatRoughness: 0.06,
+    color: '#76507e',
+    bakedMaps: false,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.25,
+    env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
+    normalFix: true,
     rim: '#c0c8ff',
     rimStrength: 0.08,
   },
   artery: {
     ...wet,
-    color: '#e09080',
-    mapLuma: 0.115,
+    color: '#5560b8',
+    bakedMaps: false,
     roughness: 0.5,
-    clearcoat: 1,
-    clearcoatRoughness: 0.07,
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.25,
+    microNormal: 0.3,
+    env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
+    normalFix: true,
+    rim: '#c0d0ff',
+    rimStrength: 0.12,
   },
   aorta: { ...wet, color: '#d8a090', roughness: 0.5 },
   bronchus: {
     ...wet,
-    color: '#ecd8b0',
-    mapLuma: 0.43,
-    roughness: 0.5,
+    color: '#f2e4c4',
+    bakedMaps: false,
+    roughness: 0.55,
     clearcoat: 0.8,
-    clearcoatRoughness: 0.1,
+    clearcoatRoughness: 0.15,
     microNormal: 0.25,
+    env: 0.3,
+    rings: 0.45,
+    normalFix: true,
   },
   nerve: {
     ...wet,
-    color: '#f0e4d4',
-    mapLuma: 0.18,
+    color: '#f6eebc',
+    bakedMaps: false,
     roughness: 0.4,
     clearcoat: 1,
-    clearcoatRoughness: 0.05,
-    rimStrength: 0.12,
+    clearcoatRoughness: 0.08,
+    env: 0.5,
+    rimStrength: 0.15,
+    normalFix: true,
   },
-  lymphNode: { ...wet, color: '#4a3c3e', mapLuma: 0.05, speckle: 0.6, lobular: 0.1 },
+  lymphNode: {
+    ...wet,
+    color: '#6e5c50',
+    bakedMaps: false,
+    roughness: 0.6,
+    clearcoat: 0.7,
+    clearcoatRoughness: 0.15,
+    env: 0.4,
+    speckle: 0.5,
+    lobular: 0.15,
+    normalFix: true,
+  },
   connective: {
     ...wet,
     ...subsurface,
@@ -119,13 +152,15 @@ export const TISSUES = {
     mapLuma: 0.5,
     clearcoat: 1,
     clearcoatRoughness: 0.05,
+    opacity: 0.4, // T807: thin veil over the hilum (glTF 0.55) so the structures being dissected show through
   },
   pericardium: {
     ...wet,
-    color: '#8c5870',
-    mapLuma: 0.55,
-    clearcoat: 1,
-    clearcoatRoughness: 0.06,
+    color: '#9a7090', // lavender-mauve (01:01)
+    bakedMaps: false, // T807: its baked streaks read as grey chrome close up
+    clearcoat: 0.8,
+    clearcoatRoughness: 0.12,
+    env: 0.4,
     rim: '#c8c0ff',
     rimStrength: 0.12,
   },
@@ -203,9 +238,9 @@ export const FALLBACK_TISSUE: TissueClass = 'connective';
 export const STEP_FOCUS: Readonly<Record<number, readonly string[]>> = {
   1: ['lung_middle_lobe_right'],
   2: ['phrenic_nerve_right', 'tree_pulm_vein_base', 'V_RML_common'],
-  3: ['V_RML_common', 'V4_lateral', 'V5_medial'],
+  3: ['V_RML_common', 'V4_lateral', 'V5_medial', 'V_RML_accessory_1', 'V_RML_accessory_2'],
   4: ['B_RML_common', 'B4_lateral', 'B5_medial', 'LN_11R', 'LN_12R'],
-  5: ['A_RML_common', 'A4_lateral', 'A5_medial'],
+  5: ['A_RML_common', 'A4_lateral', 'A5_medial', 'A_RML_accessory_1', 'A_RML_accessory_2', 'A_RML_extra_1'],
   6: ['lung_middle_lobe_right'],
   7: ['tree_airway_base', 'LN_4R', 'LN_7'],
 };
@@ -229,6 +264,34 @@ export const look = {
   detailRange: [0.45, 1.8] as const, // retint detail (map luma / mapLuma) clamp: lifts baked dark lines, caps hot spots
   lumaWeights: [0.2126, 0.7152, 0.0722] as const,
   rimPower: 4,
+  // T807 cartilage rings: grooves on spherical shells around the bbox centre of a branch's parent airway, so they
+  // cut the branch roughly across its axis (it leaves the parent radially). No UV dependence (atlas UVs).
+  rings: {
+    defaultOrigin: 'tree_airway_base',
+    origins: { B4_lateral: 'B_RML_common', B5_medial: 'B_RML_common' } as Readonly<Record<string, string>>,
+    spacingM: 0.0015, // the step-4 pose sits mm from B4/B5 (segmental cartilage pitch ≈ 1–2 mm)
+    groove: [0.35, 0.9] as const, // smoothstep on sin(phase): dark groove ≈ a quarter of each period
+  },
+  // T807 step-focus highlight (uniform-driven emissive rim on the step's STEP_FOCUS meshes; fades with the step).
+  focus: {
+    // A complementary tint (e.g. UI teal on plum) greys the vessel out, so the focus glows in its own colour
+    // (self-illumination × albedo) plus a thin warm-white fresnel rim.
+    color: '#fff2dc', // rim colour
+    strength: 0.3, // rim emissive radiance at grazing angles
+    self: 0.5, // emissive = albedo × self (keeps the structure's hue, lifts it above its neighbours)
+    rimPower: 3,
+    modes: ['guided'] as readonly string[], // Layers checkbox default on in these modes, off elsewhere (practice, quiz)
+  },
+  // T807: smoothstep(a, b, dot(vertex normal, derivative normal)): below a the shading uses the derivative normal.
+  normalFix: [0.2, 0.5] as const,
+  // T807: polygon offset (factor, units) per node: pushes it behind coincident neighbours so the collapsed lobes
+  // stop z-fighting along the fissures (dark streaks close up). GL state only, no program change.
+  depthBias: {
+    lung_middle_lobe_right: [2, 1000],
+    tree_pulm_artery_base: [2, 1000], // the base trees lose to the coincident RML branch meshes
+    tree_pulm_vein_base: [2, 1000],
+    tree_airway_base: [2, 1000],
+  } as Readonly<Record<string, readonly [number, number]>>,
   /** X-ray: every mesh swaps to its transparent variant at this opacity. */
   xrayOpacity: 0.3,
   headlight: {

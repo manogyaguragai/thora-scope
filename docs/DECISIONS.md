@@ -55,3 +55,8 @@ the on-screen ones. Post-FX targets warm via `registerWarmupHook`.
 - Context: the step-3 authored view (RML vein, after poseFix) needs a ~95° optic from port_retraction_8ICS, but the rig clamps the optic at 70°, so the live step-3 view showed only chest wall (ASSET_ISSUES L3). From the access incision it needs ~72°.
 - Decision: src/content/procedure_steps.json step 3 scope port → port_utility_5ICS, matching steps 4–5 (VIDEO_STEP_MAP conflict 3). Practice mode still chooses ports per action (practice_actions.json), unaffected.
 - Status: pending clinician review (port choice per step vs the reference video).
+
+## ADR-012 Teaching colour convention for hilar structures (clarity over footage fidelity)
+- Context: user feedback 2026-11-05: zoomed views were unreadable (vessels/bronchus indistinguishable). In the footage, pulmonary arteries and veins look similar (pink/plum).
+- Decision (T807): atlas-style classes: pulmonary arteries blue-violet, pulmonary veins dark plum, bronchus ivory with cartilage rings, nodes grey-brown, nerves pale yellow, pericardium lavender; a per-step focus glow (Layers → "Highlight step structures", on in Guided); per-step scope occluder hiding. This departs from CONTEXT §8 "reads as the real footage" for these classes on purpose.
+- Status: pending clinician review (colour choices, and whether a "footage-true" toggle is wanted).

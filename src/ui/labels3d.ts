@@ -4,8 +4,9 @@
 import { Box3, Vector3 } from 'three';
 import type { Camera, Object3D } from 'three';
 import { labelFor } from '../content/labels';
-import practice from '../content/practice_actions.json';
 import { config } from '../core/config';
+import { STEP_FOCUS } from '../scene/materials.config';
+import { getMode } from '../sim/modes';
 import './viewing.css';
 
 const _v = new Vector3();
@@ -102,15 +103,9 @@ export function pickNearest(scores: Float64Array, k: number, chosen: Uint8Array,
   for (let i = 0; i < chosen.length; i++) if (chosen[i] === 2) chosen[i] = 0;
 }
 
-// Per-step label focus: every node the step's practice actions target (practice_actions.json), built at load.
-const FOCUS = new Map<number, string[]>();
-for (const a of practice.actions) {
-  const list = FOCUS.get(a.step) ?? [];
-  for (const t of a.targets) if (!list.includes(t)) list.push(t);
-  FOCUS.set(a.step, list);
-}
-/** Structures procedure step `step` is about (for Labels3D.setFocus); [] for unknown steps. */
-export const stepFocus = (step: number): readonly string[] => FOCUS.get(step) ?? [];
+const NO_FOCUS: readonly string[] = [];
+/** Structures procedure step `step` is about (STEP_FOCUS, T807; labels + highlight); [] for unknown steps. */
+export const stepFocus = (step: number): readonly string[] => STEP_FOCUS[step] ?? NO_FOCUS;
 
 export type GetWorldPos = (name: string, out: Vector3) => boolean;
 
@@ -139,6 +134,7 @@ export interface Labels3D {
   /** Pin the click-to-label card at a picked world point (copied). */
   pin: (name: string, point: Vector3) => void;
   dismiss: () => void;
+  /** Toggle name tags; in config.viewing.focusLabelModes (Guided) only the step-focus structures get tags. */
   toggleAll: () => void;
   /** Structures the current step is about; their tags win the labelMaxCount budget. */
   setFocus: (names: readonly string[]) => void;
@@ -218,6 +214,7 @@ export function createLabels3D(
   const focus = new Uint8Array(n);
 
   let tagsOn = false;
+  let focusOnly = false;
   let pinned = false;
   const pinAt = new Vector3();
   let last = -Infinity;
@@ -236,6 +233,7 @@ export function createLabels3D(
   };
   const toggleAll = (): void => {
     tagsOn = !tagsOn;
+    focusOnly = V.focusLabelModes.includes(getMode());
     if (!tagsOn) for (const t of tags) place(t, false, 0, 0);
     else
       // Tag sizes for the declutter: one forced layout per toggle (user action, not per frame).
@@ -280,7 +278,7 @@ export function createLabels3D(
           dc.y[i] = _px.y;
           const dx = _px.x - w / 2;
           const dy = _px.y - h / 2;
-          score[i] = ok ? dx * dx + dy * dy + (focus[i] ? 0 : far) : Infinity;
+          score[i] = ok && (focus[i] || !focusOnly) ? dx * dx + dy * dy + (focus[i] ? 0 : far) : Infinity;
         }
         dc.maxY = maxY;
         pickNearest(score, V.labelMaxCount, chosen, dc);
