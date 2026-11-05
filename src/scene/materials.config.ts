@@ -19,6 +19,7 @@ export interface TissueParams {
   speckle: number; // anthracotic black dots (needs UVs)
   lobular: number; // lobular network darkening (needs UVs)
   opacity?: number; // overrides the glTF alpha for BLEND materials (default look)
+  bakedMaps?: boolean; // false: drop the glTF colour/normal/roughness maps (broken bakes); default true
 }
 
 const wet = {
@@ -44,7 +45,8 @@ export const TISSUES = {
     ...subsurface,
     color: '#b06c7a',
     mapLuma: 0.25,
-    microNormal: 0.25,
+    roughness: 0.4,
+    microNormal: 0.8, // T111: breaks the env reflection into wet glints (frames: many small sharp highlights)
     speckle: 0.85,
     lobular: 0.22,
     rim: '#ffd0e0',
@@ -60,7 +62,7 @@ export const TISSUES = {
     roughness: 0.4,
     clearcoat: 1,
     clearcoatRoughness: 0.05,
-    microNormal: 0.3,
+    microNormal: 0.8,
     scatter: '#ff7a20',
   },
   vein: {
@@ -131,9 +133,10 @@ export const TISSUES = {
   pleuraWall: {
     ...wet,
     color: '#80506a',
-    retint: 0.8,
+    retint: 1,
+    bakedMaps: false, // T111: its baked maps have patchy islands (crimson/grey blotches); plain violet matches 04:29
     mapLuma: 0.5,
-    opacity: 0.75,
+    opacity: 1, // T111: opaque variant; at 0.75 the crimson muscle showed through as blotches
     clearcoat: 1,
     clearcoatRoughness: 0.07,
   },
@@ -141,7 +144,7 @@ export const TISSUES = {
   esophagus: { ...wet, color: '#b07068' },
   bone: {
     ...wet,
-    color: '#b89c90',
+    color: '#e6d8cc', // pale ivory ribs (outside view; scope sees them through the pleura)
     roughness: 0.6,
     clearcoat: 0.7,
     clearcoatRoughness: 0.15,
@@ -149,9 +152,9 @@ export const TISSUES = {
   },
   skin: {
     ...wet,
-    color: '#c89878',
-    roughness: 0.7,
-    clearcoat: 0.7,
+    color: '#a86a4c', // T801: '#c89878' read as cream under the outside auto-exposure
+    roughness: 0.8,
+    clearcoat: 0.2,
     clearcoatRoughness: 0.15,
     microNormal: 0,
     rimStrength: 0,
@@ -193,6 +196,20 @@ export const TISSUE_RULES: readonly [RegExp, TissueClass][] = [
 ];
 export const FALLBACK_TISSUE: TissueClass = 'connective';
 
+/**
+ * T807: structures each procedure step is about (§7.2 node names). Drives the step-focus highlight and the
+ * focus-only labels. Curated for teaching (the practice targets also list the lobes the lung retractor holds).
+ */
+export const STEP_FOCUS: Readonly<Record<number, readonly string[]>> = {
+  1: ['lung_middle_lobe_right'],
+  2: ['phrenic_nerve_right', 'tree_pulm_vein_base', 'V_RML_common'],
+  3: ['V_RML_common', 'V4_lateral', 'V5_medial'],
+  4: ['B_RML_common', 'B4_lateral', 'B5_medial', 'LN_11R', 'LN_12R'],
+  5: ['A_RML_common', 'A4_lateral', 'A5_medial'],
+  6: ['lung_middle_lobe_right'],
+  7: ['tree_airway_base', 'LN_4R', 'LN_7'],
+};
+
 export const look = {
   /** Shared procedural noise (built once): RGB = micro-normal, A = cellular distance (speckle/lobules). */
   noise: {
@@ -202,10 +219,10 @@ export const look = {
     heightCells: 8, // lattice cells per tile, first octave
     heightAmp: 3, // finite-difference gain → normal steepness
     worleyCells: 12, // feature points per tile edge
-    microTiling: 6, // texture repeats per UV unit (liquid film)
-    speckleTiling: 12, // × microTiling, anthracotic dots
-    lobularTiling: 0.6, // × microTiling, lobular network
-    speckleEdge: [0.1, 0.05] as const, // smoothstep(a, b, F1): dot radius (soft → hard)
+    microTiling: 16, // texture repeats per UV unit (liquid film); lung UV unit ≈ 0.3 m (T111 measured)
+    speckleTiling: 0.45, // × microTiling → ≈ 3.5 mm cells on the lung (was 0.35 mm: mip-averaged away)
+    lobularTiling: 0.225, // × microTiling → ≈ 8 mm lobules
+    speckleEdge: [0.16, 0.08] as const, // smoothstep(a, b, F1): dot radius in cells (soft → hard), ≈ 0.5 mm
     speckleFloor: 0.25, // dot strength inside lobules (1 at borders)
     lobularEdge: [0.45, 0.8] as const, // smoothstep(a, b, F1): darkening toward cell borders
   },
@@ -222,6 +239,7 @@ export const look = {
     angle: 0.95, // rad half-angle; covers the widest glTF scope FOV diagonal
     penumbra: 0.6,
   },
-  ambient: { sky: '#ffe0e0', ground: '#401018', intensity: 0.04 },
-  env: { intensity: 0.02, sigma: 0.04 }, // PMREM RoomEnvironment: reflections only
+  // outsideIntensity: hemisphere intensity in the outside view (no headlight reaches the body there).
+  ambient: { sky: '#ffe0e0', ground: '#401018', intensity: 0.04, outsideIntensity: 0.3 },
+  env: { intensity: 0.4, sigma: 0.04 }, // PMREM RoomEnvironment: reflections only (T111: wet glints via micro-normal)
 } as const;

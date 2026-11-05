@@ -1,5 +1,5 @@
-import { Box3, LoaderUtils } from 'three';
-import type { Object3D, WebGLRenderer } from 'three';
+import { Box3, LoaderUtils, Sphere, Vector3 } from 'three';
+import type { BufferAttribute, CompressedTexture, Material, Mesh, Object3D, WebGLRenderer } from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
@@ -36,25 +36,52 @@ async function fetchModel(url: string, onProgress: ByteProgress): Promise<ArrayB
   return new Blob(chunks).arrayBuffer();
 }
 
-/** Download (bytes via onProgress), then decode; onDecode fires between the two (§6.9 stages 1–2). */
+/**
+ * Download (bytes via onProgress), then decode; onDecode fires between the two (§6.9 stages 1–2).
+ * KTX2 transcode and meshopt decode both run in workers (same pool size), torn down once parsed.
+ * `textureDownscale` (quality preset) halves every mipmapped KTX2 texture before upload.
+ */
 export async function loadModel(
   renderer: WebGLRenderer,
   onProgress: ByteProgress,
   onDecode: () => void,
+  textureDownscale = false,
 ): Promise<LoadedModel> {
   const ktx2 = new KTX2Loader().setTranscoderPath(config.decoderPath).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
+  MeshoptDecoder.useWorkers(ktx2.workerPool.pool);
   try {
     const data = await fetchModel(config.modelUrl, onProgress);
     onDecode();
     const gltf = await loader.parseAsync(data, LoaderUtils.extractUrlBase(config.modelUrl));
+    if (textureDownscale) {
+      const seen = new Set<CompressedTexture>();
+      gltf.scene.traverse((o) => dropTopMip(o, seen));
+    }
+    gltf.scene.traverse(morphSafeBounds);
     freezeStatic(gltf.scene);
     const axis = checkAxis(gltf.scene);
     console.info(axis);
     return { gltf, axis };
   } finally {
     ktx2.dispose(); // all textures are in the one glb; free the transcoder workers
+    MeshoptDecoder.useWorkers(0); // and the meshopt ones
   }
+}
+
+/** Low-preset texture cap: drop mip 0 of each KTX2 texture (half size, quarter memory). Load time only. */
+function dropTopMip(o: Object3D, seen: Set<CompressedTexture>): void {
+  const mats = (o as Object3D & { material?: Material | Material[] }).material;
+  if (!mats) return;
+  for (const m of Array.isArray(mats) ? mats : [mats])
+    for (const v of Object.values(m)) {
+      const t = v as CompressedTexture | null;
+      const next = t?.isCompressedTexture ? t.mipmaps[1] : undefined;
+      if (!t || !next || seen.has(t)) continue;
+      seen.add(t);
+      t.mipmaps.shift();
+      t.image = { width: next.width, height: next.height } as typeof t.image;
+    }
 }
 
 /**
@@ -65,6 +92,29 @@ function freezeStatic(root: Object3D): void {
   root.updateMatrixWorld(true);
   root.traverse((o) => (o.matrixAutoUpdate = false));
   root.matrixWorldAutoUpdate = false;
+}
+
+const tmpV = new Vector3();
+const tmpBox = new Box3();
+/**
+ * §6.10 frustum culling stays on for morphed meshes: GLTFLoader's bounds assume the morph weights sum to ≤ 1, but
+ * the lobes run collapse + shift + retract together. Radius = max over vertices of (distance from the rest-pose
+ * box centre + sum of that vertex's target displacements), so any mix of weights in [-1, 1] stays inside. Load time.
+ */
+function morphSafeBounds(o: Object3D): void {
+  const g = (o as Mesh).geometry;
+  const targets = g?.morphAttributes.position;
+  if (!targets?.length || !g.morphTargetsRelative) return;
+  const pos = g.getAttribute('position') as BufferAttribute;
+  const s = (g.boundingSphere ??= new Sphere());
+  tmpBox.setFromBufferAttribute(pos).getCenter(s.center);
+  let r = 0;
+  for (let i = 0; i < pos.count; i++) {
+    let d = tmpV.fromBufferAttribute(pos, i).distanceTo(s.center);
+    for (const t of targets) d += tmpV.fromBufferAttribute(t, i).length();
+    r = Math.max(r, d);
+  }
+  s.radius = r;
 }
 
 /** §7.1: +Y = patient's right (up). Right-lung bbox centre Y must exceed heart_rest's (same method as inspect-assets). */

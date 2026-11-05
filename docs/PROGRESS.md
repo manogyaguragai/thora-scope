@@ -19,3 +19,99 @@
 - 2026-11-03 T102 five-stage loader PASS (b0d639c): stages in order, programs 20→20, headless preset=low; warm-up renders to hidden canvas (ADR-worthy: RT renders compile different programs).
 - 2026-11-03 T105 post-FX PASS (4fbc114): single HDR RT + one fullscreen pass (no EffectComposer), auto-exposure 16x16 @4Hz async, programs 22→22, +2 draw calls.
 - 2026-11-03 T104 materials built on branch worktree-agent-adbd9e8e77ec24a92 (eeb1d3f): programs 23, X-ray swap 0 new, draw calls 87. Merge pending until T106 commits (main.ts/config.ts overlap). Killed 13 orphaned vite preview servers (probe spawns via npx → kill misses vite).
+- 2026-11-03 T106 camera rig PASS (05d0e6d): scope draw calls 43–65/step, orbit 91, programs 22→22; step hidden REPLACES default_hidden (authored intent). e2e ~5 min, one newContext flake → T109.
+- 2026-11-03 USER RULE: no commits by orchestrator or agents — the user commits. Parallel builders allowed in the main tree with disjoint file ownership; QA reviews uncommitted diff. T104m merge left in progress (uncommitted) for the user. Stopped 3 QA agents idling on background shells; agents now run foreground-only and clean up servers.
+- 2026-11-03 T108 phase 1 done (uncommitted): physiologyPanel.ts, panels.css, state.ts tween fix + test, physiology.spec (fixme). Wiring deferred to a single combined wiring pass (T110w) after T104m frees main.ts.
+- 2026-11-03 T201 step content PASS (uncommitted src/content/steps.ts): 0 copied sentences; fixed one 8-word noun-phrase overlap and step-3 infarction wording.
+- 2026-11-03 T107 phase 1 done (uncommitted): adaptiveResolution.ts, perfConfig.ts, perfOverlay.ts, 12 unit tests; wiring → T110w. Runtime preset downgrade switches effects + ratio ceiling only (MSAA change needs reload).
+- 2026-11-03 T202 phase 1 done (uncommitted): modes.ts, guided.ts (fade slots 32), keybindings with labels, 7 unit tests; wiring + follow-ups → T110w.
+- 2026-11-03 T203 phase 1 done (uncommitted): shell.ts layout regions, guidedPanel.ts, panels.css sections, guided.spec (fixme); wiring → T110w (guided.ts uses on(); arrow keys move to keybindings; add guided.off for dispose).
+- 2026-11-03 T303 labels PASS (uncommitted src/content/labels.ts): 87 structures, rib correction, 0 book overlap.
+- 2026-11-03 T302 phase 1 done (uncommitted): picking.ts (BVH, morph-baked pick copies + refreshMorphs on tween end, hover 30 Hz), 3 unit tests; wiring → T307 (build in onModel stage callback).
+- 2026-11-03 T301 phase 1 done (uncommitted): ports.ts (extras-based), scopeRig.ts (fulcrum, optic, horizon lock, snapTo reproduces 7 step cams), 17 tests. Wiring → T307 (add rollHead + config move).
+- 2026-11-03 T306 phase 1 done (uncommitted): helpOverlay.ts (native <dialog>, data-driven), help.css, 4 unit tests; wiring → T307 (add all scope/view keys with group fields to keybindings.ts).
+- 2026-11-03 Added STATUS BOARD to tasks.md, [w] status (built, awaiting wiring) and docs/WIRING.md with every finished module's API + wiring steps + follow-ups; CLAUDE.md read order updated.
+- 2026-11-04 Resumed after limit reset. T104m verified by orchestrator: tsc 0, build 0, perf:probe PASS programs 25→25, no orphan vite. → [q]. Resuming interrupted builders T304 T305 T401 T402 T403 T407 T501.
+- 2026-11-04 T304 hotbar, T305 viewing aids (layers.test lint fixed), T403 instrument control phase 1 done → [w]; WIRING.md entries added.
+- 2026-11-04 T401 port occupancy phase 1 done → [w] (canFire angle 45°, vein-stapler swap test passes).
+- 2026-11-04 T407 effect pools phase 1 done → [w] (3 Points pools + instanced blood decals + lens fog driver).
+- 2026-11-04 T104+T104m QA PASS (programs 25 stable; X-ray/cut-away 0 new). main.ts still git-UU (resolved in file) for the user. T110w started.
+- 2026-11-04 T501 practice actions built → [q]: PA01–PA32 + validator (DAG, ids, tools/subs/ports/targets). Deviation: PA31 chest tube optional (CONTEXT §6.3/§6.4) so PA32 depends on PA29; weights pending clinician review.
+- 2026-11-04 T402 instruments phase 1 done → [w] (6 geoms/6 mats, ~2 programs expected, unmeasured until T409).
+- 2026-11-04 T501 QA PASS. ADR-009 (PA31 chest tube optional). Minor notes for T502: PA17/PA19 allowed ports wider than table; PA32 ventilation requirement implicit. Started phase-1 builders T405 T406 T408 T502 (disjoint new files) alongside T110w.
+- 2026-11-05 T406 finish sequence + fluid phase 1 done → [w] (11 tests). Gating overlaps practice_actions → T409 decision recorded in WIRING.md.
+- 2026-11-05 T502 practice engine built → [q] (full PA01→PA32 scripted run passes). Started T503 complications + T504 scoring/debrief phase-1 builders. Wiring note T505: call PortOccupancy insert/hold/withdraw + apply result.scopePort; send only real attempts.
+- 2026-11-05 T405 staple/clips phase 1 done → [w] (7 tests). Known limit: union clipping can't cut a gap within one mesh (logged in WIRING).
+- 2026-11-05 T408 hands + PiP phase 1 done → [w] (6 tests). PiP RT program-compile risk noted (ADR-008).
+- 2026-11-05 T502 QA PASS.
+- 2026-11-05 T504 scoring + debrief phase 1 done → [w] (8 tests; debrief lazy via dynamic import at T505).
+- 2026-11-05 M6 planned: T601 quiz content, T602 quiz engine+UI, T603 paraphrase guard, T604 wiring. Started T601 + T603.
+- 2026-11-05 T503 complications phase 1 done → [w] (11 tests). Text keys still need content strings (T505).
+- 2026-11-05 T601 quiz content built → [q] (19 identify, 12 next-step). T602 started.
+- 2026-11-05 T601 QA PASS (+3 wording fixes). T603 paraphrase guard PASS: found 3 ≥8-word overlaps with BOOK_NOTES in steps.ts (2) + tips.ts (1) → reworded by orchestrator; guard now strict (no allowlist), runs in npm test. Note: materials.test noise-texture test can exceed 5 s under heavy parallel load (flake, passes alone) → T109 test stability.
+- 2026-11-05 T602 quiz engine+UI phase 1 done → [w] (7 tests; options shuffled per seed after orchestrator follow-up).
+- 2026-11-05 T110w wiring built (T107/T108/T202/T203 wired; config consolidated; perfConfig.ts deleted; materials.setFade). lint 0 (orchestrator prettier --write on 7 phase-1 files), unit 254/254, build 0, perf:probe PASS programs 25→25, initial JS 215 KB gz, lazy perfOverlay/physiologyPanel chunks. e2e physiology+perf-overlay PASS (olv.png, clamp-test.png); guided spec re-run + full e2e pending. BLOCKED: orphaned vite preview :4173 (PIDs 59695/59775/59786/59787) — agent kill was refused by the permission system; waiting for the user to kill it. Open: shell top bar may cover postfx/cameras corner samples; reduced-motion guided fades still 1.5 s; step-N.png taken outside view.
+- 2026-11-05 T110w full e2e after port freed: 27.7 min, 10 pass/3 fail (guided stuck step 6; postfx screenshot hang 480 s; materials context timeout); ~5x slower than T106 baseline → T110wb fix round 1 spawned. T404 builder running in parallel. M7/M8 planned (T701–T705, T801–T805).
+- 2026-11-05 T404 phase 1 built [w] (retract.ts, dissect.ts, graspUniforms in materials.ts; 265/265 unit; probe 25→25). Note: concurrent npm run build rewrote dist/ during the e2e run and load avg ~18 — likely contributed to T110w e2e slowness; future briefs: run build only under the e2e lock while a suite is running.
+- 2026-11-05 T110wb fix round: guided clock-origin bug fixed (step 6→7), reduced-motion instant, hideShell for corner samples, timeouts raised to 600/300 s; suite 13 pass via scratch reuse config 27.4 min. Slowness = T104 physical materials + full-res post-FX under SwiftShader (2 frames/15 s), not T110w wiring. Orphan vite preview PID 122595 (builder-started, kill refused) → user. T109 started (halfRes + test cost).
+- 2026-11-05 T109 built [q]: halfRes post-FX (low/medium), tests low preset + 640×400 default, probe script phases (src/sim/probe.ts), PERF.md measured; e2e 13 pass 10.1 min on :4175 (was 27.4). Orchestrator: playwright.config.ts honours E2E_PORT so QA can run while PID 122595 holds :4173. QA T110wb + T109 spawned.
+- 2026-11-05 T110w + T110wb QA PASS (e2e 13 pass/3 fixme, 10.4 min, E2E_PORT=4175; probe 25→25). T107 T108 T202 T203 → [x]. Note: no unit test for reduced-motion guided path (→ T802).
+- 2026-11-05 T109 QA PASS (e2e 13 pass/3 fixme 10.1 min, probe 25→25 on default/low/medium). M1 tasks all [x] → M1 gate next.
+- 2026-11-05 06:35 SPEED-UP: headless Chromium with --use-angle=vulkan gets the real Intel UHD GPU (was SwiftShader). playwright.config.ts + perf-probe.mjs now default to Vulkan (E2E_SWIFTSHADER=1 / PERF_SWIFTSHADER=1 to force software). T204 covered by T109 probe. M1 visual-critic 3/10 → T111. Parallel: T307 + T111 + T804. Deadline 09:45.
+- 2026-11-05 M1 GATE PASS (auditor: lint/test/build 0, e2e 13 pass 10.8 min SwiftShader, probe 25→25). Non-blocking: render-on-demand missing (→T703), viewer low-preset programs 26 baseline (→T701), fps/heap unmeasured (→T705).
+- 2026-11-05 T804 built [q]: network.spec, review-badge.spec, dist-contents unit test, README. Found: duplicate basis_transcoder in dist/assets (→T704); DEPLOY_HOSTINGER_KVM.md missing (→T704).
+- 2026-11-05 M2 GATE FAIL: caption bar covers 45% of 1280×720 (rail items 4–7 unreachable) → T205. Mechanical all green (270 unit, probe 25→25).
+- 2026-11-05 T205 built [q]: caption collapsed behind More/Less (110 px vs 330), all 7 rail items visible at 1280×720/1024×640 (e2e), live reduced-motion; 271 unit.
+- 2026-11-05 T205 QA PASS → M2 GATE PASS.
+- 2026-11-05 T703 built [q]: render gate (hold/release/requestRender) in renderer.ts, __perf.renders, visibility.spec, alloc-audit unit test (20 hot files, 0 real hits). Wiring into debrief/quiz in T505/T604 (WIRING.md T703).
+- 2026-11-05 T804 QA PASS.
+- 2026-11-05 T704 built [q]: transcoder dupe removed (−571 KB), preload checks, meshopt decoder in workers, textureDownscale implemented (needs main.ts to pass preset.textureDownscale → do in next main.ts owner task), DEPLOY notes. Ready 2.0–2.9 s on real GPU. T702 started.
+- 2026-11-05 T307 built [q]: M3 glue in lazy src/app/wireM3.ts (initial JS 221 KB), full e2e 24 pass ~130 s on GPU, probe 25→25. T409 started.
+- 2026-11-05 T704 QA PASS. T604 (quiz wiring) started in parallel with T409 (only needs T302 picker, wired).
+- 2026-11-05 T307 QA PASS → M3 gate (auditor + visual-critic) spawned.
+- 2026-11-05 M3 visual-critic UI 6/10 → T308 started.
+- 2026-11-05 T604 built [q]: Quiz mode button, lazy wireM6 + quiz chunk (4.5 KB gz), identify via picker (M3.onPick), render gate held on static quiz screens, quiz.spec 4/4 repeat, probe 25→25.
+- 2026-11-05 T702 built [q]: morph-safe bounding spheres (culling on for all 87 glb meshes), spine/sternum/pa_left hidden in scope (never hit), merging skipped (documented); scope draw calls/tris down every step, p95 16.8 ms on real GPU. T803 started.
+- 2026-11-05 M3 GATE PASS (auditor). Layout overlap spec + label clipping folded into T308.
+- 2026-11-05 T702 QA PASS. Programs at ready now 32 (M4 variants warmed at load), still 0 new after ready.
+- 2026-11-05 T111 built [q]: grade fixed (sat 0.495→0.445, red clip 27.8%→0.01%), pleura baked maps dropped (violet wall), bone white, speckle visible, outside ambient 0.8 on view switch, step-3 poseFix. Open: glints still pink-not-white; live step-3 via retraction port sees chest wall (ASSET_ISSUES L3).
+- 2026-11-05 M6 GATE PASS: auditor's only defect (review-badge.spec lazy-load race) fixed by orchestrator (wait on skip.or(option)), quiz+badge specs 6/6 over 2 repeats.
+- 2026-11-05 T111 QA PASS.
+- 2026-11-05 T308 built [q]: UI covers 25.0% of scope at 1280×720 (was 35.7%), 1024: 48→42%; layout.spec added; labels capped 12 + kept above dock; dark form controls. help.spec broken by T409 roll-head labels (T409 notified).
+- 2026-11-05 T308 QA PASS.
+- 2026-11-05 T803 built [q]: ?nowebgl2 hook, error-card layout fixes, quality setting in help overlay (persisted via existing quality storage), loading.spec 7/7.
+- 2026-11-05 T803 QA PASS.
+- 2026-11-05 T703 QA PASS (retry).
+- 2026-11-05 T409 built [q]: wireM4 lazy (15.2 KB gz), initial JS 224.5 KB, full e2e 36 pass 2.9 min, probe 32→32 incl. M4 phases + PiP; draw calls peak 131 (cautery + PiP). M4 gate + visual critic spawned.
+- 2026-11-05 T802 built [q]: a11y.spec (contrast vs darkest/brightest scope px, keyboard tab+focus+activation, reduced motion), muted token + overlay lifted (ADR-010), quiz primary button contrast fixed; reduced-motion unit test.
+- 2026-11-05 M4 visual-critic 2/10 FAIL (framing: tools off-screen; flat materials) → T410.
+- 2026-11-05 T802 QA PASS.
+- 2026-11-05 T505 built [q]: wireM5 lazy (10.6 KB gz), practice bar, engine gate, complications (decals from m4.fx, uGain reddening), debrief lazy + render hold; full PA01→PA32 run 100/100; retry = reload ?mode=practice (no m4.reset). M5 gate + visual critic + T701 spawned.
+- 2026-11-05 T409 QA PASS; M4 gate mechanical PASS, visual pending T410.
+- 2026-11-05 M5 visual-critic 5.5/10 (blood invisible, magenta tint, bar placement) → T506.
+- 2026-11-05 M5 GATE FAIL: probe heap gate measured per-run not across-run (→T701), unit tests broken by T410 in-progress (→T410), empty run scores ~55 (→T505b). e2e 36/36 green.
+- 2026-11-05 T505b built [q]: empty run 0, partial scales, injury dedupe (scoring.dedupeWindowSec 1), 303 unit tests. QA folds into the M5 re-gate after T506/T701.
+- 2026-11-05 T506 built [q]: blood-red px 0%→23%, hue 344°→356°, practice bar bottom-left, --color-danger token, decal camera-facing (open). M5 re-gate spawned.
+- 2026-11-05 T701 built [q]: full scripted probe (guided, X-ray, M4, 3 practice runs w/ complication), programs 32→32 everywhere, heap across runs 0 %, scope ≤60 calls/479k tris, peak 137/960k, p95 16.7 ms (real GPU). T705 started.
+- 2026-11-05 M5 GATE PASS (re-gate). actions.spec:87 stapler-after-retractor-move regression → T410.
+- 2026-11-05 T705 built [q]: PERF.md budget table complete (initial JS 233 KB gz, FCP 156 ms, ready 2.9 s, programs 0 new, heap 0 %, fps user-to-measure). check script: PERF_NO_BUILD=1 for the probe (e2e already built).
+- 2026-11-05 T801 built [q]: label declutter + per-step focus, step-3 snaps via port_utility_5ICS (live view now sees hilum), grade/outside tuning; glints at step 1 still low (needs postfx highlight shoulder). Orchestrator ran prettier on config.ts/dist-contents.test.ts/vite.config.ts.
+- 2026-11-05 M7 GATE PASS. PERF.md notes: texture cap = low-preset mip drop; heap per-run vs across-run explained.
+- 2026-11-05 T801 QA PASS; ADR-011 recorded.
+- 2026-11-05 08:55 T410 built [q]: probe placeTool aims scope at tip, steel shafts, white cautery shaft, stapler 20°, staples/hands/smoke tuned, scope body mesh; 5/7 tools now in frame; grasper/sponge/clamp + stumps still occluded (needs per-target views). T805 final: M8 auditor (npm run check) + final visual critic.
+- 2026-11-05 Final visual critic: overall 4.5/10 (tissue 4.5, optics 6, instruments 4, UI 7.5, practice 6, loading 8). Fixes recorded as T806 [>] (deferred, non-MANDATORY).
+
+## FINAL REPORT — 2026-11-05 ~09:20 (T805)
+Status: all 63 tasks [x], module gates M0–M8 PASS; 1 deferred (T806 realism pass, non-MANDATORY). Nothing committed: the user commits.
+Final check: `npm run check` exit 0 (lint 0 · build 0 · vitest 34 files / 303 tests · Playwright 35 pass · perf:probe 0 new programs), run with E2E_PORT=4217 because an orphaned `vite preview` (PID 122595) still holds :4173 → user: `kill 122595`.
+Budgets (headless Chromium on Intel UHD via ANGLE/Vulkan, 1280×720 medium; full table in docs/PERF.md):
+- initial JS 233 KB gz / ≤250 · transfer 11.4 MB / ≤14 · FCP ~150 ms / <1 s · ready ~2.9 s / <8 s
+- programs after ready: 0 new (32 medium, 33 low) on every page incl. 3 practice runs · heap across 3 runs 0 % / <10 %
+- draw calls scope ≤60 guided, peak 136 with instruments / ≤250; outside ~92 (101 with hands) / ≤400 · tris ≤479k guided, peak 964k / ≤1.5 M · textures ~107 MB / ≤300
+- fps on real hardware: USER TO MEASURE via `npm run preview` → http://localhost:4173/?perf (steps in docs/PERF.md + README)
+Hard rules audited: no runtime network calls (network.spec), dist has only thorax_sim.opt.glb + decoders (dist-contents test), paraphrase guard passes, "Pending clinician review" on every teaching surface (review-badge.spec), no deploy, no agent commits.
+Process note: switching e2e/probe from SwiftShader to the real GPU (--use-angle=vulkan) cut the full e2e from ~27 min to ~3 min.
+Known limitations / next pass (T806): overall realism 4.5/10 per the final visual critic (tissue 4.5, optics 6, instruments 4, UI 7.5, practice 6, loading 8): half-res aliasing, pastel grade, flat fat/chest wall, matte steel, grasper/sponge/clamp/stump probe shots partly occluded, bleed decal camera-facing, low white glints at step 1, some labels under the top bar/caption, retry = page reload (no M4 scene reset), finish.ts errors not scored.
+Open clinician-review items: all teaching text (steps, tips, labels, quiz, practice text, complications), scoring weights, PA31 optional (ADR-009), 45° approach limit, per-step port choices incl. ADR-011 (step 3 via access incision).
+- 2026-11-05 USER FEEDBACK after inspection: lungs look anatomical, physiology (lung down) + retractors work; but zoomed views are confusing (vessels/bronchus unreadable) → T807; camera port can't be changed for different views (only P key with Hands selected, no UI) → T808. Planned for next session, ahead of T806.
+- 2026-11-05 Resumed by user. T808 (camera port switching) ∥ T807 (zoomed anatomy clarity) started; T806 after T807 (shared material config).

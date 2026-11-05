@@ -22,7 +22,8 @@
         display: flex;
         flex-direction: column;
         align-items: center;
-        justify-content: center;
+        justify-content: safe center; /* short viewports scroll instead of clipping the top */
+        overflow-y: auto;
         gap: var(--space-4);
         background: var(--color-bg);
         transition: opacity var(--iris-ms) var(--ease-out);
@@ -46,6 +47,13 @@
           var(--color-bg) 100%
         );
         transition: transform var(--iris-ms) var(--ease-out);
+      }
+      /* failure: tighter layout so the error card fits short viewports (they scroll below that) */
+      .loading.failed {
+        gap: var(--space-2);
+      }
+      .loading.failed .subtitle {
+        display: none;
       }
       .loading.open .lens {
         transform: scale(3);
@@ -90,6 +98,9 @@
         color: var(--color-accent);
         font-variant-numeric: tabular-nums;
       }
+      .loading.failed .stage {
+        color: var(--color-warning);
+      }
       .tip {
         max-width: 44ch;
         min-height: 3em;
@@ -129,13 +140,15 @@
         border: var(--border-width) solid var(--color-border);
         border-radius: var(--radius-sm);
         cursor: pointer;
+        transition: border-color var(--motion-fast) var(--ease-out);
+      }
+      .error-card button:hover {
+        border-color: var(--color-accent);
       }
       .error-card button.primary {
         border-color: var(--color-accent);
       }
       .review {
-        position: absolute;
-        bottom: var(--space-3);
         margin: 0;
         padding: calc(var(--space-1) / 2) var(--space-1);
         font-size: var(--font-size-small);

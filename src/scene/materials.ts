@@ -1,26 +1,32 @@
 // Realism materials (CONTEXT §8): every mesh gets MeshPhysicalMaterial variants built ONCE at load (§6.5, §6.10).
 // One shared shader patch (uniform-driven per tissue class) + one constant program cache key, so tissues share programs.
 // X-ray/opacity only swap pre-compiled variants and set opacity; nothing toggles transparent/defines at runtime.
+// Clipping: every variant has the same fixed-length clippingPlanes = [shared cut-away, ...per-mesh division planes],
+// parked far away until used; moving a plane only mutates its values, so programs never change.
 import {
   Color,
   DataTexture,
+  Group,
   LinearFilter,
   LinearMipmapLinearFilter,
+  Mesh,
   MeshPhysicalMaterial,
+  Plane,
   RepeatWrapping,
   Vector2,
+  Vector3,
   Vector4,
 } from 'three';
 import type {
+  Camera,
   Material,
-  Mesh,
   MeshStandardMaterial,
   Object3D,
-  PerspectiveCamera,
   Scene,
   WebGLProgramParametersWithUniforms,
   WebGLRenderer,
 } from 'three';
+import { config } from '../core/config';
 import { setupLights } from './lights';
 import { FALLBACK_TISSUE, TISSUES, TISSUE_RULES, look } from './materials.config';
 import type { TissueClass, TissueParams } from './materials.config';
@@ -30,6 +36,8 @@ interface Variants {
   transparent: MeshPhysicalMaterial; // X-ray / opacity < 1
   baseOpacity: number;
   opacity: number; // user opacity (layer panel)
+  fade: number; // transient multiplier (guided visibility fades), × opacity
+  division: readonly Plane[]; // clippingPlanes[1..N] of both variants
 }
 interface TissueUniforms {
   uTissueMap: { value: Vector4 }; // retint, mapLuma, speckle, lobular
@@ -44,15 +52,31 @@ declare global {
     __look?: {
       setXray: (on: boolean) => void;
       setOpacity: (name: string, a: number) => void;
-      view: (cam: string, hidden?: readonly string[]) => void;
+      setCutaway: (normal: readonly [number, number, number], constant: number) => void;
+      parkCutaway: () => void;
     };
   }
 }
 
 const variants = new Map<Mesh, Variants>();
-/** Every variant material (opaque + transparent), for warm-up compilation. */
-export const variantMaterials: MeshPhysicalMaterial[] = [];
 let xray = false;
+
+const PARK_NORMAL = new Vector3(0, 0, 1);
+const parked = (): Plane => new Plane(PARK_NORMAL.clone(), config.clipping.parkConstant);
+/** Global cut-away plane (§6.5), index 0 of every realism material's clippingPlanes. */
+const cutaway = parked();
+
+/** Move the cut-away plane (world space; points with n·p + c < 0 are clipped). Mutates values only. */
+export function setCutawayPlane(normal: Vector3, constant: number): void {
+  cutaway.set(normal, constant);
+}
+export function parkCutaway(): void {
+  cutaway.set(PARK_NORMAL, config.clipping.parkConstant);
+}
+/** The mesh's local division planes (staple-divide, §6.4): mutate their values, never replace them. */
+export function getDivisionPlanes(mesh: Mesh): readonly Plane[] | undefined {
+  return variants.get(mesh)?.division;
+}
 
 const N = look.noise;
 const f = (x: number): string => x.toFixed(4);
@@ -78,6 +102,32 @@ void RE_Direct_Tissue( const in IncidentLight directLight, const in vec3 geometr
 #define RE_Direct RE_Direct_Tissue
 `;
 
+// Grasp-and-pull (§6.4): world-space offset around the grasp point, smooth falloff, zero offset = no-op.
+// Uniforms are shared by every tissue program and present from load; only their values change (T404 retract.ts).
+const GRASP_PARS = /* glsl */ `
+uniform vec3 uGraspPoint;
+uniform vec3 uGraspOffset;
+uniform float uGraspRadius;
+void main() {`;
+const GRASP_VERTEX = /* glsl */ `
+	if ( dot( uGraspOffset, uGraspOffset ) > 0.0 ) {
+		float graspK = 1.0 - smoothstep( 0.0, uGraspRadius, distance( ( modelMatrix * vec4( transformed, 1.0 ) ).xyz, uGraspPoint ) );
+		transformed += inverse( mat3( modelMatrix ) ) * ( uGraspOffset * graspK );
+	}
+#include <project_vertex>`;
+
+export interface GraspUniforms {
+  uGraspPoint: { value: Vector3 };
+  uGraspOffset: { value: Vector3 };
+  uGraspRadius: { value: number };
+}
+/** The one grasp-and-pull uniform set shared by all tissue materials; mutate `.value`s only. */
+export const graspUniforms: GraspUniforms = {
+  uGraspPoint: { value: new Vector3() },
+  uGraspOffset: { value: new Vector3() },
+  uGraspRadius: { value: 1 },
+};
+
 const MAP = /* glsl */ `
 #ifdef USE_MAP
 	vec4 sampledDiffuseColor = texture2D( map, vMapUv );
@@ -98,7 +148,10 @@ const MAP = /* glsl */ `
 `;
 
 function patch(shader: WebGLProgramParametersWithUniforms, u: TissueUniforms): void {
-  Object.assign(shader.uniforms, u);
+  Object.assign(shader.uniforms, u, graspUniforms);
+  shader.vertexShader = shader.vertexShader
+    .replace('void main() {', GRASP_PARS)
+    .replace('#include <project_vertex>', GRASP_VERTEX);
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <lights_physical_pars_fragment>', PARS)
     .replace('#include <map_fragment>', MAP);
@@ -185,15 +238,17 @@ function makeMaterial(
   noise: DataTexture,
   transparent: boolean,
   opacity: number,
+  clippingPlanes: Plane[],
 ): MeshPhysicalMaterial {
-  const t = TISSUES[cls];
+  const t: TissueParams = TISSUES[cls];
+  const baked = t.bakedMaps ?? true;
   const m = new MeshPhysicalMaterial({
     name: `${src.name}:${transparent ? 'transparent' : 'opaque'}`,
     color: t.color,
-    map: src.map,
-    normalMap: src.normalMap,
+    map: baked ? src.map : null,
+    normalMap: baked ? src.normalMap : null,
     normalScale: src.normalScale,
-    roughnessMap: src.roughnessMap, // roughness below multiplies the baked map
+    roughnessMap: baked ? src.roughnessMap : null, // roughness below multiplies the baked map
     roughness: t.roughness,
     metalness: 0,
     clearcoat: t.clearcoat,
@@ -205,15 +260,15 @@ function makeMaterial(
     transparent,
     depthWrite: !transparent,
     forceSinglePass: true, // double-sided transparents: one pass, no per-frame side flips/needsUpdate
+    clippingPlanes,
   });
   m.onBeforeCompile = (shader) => patch(shader, u);
   m.customProgramCacheKey = cacheKey;
-  variantMaterials.push(m);
   return m;
 }
 
 function apply(mesh: Mesh, v: Variants): void {
-  const a = xray ? Math.min(v.opacity, look.xrayOpacity) : v.opacity;
+  const a = (xray ? Math.min(v.opacity, look.xrayOpacity) : v.opacity) * v.fade;
   if (a >= 1) {
     mesh.material = v.opaque;
     return;
@@ -234,8 +289,20 @@ export function setOpacity(mesh: Mesh, a: number): void {
   apply(mesh, v);
 }
 
-/** Replace every mesh material under root with its tissue variants. Load-time only. */
-export function applyMaterials(root: Object3D): void {
+/** Guided fade factor; multiplies the layer opacity, so a fade ending at 1 restores the layer-panel look. */
+export function setFade(mesh: Mesh, f: number): void {
+  const v = variants.get(mesh);
+  if (!v || v.fade === f) return;
+  v.fade = f;
+  apply(mesh, v);
+}
+
+/**
+ * Replace every mesh material under root with its tissue variants. Load-time only.
+ * Returns proxies (shared geometry + transparent variant) for the loader's compile stage, so X-ray never compiles.
+ */
+export function applyMaterials(root: Object3D): Group {
+  const proxies = new Group();
   const noise = buildNoiseTexture();
   const uniforms = new Map<TissueClass, TissueUniforms>();
   const replaced = new Set<Material>();
@@ -256,51 +323,38 @@ export function applyMaterials(root: Object3D): void {
       uniforms.set(cls, u);
     }
     const baseOpacity = src.transparent ? (t.opacity ?? src.opacity) : 1;
-    const opaque = makeMaterial(src, cls, u, noise, src.transparent, baseOpacity);
-    if (src.transparent) opaque.depthWrite = src.depthWrite;
-    const transparent = makeMaterial(src, cls, u, noise, true, baseOpacity);
-    variants.set(mesh, { opaque, transparent, baseOpacity, opacity: 1 });
+    const division = Array.from({ length: config.clipping.divisionPlanes }, parked);
+    const planes = [cutaway, ...division];
+    const blend = src.transparent && baseOpacity < 1; // a config opacity of 1 makes a glTF BLEND mesh truly opaque
+    const opaque = makeMaterial(src, cls, u, noise, blend, baseOpacity, planes);
+    if (blend) opaque.depthWrite = src.depthWrite;
+    const transparent = makeMaterial(src, cls, u, noise, true, baseOpacity, planes);
+    variants.set(mesh, { opaque, transparent, baseOpacity, opacity: 1, fade: 1, division });
     mesh.material = opaque;
     replaced.add(src);
+    proxies.add(new Mesh(mesh.geometry, transparent));
   });
   for (const m of replaced) m.dispose(); // textures stay: they are reused by the variants
+  return proxies;
 }
 
 /**
- * T104 entry: lights + env + materials, then compile the transparent variants so X-ray never compiles at runtime.
- * The caller's own compileAsync (before "ready") compiles the opaque/default variants.
+ * Look entry (load time, before the loader's upload/compile stages): lights + env on the rendered camera, tissue
+ * variants with clipping planes. Returns the transparent-variant proxies to register for warm-up compilation.
  */
-export async function applyRealism(
-  scene: Scene,
-  renderer: WebGLRenderer,
-  camera: PerspectiveCamera,
-): Promise<void> {
+export function applyRealism(scene: Scene, renderer: WebGLRenderer, camera: Camera, root: Object3D): Group {
+  renderer.localClippingEnabled = true;
   setupLights(scene, camera, renderer);
-  applyMaterials(scene);
-  // ponytail: warm-up by swapping to X-ray and compiling once; switch to T102's registerWarmupObject after merge.
-  setXray(true);
-  await renderer.compileAsync(scene, camera);
-  setXray(false);
-
+  const proxies = applyMaterials(root);
+  const n = new Vector3();
   window.__look = {
     setXray,
     setOpacity: (name, a) => {
       const mesh = scene.getObjectByName(name) as Mesh | undefined;
       if (mesh) setOpacity(mesh, a);
     },
-    view: (name, hidden = []) => {
-      for (const h of hidden) {
-        const o = scene.getObjectByName(h);
-        if (o) o.visible = false;
-      }
-      const cam = scene.getObjectByName(name) as PerspectiveCamera | undefined;
-      if (!cam?.isPerspectiveCamera) return;
-      cam.updateWorldMatrix(true, false);
-      cam.matrixWorld.decompose(camera.position, camera.quaternion, camera.scale);
-      camera.fov = cam.fov;
-      camera.near = cam.near;
-      camera.far = cam.far;
-      camera.updateProjectionMatrix();
-    },
+    setCutaway: (normal, constant) => setCutawayPlane(n.set(...normal).normalize(), constant),
+    parkCutaway,
   };
+  return proxies;
 }

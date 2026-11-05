@@ -1,0 +1,706 @@
+{
+  "version": 1,
+  "review": "Pending clinician review",
+  "actions": [
+    {
+      "id": "PA01",
+      "step": 1,
+      "tool": "hands",
+      "subOption": null,
+      "action": "inspect",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": ["lung_middle_lobe_right"],
+      "prerequisites": [],
+      "result": {
+        "state": {
+          "deflate_RUL": 1,
+          "deflate_RML": 1,
+          "deflate_RLL": 1
+        },
+        "flags": ["inspected"]
+      },
+      "video": "0:28-0:42",
+      "optional": false,
+      "weight": 1,
+      "note": "Survey the collapsed right lung and confirm one-lung ventilation."
+    },
+    {
+      "id": "PA02",
+      "step": 2,
+      "tool": "hands",
+      "subOption": null,
+      "action": "move-scope",
+      "port": {
+        "preferred": "port_retraction_8ICS",
+        "allowed": ["port_retraction_8ICS"]
+      },
+      "targets": [],
+      "prerequisites": ["PA01"],
+      "result": {
+        "scopePort": "port_retraction_8ICS"
+      },
+      "video": "0:46-0:54",
+      "optional": false,
+      "weight": 1,
+      "note": "Move the scope to the anterior working port to free the camera port."
+    },
+    {
+      "id": "PA03",
+      "step": 2,
+      "tool": "grasper",
+      "subOption": "retractor",
+      "action": "retract",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": ["lung_upper_lobe_right"],
+      "prerequisites": ["PA02"],
+      "result": {
+        "state": {
+          "retract_posterior": 1
+        }
+      },
+      "video": "0:46-0:56",
+      "optional": false,
+      "weight": 1,
+      "note": "Retract the lung posteriorly and hold it (G) to show the anterior hilum."
+    },
+    {
+      "id": "PA04",
+      "step": 2,
+      "tool": "peanut",
+      "subOption": null,
+      "action": "dissect",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["mediastinal_fat"],
+      "prerequisites": ["PA03"],
+      "result": {
+        "hide": ["mediastinal_fat"],
+        "show": ["mediastinal_fat_window"]
+      },
+      "video": "0:58-1:13",
+      "optional": false,
+      "weight": 1,
+      "note": "Sweep the mediastinal fat to open a window onto the hilum."
+    },
+    {
+      "id": "PA05",
+      "step": 2,
+      "tool": "peanut",
+      "subOption": null,
+      "action": "dissect",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["phrenic_nerve_right"],
+      "prerequisites": ["PA04"],
+      "result": {
+        "flags": ["phrenic_protected"]
+      },
+      "video": "1:01",
+      "optional": false,
+      "weight": 1,
+      "note": "Push the phrenic nerve anteriorly with the peanut; no energy near it."
+    },
+    {
+      "id": "PA06",
+      "step": 3,
+      "tool": "peanut",
+      "subOption": null,
+      "action": "dissect",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["hilar_connective_tissue"],
+      "prerequisites": ["PA04"],
+      "result": {
+        "hide": ["hilar_connective_tissue"],
+        "show": ["hilar_connective_tissue_window"],
+        "flags": ["vein_exposed"]
+      },
+      "video": "1:13-1:24",
+      "optional": false,
+      "weight": 1,
+      "note": "Clear hilar tissue until the lateral and medial middle-lobe vein branches are visible."
+    },
+    {
+      "id": "PA07",
+      "step": 3,
+      "tool": "hands",
+      "subOption": null,
+      "action": "inspect",
+      "port": {
+        "preferred": null,
+        "allowed": []
+      },
+      "targets": ["V_RML_common", "tree_pulm_vein_base"],
+      "prerequisites": ["PA06"],
+      "result": {
+        "flags": ["vein_anatomy_checked"]
+      },
+      "video": "1:13",
+      "optional": false,
+      "weight": 2,
+      "note": "Identify the middle-lobe vein and confirm the upper-lobe vein is spared (click the labels)."
+    },
+    {
+      "id": "PA08",
+      "step": 3,
+      "tool": "clamp",
+      "subOption": null,
+      "action": "encircle",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["V_RML_common"],
+      "prerequisites": ["PA06"],
+      "result": {
+        "flags": ["tunnel_V"]
+      },
+      "video": "1:24-1:40",
+      "optional": false,
+      "weight": 1,
+      "note": "Pass the blunt clamp behind the middle-lobe vein."
+    },
+    {
+      "id": "PA09",
+      "step": 3,
+      "tool": "grasper",
+      "subOption": "retractor",
+      "action": "retract",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["lung_upper_lobe_right"],
+      "prerequisites": ["PA08"],
+      "result": {
+        "flags": ["retraction_swap_1"]
+      },
+      "video": "~1:40-2:00",
+      "optional": false,
+      "weight": 1,
+      "note": "Retraction swap: hold the lung from the access incision so the camera port is free for the stapler."
+    },
+    {
+      "id": "PA10",
+      "step": 3,
+      "tool": "stapler",
+      "subOption": "vascular-curved",
+      "action": "fire",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": ["V_RML_common"],
+      "prerequisites": ["PA07", "PA08", "PA09"],
+      "result": {
+        "divide": ["V_RML_common", "V4_lateral", "V5_medial", "V_RML_accessory_1", "V_RML_accessory_2"],
+        "advanceTo": 4
+      },
+      "video": "2:04-2:17",
+      "optional": false,
+      "weight": 2,
+      "alternatives": [
+        {
+          "tool": "stapler",
+          "subOption": "vascular-curved",
+          "targets": ["V4_lateral", "V5_medial"]
+        }
+      ],
+      "note": "Staple and divide the middle-lobe vein through the camera port."
+    },
+    {
+      "id": "PA11",
+      "step": 4,
+      "tool": "grasper",
+      "subOption": "retractor",
+      "action": "retract",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": ["lung_upper_lobe_right"],
+      "prerequisites": ["PA10"],
+      "result": {
+        "flags": ["bronchus_tensioned"]
+      },
+      "video": "2:17-2:24",
+      "optional": false,
+      "weight": 1,
+      "note": "Move the retraction back to the camera port and release the access-incision hold."
+    },
+    {
+      "id": "PA12",
+      "step": 4,
+      "tool": "peanut",
+      "subOption": null,
+      "action": "dissect",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["hilar_connective_tissue"],
+      "prerequisites": ["PA11"],
+      "result": {
+        "flags": ["bronchus_exposed"]
+      },
+      "video": "2:24-2:36",
+      "optional": false,
+      "weight": 1,
+      "note": "Dissect along the middle-lobe bronchus."
+    },
+    {
+      "id": "PA13",
+      "step": 4,
+      "tool": "cautery",
+      "subOption": null,
+      "action": "dissect",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["hilar_connective_tissue"],
+      "prerequisites": ["PA12"],
+      "result": {
+        "flags": ["interlobar_pleura_opened"]
+      },
+      "video": "2:36",
+      "optional": false,
+      "weight": 1,
+      "note": "Open the interlobar pleura with energy (smoke, brief lens fog)."
+    },
+    {
+      "id": "PA14",
+      "step": 4,
+      "tool": "grasper",
+      "subOption": "ring",
+      "action": "remove-node",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["LN_11R"],
+      "prerequisites": ["PA12"],
+      "result": {
+        "specimen": ["LN_11R"]
+      },
+      "video": "2:44",
+      "optional": false,
+      "weight": 1,
+      "note": "Remove the interlobar node beside the bronchus to improve exposure."
+    },
+    {
+      "id": "PA15",
+      "step": 4,
+      "tool": "grasper",
+      "subOption": "ring",
+      "action": "remove-node",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["LN_12R"],
+      "prerequisites": ["PA12"],
+      "result": {
+        "specimen": ["LN_12R"]
+      },
+      "video": "2:44-3:04",
+      "optional": false,
+      "weight": 1,
+      "note": "Remove the lobar node beside the bronchus."
+    },
+    {
+      "id": "PA16",
+      "step": 4,
+      "tool": "clamp",
+      "subOption": null,
+      "action": "encircle",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["B_RML_common"],
+      "prerequisites": ["PA14", "PA15"],
+      "result": {
+        "flags": ["tunnel_B"]
+      },
+      "video": "3:09-3:18",
+      "optional": false,
+      "weight": 1,
+      "note": "Encircle the middle-lobe bronchus with the blunt clamp."
+    },
+    {
+      "id": "PA17",
+      "step": 4,
+      "tool": "stapler",
+      "subOption": "bronchial",
+      "action": "close",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS", "port_camera_8ICS", "port_retraction_8ICS"]
+      },
+      "targets": ["B_RML_common"],
+      "prerequisites": ["PA16"],
+      "result": {
+        "flags": ["bronchus_clamped"]
+      },
+      "video": "3:18-3:36",
+      "optional": false,
+      "weight": 1,
+      "note": "Close the bronchial stapler across the bronchus without firing."
+    },
+    {
+      "id": "PA18",
+      "step": 4,
+      "tool": "ventilate",
+      "subOption": null,
+      "action": "ventilate",
+      "port": {
+        "preferred": null,
+        "allowed": []
+      },
+      "targets": ["B_RML_common"],
+      "prerequisites": ["PA17"],
+      "result": {
+        "transient": {
+          "state": {
+            "deflate_RUL": 0,
+            "deflate_RLL": 0
+          },
+          "seconds": 4
+        },
+        "flags": ["bronchus_test_passed"]
+      },
+      "video": null,
+      "optional": false,
+      "weight": 2,
+      "note": "Test ventilation: upper and lower lobes inflate while the middle lobe stays down."
+    },
+    {
+      "id": "PA19",
+      "step": 4,
+      "tool": "stapler",
+      "subOption": "bronchial",
+      "action": "fire",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS", "port_camera_8ICS", "port_retraction_8ICS"]
+      },
+      "targets": ["B_RML_common"],
+      "prerequisites": ["PA18"],
+      "result": {
+        "divide": ["B_RML_common", "B4_lateral", "B5_medial"],
+        "advanceTo": 5
+      },
+      "video": "3:36-3:41",
+      "optional": false,
+      "weight": 2,
+      "note": "Fire to divide the middle-lobe bronchus."
+    },
+    {
+      "id": "PA20",
+      "step": 5,
+      "tool": "grasper",
+      "subOption": "retractor",
+      "action": "retract",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["lung_upper_lobe_right"],
+      "prerequisites": ["PA19"],
+      "result": {
+        "flags": ["retraction_swap_2"]
+      },
+      "video": "4:17",
+      "optional": false,
+      "weight": 1,
+      "note": "Second retraction swap to free the camera port."
+    },
+    {
+      "id": "PA21",
+      "step": 5,
+      "tool": "clamp",
+      "subOption": null,
+      "action": "encircle",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["A_RML_common"],
+      "prerequisites": ["PA19"],
+      "result": {
+        "flags": ["tunnel_A"]
+      },
+      "video": "4:17-4:29",
+      "optional": false,
+      "weight": 1,
+      "note": "Pass gently behind the middle-lobe artery branches; pulling too hard causes a minor bleed."
+    },
+    {
+      "id": "PA22",
+      "step": 5,
+      "tool": "stapler",
+      "subOption": "vascular-leader",
+      "action": "fire",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": ["A_RML_common"],
+      "prerequisites": ["PA20", "PA21"],
+      "result": {
+        "divide": [
+          "A_RML_common",
+          "A4_lateral",
+          "A5_medial",
+          "A_RML_accessory_1",
+          "A_RML_accessory_2",
+          "A_RML_extra_1"
+        ],
+        "advanceTo": 6
+      },
+      "video": "4:29-5:06",
+      "optional": false,
+      "weight": 2,
+      "alternatives": [
+        {
+          "tool": "stapler",
+          "subOption": "vascular-curved",
+          "targets": ["A_RML_common"]
+        },
+        {
+          "tool": "stapler",
+          "subOption": "vascular-curved",
+          "targets": ["A4_lateral", "A5_medial"]
+        },
+        {
+          "tool": "clip",
+          "subOption": null,
+          "targets": ["A4_lateral", "A5_medial"]
+        }
+      ],
+      "note": "Guide the vascular stapler behind the arteries (leader or curved tip) and divide them."
+    },
+    {
+      "id": "PA23",
+      "step": 6,
+      "tool": "hands",
+      "subOption": null,
+      "action": "move-scope",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": [],
+      "prerequisites": ["PA22"],
+      "result": {
+        "scopePort": "port_camera_8ICS"
+      },
+      "video": "5:14-5:21",
+      "optional": false,
+      "weight": 1,
+      "note": "Return the scope to the camera port once the stapler is out."
+    },
+    {
+      "id": "PA24",
+      "step": 6,
+      "tool": "grasper",
+      "subOption": "retractor",
+      "action": "retract",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["lung_middle_lobe_right"],
+      "prerequisites": ["PA23"],
+      "result": {
+        "state": {
+          "retract_posterior": 0,
+          "retract_fissure": 1
+        }
+      },
+      "video": "5:21",
+      "optional": false,
+      "weight": 1,
+      "note": "Lift the middle lobe to open the horizontal fissure."
+    },
+    {
+      "id": "PA25",
+      "step": 6,
+      "tool": "stapler",
+      "subOption": "parenchyma",
+      "action": "fire",
+      "port": {
+        "preferred": "port_retraction_8ICS",
+        "allowed": ["port_retraction_8ICS"]
+      },
+      "targets": ["lung_middle_lobe_right"],
+      "prerequisites": ["PA24"],
+      "result": {
+        "flags": ["fissure_fire_1"]
+      },
+      "video": "5:50-6:03",
+      "optional": false,
+      "weight": 1,
+      "note": "First parenchymal fire along the horizontal fissure."
+    },
+    {
+      "id": "PA26",
+      "step": 6,
+      "tool": "hands",
+      "subOption": null,
+      "action": "inspect",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": ["tree_airway_base"],
+      "prerequisites": ["PA25"],
+      "result": {
+        "flags": ["stump_above_stapler_confirmed"]
+      },
+      "video": "6:03",
+      "optional": false,
+      "weight": 2,
+      "note": "Flip the lobe and check from below that the bronchial stump lies above the stapler."
+    },
+    {
+      "id": "PA27",
+      "step": 6,
+      "tool": "stapler",
+      "subOption": "parenchyma",
+      "action": "fire",
+      "port": {
+        "preferred": "port_retraction_8ICS",
+        "allowed": ["port_retraction_8ICS"]
+      },
+      "targets": ["lung_middle_lobe_right"],
+      "prerequisites": ["PA26"],
+      "result": {
+        "flags": ["lobe_free"],
+        "advanceTo": 7
+      },
+      "video": "6:12-6:16",
+      "optional": false,
+      "weight": 1,
+      "note": "Final fissure fire frees the lobe."
+    },
+    {
+      "id": "PA28",
+      "step": 7,
+      "tool": "bag",
+      "subOption": null,
+      "action": "bag",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["lung_middle_lobe_right"],
+      "prerequisites": ["PA27"],
+      "result": {
+        "hide": ["lung_middle_lobe_right"],
+        "state": {
+          "deflate_RUL": 0,
+          "deflate_RLL": 0
+        },
+        "flags": ["lobe_removed"]
+      },
+      "video": "6:20-6:23",
+      "optional": false,
+      "weight": 1,
+      "note": "Bag the lobe and remove it through the access incision; the remaining lobes re-inflate."
+    },
+    {
+      "id": "PA29",
+      "step": 7,
+      "tool": "hands",
+      "subOption": null,
+      "action": "move-scope",
+      "port": {
+        "preferred": "port_retraction_8ICS",
+        "allowed": ["port_retraction_8ICS"]
+      },
+      "targets": [],
+      "prerequisites": ["PA28"],
+      "result": {
+        "scopePort": "port_retraction_8ICS"
+      },
+      "video": "6:45",
+      "optional": false,
+      "weight": 1,
+      "note": "Move the scope to the anterior working port."
+    },
+    {
+      "id": "PA30",
+      "step": 7,
+      "tool": "grasper",
+      "subOption": "ring",
+      "action": "remove-node",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["LN_4R", "LN_7"],
+      "prerequisites": ["PA28"],
+      "result": {
+        "specimen": ["LN_4R", "LN_7"]
+      },
+      "video": "6:34-6:45",
+      "optional": true,
+      "weight": 0,
+      "note": "Optional paratracheal and subcarinal node clearance."
+    },
+    {
+      "id": "PA31",
+      "step": 7,
+      "tool": "chestTube",
+      "subOption": null,
+      "action": "chest-tube",
+      "port": {
+        "preferred": "port_camera_8ICS",
+        "allowed": ["port_camera_8ICS"]
+      },
+      "targets": [],
+      "prerequisites": ["PA29"],
+      "result": {
+        "flags": ["chest_tube_placed"]
+      },
+      "video": "6:45",
+      "optional": true,
+      "weight": 0,
+      "note": "Optional: place the chest tube through the camera port under vision."
+    },
+    {
+      "id": "PA32",
+      "step": 7,
+      "tool": "sucker",
+      "subOption": "irrigation",
+      "action": "irrigate",
+      "port": {
+        "preferred": "port_utility_5ICS",
+        "allowed": ["port_utility_5ICS"]
+      },
+      "targets": ["tree_airway_base"],
+      "prerequisites": ["PA29"],
+      "result": {
+        "flags": ["case_complete"]
+      },
+      "video": "6:46",
+      "optional": false,
+      "weight": 1,
+      "note": "Fill fluid over the stump and ventilate to about 20 cmH2O; no bubbles means a sealed stump."
+    }
+  ]
+}

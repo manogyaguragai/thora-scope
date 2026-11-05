@@ -77,6 +77,8 @@ export const ease = (x: number): number => x * x * (3 - 2 * x);
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
 
+const UNSTARTED = -1;
+
 /** Start (or retarget) the tween for `key`; ms ≤ 0 sets immediately. */
 export function tweenTo(s: AppState, key: TweenKey, to: number, ms: number): void {
   const tw = s.tweens[key];
@@ -87,7 +89,7 @@ export function tweenTo(s: AppState, key: TweenKey, to: number, ms: number): voi
   }
   tw.from = s[key];
   tw.to = to;
-  tw.start = s.t;
+  tw.start = s.t > 0 ? s.t : UNSTARTED; // before the first tick: start on the first update instead of t=0
   tw.dur = ms;
   tw.active = true;
 }
@@ -99,6 +101,7 @@ export function updateTweens(s: AppState, now: number): void {
     const key = TWEEN_KEYS[i] ?? 'deflate_RUL';
     const tw = s.tweens[key];
     if (!tw.active) continue;
+    if (tw.start === UNSTARTED) tw.start = now;
     const p = (now - tw.start) / tw.dur;
     if (p >= 1) {
       s[key] = tw.to;

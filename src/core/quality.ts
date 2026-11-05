@@ -31,9 +31,10 @@ export function qualityOverride(params: URLSearchParams): QualityName | null {
   return q && Object.hasOwn(config.quality.presets, q) ? (q as QualityName) : null;
 }
 
-/** Probe a throwaway WebGL2 context (WebGL2 required) and pick the preset; the URL override wins. */
+/** Probe a throwaway WebGL2 context (WebGL2 required) and pick the preset; the URL override wins.
+ *  `?nowebgl2` simulates a browser without WebGL2 (failure-card test hook). */
 export function pickQuality(params: URLSearchParams): { name: QualityName; preset: QualityPreset } {
-  const gl = document.createElement('canvas').getContext('webgl2');
+  const gl = params.has('nowebgl2') ? null : document.createElement('canvas').getContext('webgl2');
   if (!gl) throw new Error('WebGL2 is not available. Use a current desktop Chrome, Edge, Firefox or Safari.');
   const ext = gl.getExtension('WEBGL_debug_renderer_info');
   const gpu = String(gl.getParameter(ext ? ext.UNMASKED_RENDERER_WEBGL : gl.RENDERER) ?? '');

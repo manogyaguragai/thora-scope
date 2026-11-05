@@ -1,9 +1,12 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import { corners, meanRGB, PATCH } from './pixels';
+import { corners, hideShell, meanRGB, PATCH } from './pixels';
 
 const SCOPE_DRAW_CALL_BUDGET = 250; // docs/PERF.md / CONTEXT §6.10
 const SETTLE_MS = 1500; // auto-exposure + a fresh __perf sample
+
+// Full-look M1 screenshots (scope-step1/3, outside) at the default 1280×720.
+test.use({ viewport: { width: 1280, height: 720 } });
 
 /** Camera transition and state tweens finished, then settle. */
 async function settled(page: Page): Promise<void> {
@@ -12,7 +15,7 @@ async function settled(page: Page): Promise<void> {
       window.__sim.rig?.transitioning === false &&
       Object.values(window.__sim.state.tweens).every((t) => !t.active),
     null,
-    { timeout: 60_000 },
+    { timeout: 120_000 }, // SwiftShader frames are slow
   );
   await page.waitForTimeout(SETTLE_MS);
 }
@@ -30,7 +33,7 @@ async function expectScopeImage(page: Page, path: string): Promise<void> {
 test('step cameras through the scope, smooth step change, outside view; scope draw calls in budget', async ({
   page,
 }) => {
-  test.setTimeout(480_000); // SwiftShader is slow; this test renders ~10 settled views
+  test.setTimeout(600_000); // SwiftShader, full size: 4 settled views + 3 screenshots (~5 min contended)
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
@@ -38,6 +41,7 @@ test('step cameras through the scope, smooth step change, outside view; scope dr
   await page.goto('/?view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   expect(await page.evaluate(() => [window.__sim.rig?.mode, window.__sim.state.step])).toEqual(['scope', 1]);
+  await hideShell(page);
   await settled(page);
   await expectScopeImage(page, 'qa/screenshots/scope-step1.png');
   const scope1 = await drawCalls(page);
@@ -45,7 +49,8 @@ test('step cameras through the scope, smooth step change, outside view; scope dr
   await page.evaluate(() => window.__sim.setStep(3)); // eased camera transition + state tweens
   expect(await page.evaluate(() => window.__sim.rig?.transitioning)).toBe(true);
   await settled(page);
-  expect(await page.evaluate(() => window.__sim.state.port)).toBe('port_retraction_8ICS');
+  // T801: step 3 snaps through the access incision (cam_3 poseFix is out of a 70° optic's reach from the retraction port).
+  expect(await page.evaluate(() => window.__sim.state.port)).toBe('port_utility_5ICS');
   await expectScopeImage(page, 'qa/screenshots/scope-step3.png');
   const scope3 = await drawCalls(page);
 

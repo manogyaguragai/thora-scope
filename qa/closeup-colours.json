@@ -1,0 +1,199 @@
+{
+  "focusHits": {
+    "2": 0.0234375,
+    "3": 0.178125,
+    "4": 0.003125,
+    "5": 0.261328125,
+    "6": 0.362890625,
+    "7": 0.00546875
+  },
+  "table": {
+    "2": {
+      "pericardium": {
+        "n": 590,
+        "rgb": "#715a5d",
+        "luma": 95
+      },
+      "vein": {
+        "n": 112,
+        "rgb": "#a06d81",
+        "luma": 121
+      },
+      "heart": {
+        "n": 1833,
+        "rgb": "#a54850",
+        "luma": 92
+      },
+      "fat": {
+        "n": 25,
+        "rgb": "#d9b4af",
+        "luma": 188
+      }
+    },
+    "3": {
+      "vein": {
+        "n": 473,
+        "rgb": "#594352",
+        "luma": 72
+      },
+      "artery": {
+        "n": 546,
+        "rgb": "#66545e",
+        "luma": 89
+      },
+      "pleuraWall": {
+        "n": 450,
+        "rgb": "#805467",
+        "luma": 95
+      },
+      "bone": {
+        "n": 152,
+        "rgb": "#372b30",
+        "luma": 46
+      },
+      "collapsedLung": {
+        "n": 421,
+        "rgb": "#856b75",
+        "luma": 113
+      },
+      "fat": {
+        "n": 317,
+        "rgb": "#9b877a",
+        "luma": 138
+      },
+      "nerve": {
+        "n": 27,
+        "rgb": "#c3abb1",
+        "luma": 176
+      },
+      "connective": {
+        "n": 12,
+        "rgb": "#b4a8ad",
+        "luma": 171
+      },
+      "pericardium": {
+        "n": 160,
+        "rgb": "#b5899b",
+        "luma": 147
+      }
+    },
+    "4": {
+      "artery": {
+        "n": 505,
+        "rgb": "#5a3e3f",
+        "luma": 68
+      },
+      "collapsedLung": {
+        "n": 986,
+        "rgb": "#774954",
+        "luma": 83
+      },
+      "bronchus": {
+        "n": 301,
+        "rgb": "#907a76",
+        "luma": 127
+      },
+      "connective": {
+        "n": 768,
+        "rgb": "#c9aca2",
+        "luma": 177
+      }
+    },
+    "5": {
+      "collapsedLung": {
+        "n": 1236,
+        "rgb": "#845f69",
+        "luma": 104
+      },
+      "artery": {
+        "n": 856,
+        "rgb": "#8c7075",
+        "luma": 118
+      },
+      "connective": {
+        "n": 40,
+        "rgb": "#b99595",
+        "luma": 157
+      },
+      "pericardium": {
+        "n": 397,
+        "rgb": "#49333f",
+        "luma": 56
+      },
+      "fat": {
+        "n": 14,
+        "rgb": "#181016",
+        "luma": 18
+      },
+      "bronchus": {
+        "n": 17,
+        "rgb": "#dab4b6",
+        "luma": 188
+      }
+    },
+    "6": {
+      "collapsedLung": {
+        "n": 1784,
+        "rgb": "#b1727e",
+        "luma": 128
+      },
+      "pleuraWall": {
+        "n": 365,
+        "rgb": "#684452",
+        "luma": 76
+      },
+      "bone": {
+        "n": 343,
+        "rgb": "#4a363c",
+        "luma": 59
+      },
+      "fat": {
+        "n": 65,
+        "rgb": "#e0a796",
+        "luma": 178
+      },
+      "pericardium": {
+        "n": 3,
+        "rgb": "#ce818e",
+        "luma": 147
+      }
+    },
+    "7": {
+      "collapsedLung": {
+        "n": 1984,
+        "rgb": "#965460",
+        "luma": 99
+      },
+      "bronchus": {
+        "n": 14,
+        "rgb": "#d9a494",
+        "luma": 174
+      },
+      "fat": {
+        "n": 474,
+        "rgb": "#d8b785",
+        "luma": 186
+      },
+      "nerve": {
+        "n": 31,
+        "rgb": "#3c2d28",
+        "luma": 48
+      },
+      "vein": {
+        "n": 26,
+        "rgb": "#a57265",
+        "luma": 124
+      },
+      "artery": {
+        "n": 5,
+        "rgb": "#e3a99c",
+        "luma": 180
+      },
+      "connective": {
+        "n": 26,
+        "rgb": "#e9c59c",
+        "luma": 202
+      }
+    }
+  }
+}

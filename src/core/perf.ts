@@ -8,6 +8,8 @@ export interface PerfStats {
   triangles: number;
   textures: number;
   fps: number;
+  /** Rendered frames since load (tickPerf calls); stops advancing while hidden or held (T703). */
+  renders: number;
   frameTimeP95: number;
   /** Quality preset in use (core/quality.ts). */
   preset: string;
@@ -28,6 +30,7 @@ const stats: PerfStats = {
   triangles: 0,
   textures: 0,
   fps: 0,
+  renders: 0,
   frameTimeP95: 0,
   preset: '',
   loadStages: [],
@@ -56,6 +59,7 @@ export function resetPerfClock(): void {
 
 /** Call once per frame, after renderer.render(). */
 export function tickPerf(renderer: WebGLRenderer, now: number): void {
+  stats.renders++;
   if (last > 0) {
     frames[head] = now - last;
     head = (head + 1) % size;

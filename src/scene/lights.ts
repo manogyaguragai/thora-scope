@@ -5,6 +5,14 @@ import type { Camera, Scene, WebGLRenderer } from 'three';
 import { RoomEnvironment } from 'three/examples/jsm/environments/RoomEnvironment.js';
 import { look } from './materials.config';
 
+const a = look.ambient;
+const ambient = new HemisphereLight(a.sky, a.ground, a.intensity);
+
+/** View change: the outside view has no headlight on the body, so the ambient is raised (intensity only). */
+export function setAmbientForView(scope: boolean): void {
+  ambient.intensity = scope ? a.intensity : a.outsideIntensity;
+}
+
 export function setupLights(scene: Scene, camera: Camera, renderer: WebGLRenderer): SpotLight {
   const h = look.headlight;
   const headlight = new SpotLight(h.color, h.intensity, h.distance, h.angle, h.penumbra, h.decay);
@@ -14,8 +22,7 @@ export function setupLights(scene: Scene, camera: Camera, renderer: WebGLRendere
   headlight.position.set(0, 0, 0); // SpotLight defaults to DEFAULT_UP (0,1,0)
   headlight.target.position.set(0, 0, -1);
 
-  const a = look.ambient;
-  scene.add(new HemisphereLight(a.sky, a.ground, a.intensity));
+  scene.add(ambient);
 
   const pmrem = new PMREMGenerator(renderer);
   const room = new RoomEnvironment();

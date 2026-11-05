@@ -16,14 +16,22 @@
   src: url('@fontsource/inter/files/inter-latin-600-normal.woff2') format('woff2');
 }
 :root {
+  color-scheme: dark; /* native form controls/scrollbars render dark */
   --color-bg: #0a0c0f;
   --color-surface: #12161b;
   --color-elevated: #181d24;
   --color-border: #232a33;
   --color-text: #e7eaee;
-  --color-muted: #8b95a3;
+  --color-muted: #939dab; /* §9 #8b95a3 lifted for WCAG AA over the overlay on a bright scope (T802) */
   --color-accent: #38b2ac;
   --color-warning: #e0a030;
+  --color-danger: #e5484d; /* active complication accent (non-text) */
+  /* Overlay panels over the scope image: semi-opaque surface (no backdrop-filter: it costs GPU every frame).
+     88%: muted text keeps AA (≥ 4.5:1) even over a white scope pixel (T802, tests/e2e/a11y.spec.ts). */
+  --color-surface-overlay: color-mix(in srgb, var(--color-surface) 88%, transparent);
+  --color-surface-label: color-mix(in srgb, var(--color-surface) 80%, transparent);
+  /* Side overlays (rail, Layers panel, port chips): 168 px fits the black margin beside the 5:4 scope at 1280×720. */
+  --side-panel-width: calc(var(--space-3) * 7);
 
   --space-1: 8px;
   --space-2: 16px;

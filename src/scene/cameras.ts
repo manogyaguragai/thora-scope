@@ -1,11 +1,12 @@
 // Camera rig (CONTEXT §6.2 basics, §7.5): one rendered "viewCamera" whose pose/fov follows either a glTF step
 // camera (scope view) or an OrbitControls camera (outside view), with an eased transition between any two poses.
 // The scope headlight is a child of viewCamera, so it follows every pose. Per frame: no allocations.
-import { Box3, PerspectiveCamera, Quaternion, Vector3 } from 'three';
+import { Box3, Matrix4, PerspectiveCamera, Quaternion, Vector3 } from 'three';
 import type { Camera, IUniform, Object3D } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { config } from '../core/config';
 import { ease } from '../sim/state';
+import { setAmbientForView } from './lights';
 
 export type ViewMode = 'scope' | 'outside';
 
@@ -51,6 +52,12 @@ export interface CameraRig {
   transitioning: boolean;
   /** Scope view looks through this glTF camera (smooth unless instant). */
   setScopeCamera(name: string, instant?: boolean): void;
+  /** World pose of a glTF step camera (throws if unknown). */
+  scopePoseOf(name: string): Readonly<Pose>;
+  /** Scope view follows `live` (the fulcrum scope rig writes it) instead of the glTF step poses. */
+  followScope(live: Pose): void;
+  /** Ease from the current pose to the scope target (after a jump of the live pose: port switch, reset, snap). */
+  easeScope(): void;
   setView(mode: ViewMode, instant?: boolean): void;
   update(now: number): void;
 }
@@ -85,10 +92,20 @@ export function createCameraRig(
   controls.update();
 
   const scopePoses = new Map<string, Pose>();
-  for (const c of gltfCameras)
-    if ((c as PerspectiveCamera).isPerspectiveCamera)
-      scopePoses.set(c.name, worldPose(c as PerspectiveCamera, makePose()));
+  const look = new Matrix4();
+  for (const c of gltfCameras) {
+    if (!(c as PerspectiveCamera).isPerspectiveCamera) continue;
+    const pose = worldPose(c as PerspectiveCamera, makePose());
+    const fix = S.poseFix.find((f) => f.camera === c.name);
+    if (fix) {
+      pose.position.set(...fix.position);
+      look.lookAt(pose.position, new Vector3(...fix.target), c.up);
+      pose.quaternion.setFromRotationMatrix(look);
+    }
+    scopePoses.set(c.name, pose);
+  }
   let scopePose = scopePoses.values().next().value ?? makePose();
+  let scopeLive: Pose | null = null;
 
   const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
   const from = makePose();
@@ -97,7 +114,7 @@ export function createCameraRig(
   let start = -1; // -1 = start on the next update
 
   function targetPose(): Pose {
-    if (rig.target === 'scope') return scopePose;
+    if (rig.target === 'scope') return scopeLive ?? scopePose;
     to.position.copy(orbitCam.position);
     to.quaternion.copy(orbitCam.quaternion);
     to.fov = orbitCam.fov;
@@ -108,6 +125,7 @@ export function createCameraRig(
     if (rig.mode === mode) return;
     rig.mode = mode;
     uScopeMode.value = mode === 'scope' ? 1 : 0;
+    setAmbientForView(mode === 'scope');
     onMode(mode);
   }
 
@@ -129,10 +147,19 @@ export function createCameraRig(
     target: 'outside',
     transitioning: false,
     setScopeCamera(name, instant = false) {
+      scopePose = rig.scopePoseOf(name) as Pose;
+      if (rig.target === 'scope') begin(instant);
+    },
+    scopePoseOf(name) {
       const pose = scopePoses.get(name);
       if (!pose) throw new Error(`Unknown step camera "${name}"`);
-      scopePose = pose;
-      if (rig.target === 'scope') begin(instant);
+      return pose;
+    },
+    followScope(live) {
+      scopeLive = live;
+    },
+    easeScope() {
+      if (rig.target === 'scope') begin(false);
     },
     setView(mode, instant = false) {
       if (mode === rig.target && !instant) return;
@@ -164,5 +191,6 @@ export function createCameraRig(
     },
   };
   copyPose(cur, targetPose());
+  setAmbientForView(false); // the rig starts in the outside view
   return rig;
 }

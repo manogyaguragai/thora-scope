@@ -89,7 +89,7 @@
       "camera": "cam_3_RML_vein_zoom",
       "lens_mm": 28.0,
       "sensor_width_mm": 36,
-      "port": "port_retraction_8ICS",
+      "port": "port_utility_5ICS",
       "scope_angle_deg": 26.0,
       "state": {
         "deflate_RUL": 1.0,

@@ -54,11 +54,15 @@ export function createStepVisibility(lookup: (name: string) => Toggleable | unde
   return { managed, scope: false };
 }
 
+/** Is node `name` hidden by the current step / scope sets? (Layer-panel toggles AND with this.) */
+export function stepHidden(vis: StepVisibility, s: AppState, name: string): boolean {
+  const hidden = s.step ? getStep(s.step).hidden : DEFAULT_HIDDEN;
+  return hidden.includes(name) || (vis.scope && SCOPE_HIDDEN.includes(name));
+}
+
 /** Re-apply visibility for the current step and view. Allocation-free. */
 export function applyVisibility(vis: StepVisibility, s: AppState): void {
-  const hidden = s.step ? getStep(s.step).hidden : DEFAULT_HIDDEN;
-  for (const o of vis.managed)
-    o.visible = !(hidden.includes(o.name) || (vis.scope && SCOPE_HIDDEN.includes(o.name)));
+  for (const o of vis.managed) o.visible = !stepHidden(vis, s, o.name);
 }
 
 /** Tween state to step n's targets (instant → set now), record camera/port, apply its hidden set. */

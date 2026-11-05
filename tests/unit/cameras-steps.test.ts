@@ -49,7 +49,7 @@ describe('applyStep', () => {
     const s = createState();
     const step = applyStep(vis, s, 3, true);
     expect(step.camera).toBe('cam_3_RML_vein_zoom');
-    expect(s).toMatchObject({ step: 3, camera: step.camera, port: 'port_retraction_8ICS' });
+    expect(s).toMatchObject({ step: 3, camera: step.camera, port: 'port_utility_5ICS' });
     expect(s.deflate_RML).toBe(1);
     expect(s.retract_posterior).toBe(1);
     for (const n of step.hidden) expect(shown(n)).toBe(false);
@@ -62,6 +62,7 @@ describe('applyStep', () => {
     const s = createState();
     applyStep(vis, s, 7);
     expect(s.deflate_RUL).toBe(0); // starts from current value
+    updateTweens(s, 0); // applied before the first tick: the tween starts on the first update
     updateTweens(s, config.steps.stateMs / 2);
     expect(s.deflate_RML).toBeGreaterThan(0);
     expect(s.deflate_RML).toBeLessThan(1);

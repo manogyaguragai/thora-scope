@@ -1,0 +1,143 @@
+/* Help overlay (T306, §6.2/§6.7). Tokens only (tokens.css). Fade in/out on opacity; reduced motion zeroes the
+   --motion-* tokens. */
+.help {
+  box-sizing: border-box;
+  width: min(calc(var(--space-6) * 15), calc(100% - 2 * var(--space-2)));
+  max-height: calc(100% - 2 * var(--space-4));
+  padding: 0;
+  overflow: hidden;
+  flex-direction: column;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  opacity: 0;
+  transition:
+    opacity var(--motion-base) var(--ease-out),
+    overlay var(--motion-base) allow-discrete,
+    display var(--motion-base) allow-discrete;
+}
+
+.help[open] {
+  display: flex;
+  opacity: 1;
+}
+
+@starting-style {
+  .help[open] {
+    opacity: 0;
+  }
+}
+
+.help::backdrop {
+  background: color-mix(in srgb, var(--color-bg) 70%, transparent);
+}
+
+.help-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.help-title {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+}
+
+.help-close {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-elevated);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out);
+}
+
+.help-close:hover {
+  border-color: var(--color-accent);
+}
+
+.help-body {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--space-6) * 6), 1fr));
+  gap: var(--space-3);
+  padding: var(--space-3);
+  overflow-y: auto;
+}
+
+.help-group-title {
+  margin: 0 0 var(--space-1);
+  color: var(--color-muted);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.help-list {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+}
+
+.help-keys {
+  color: var(--color-muted);
+  white-space: nowrap;
+}
+
+.help-label {
+  margin: 0;
+}
+
+.help kbd {
+  display: inline-block;
+  min-width: var(--space-2);
+  padding: 0 calc(var(--space-1) / 2);
+  background: var(--color-elevated);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: calc(var(--radius-sm) / 2);
+  font: inherit;
+  font-size: var(--font-size-small);
+  text-align: center;
+}
+
+.help-settings {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.help-settings .help-group-title {
+  margin: 0;
+}
+
+.help-select {
+  padding: var(--space-1);
+  background: var(--color-elevated);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+
+.help-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--color-muted);
+}
+
+.help-check input {
+  accent-color: var(--color-accent);
+}

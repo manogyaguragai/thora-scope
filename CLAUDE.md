@@ -6,7 +6,8 @@ Vite + TypeScript (strict) + three.js (pinned) + three-mesh-bvh. Static site, no
 ## Read order (resume from files alone)
 1. `CLAUDE.md` (this file)
 2. `docs/CONTEXT.md` — product spec (§6), data contracts (§7), look spec (§8), tokens (§9), video timeline (§13)
-3. `tasks.md` — current state; pick the next unblocked `[ ]`
+3. `tasks.md` — STATUS BOARD at the top, then tasks; pick the next unblocked `[ ]`
+   + `docs/WIRING.md` — APIs + wiring steps for built-but-unwired modules (`[w]`)
 4. As the brief says: `docs/REFERENCE_FRAMES.md`, `docs/VIDEO_STEP_MAP.md`, `docs/BOOK_NOTES.md`, `docs/ASSETS.md`, `docs/PERF.md`, `docs/DECISIONS.md`
 5. Last lines of `docs/PROGRESS.md` (append-only log; resume notes live here)
 
@@ -17,18 +18,24 @@ Vite + TypeScript (strict) + three.js (pinned) + three-mesh-bvh. Static site, no
 - NEVER ship ref-frames (or anything from `assets_src/`) in the build. Only `public/models/thorax_sim.opt.glb` + decoders.
 - No external network calls at runtime; no CDNs; no analytics.
 - Config, not magic numbers (`src/core/config.ts`, `src/scene/materials.config.ts`, `src/core/keybindings.ts`).
-- One commit per task: `T###: summary`. Small tasks: ≤ ~3 source files, ≤ ~250 changed lines.
+- NO GIT COMMITS by the orchestrator or any agent (user instruction, overrides the kickoff). Never run `git commit`,
+  merge/rebase/stash/reset/worktree-add or anything that creates or rewrites commits. The user commits.
+  Small tasks: ≤ ~3 source files, ≤ ~250 changed lines.
 
 ## Task loop (orchestrator)
 1. Read `tasks.md`. If the next module has no tasks, plan ONLY that module into right-sized tasks.
 2. Pick next unblocked `[ ]` → mark `[~]` → spawn builder with a brief (template below).
-3. Builder returns → mark `[q]` → spawn a FRESH qa-reviewer (task ID, AC, commit hash).
+3. Builder returns → mark `[q]` → spawn a FRESH qa-reviewer (task ID, AC, list of files the builder changed).
+   Builders may run IN PARALLEL in the main working tree, each owning a disjoint file set named in its brief
+   (hotspots like src/main.ts / src/core/config.ts: one owner at a time; others expose functions to wire later).
+   No worktrees (they branch from HEAD and miss uncommitted work).
+   QA reviews the uncommitted working-tree diff (`git diff HEAD -- <files>`) and never edits.
 4. PASS → `[x]` + PROGRESS line. FAIL → fix task `T###b` (max 2 fix rounds, then `[!]`, move on).
 5. Module done → fresh module-auditor (+ visual-critic for M1, M3, M4, M5, M8). Gate fail → defects become tasks.
 6. After every task print 3 lines: task ID, result, next task.
 7. Long context: write a resume note to PROGRESS, then compact. State must already be in files.
 
-Status legend: `[ ]` todo · `[~]` in progress · `[q]` awaiting QA · `[x]` done · `[!]` blocked · `[>]` deferred.
+Status legend: `[ ]` todo · `[~]` in progress · `[w]` built, awaiting wiring · `[q]` awaiting QA · `[x]` done · `[!]` blocked · `[>]` deferred.
 Write status changes BEFORE moving on. Only non-MANDATORY items may be deferred.
 
 ### Builder brief template

@@ -1,0 +1,89 @@
+/* Viewing aids (§6.5): layers panel rows + 3D labels. Tokens only (tokens.css). */
+.viewing-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.viewing-body > summary {
+  cursor: pointer;
+}
+
+.viewing-group summary {
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.viewing-group-controls,
+.viewing-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-1);
+}
+
+.viewing-group-controls {
+  padding-bottom: var(--space-1);
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.shell-inspector .viewing-panel {
+  width: var(--side-panel-width);
+  padding: var(--space-1);
+}
+
+.viewing-panel .panel-field {
+  flex-wrap: wrap; /* label above its control in the narrow panel */
+}
+
+.viewing-panel input {
+  accent-color: var(--color-accent);
+}
+
+.viewing-panel select {
+  background: var(--color-elevated);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+}
+
+/* 3D labels: a non-interactive overlay over the canvas; nodes only move via transform (§6.7). */
+.labels3d {
+  position: absolute;
+  /* Bottom band reserved for the caption-free dock (hotbar + port chips): labels never land on it. */
+  inset: 0 0 calc(var(--space-6) * 3) 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0; /* under the shell (z-index 1): tags never paint over the UI */
+  font-family: var(--font-sans);
+}
+
+.label3d-tag,
+.label3d-pin {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: calc(var(--space-6) * 5);
+  padding: calc(var(--space-1) / 4) var(--space-1);
+  background: var(--color-surface-label);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+  will-change: transform;
+}
+
+.label3d-pin {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1);
+  border-color: var(--color-accent);
+  white-space: normal;
+}
+
+.label3d-tag[hidden],
+.label3d-pin[hidden] {
+  display: none;
+}

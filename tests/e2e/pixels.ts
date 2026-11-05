@@ -1,3 +1,4 @@
+import type { Page } from '@playwright/test';
 import sharp from 'sharp';
 
 export const PATCH = 24; // px sampled per corner / centre
@@ -17,3 +18,7 @@ export const corners = (width: number, height: number): { x: number; y: number }
   { x: 0, y: height - PATCH },
   { x: width - PATCH, y: height - PATCH },
 ];
+
+/** Hide the UI shell (top bar, rail, caption) so screenshots sample the canvas, not the panels over it. */
+export const hideShell = (page: Page): Promise<unknown> =>
+  page.addStyleTag({ content: '.shell { visibility: hidden !important; }' });

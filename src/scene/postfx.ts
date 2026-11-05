@@ -12,6 +12,7 @@ import { lumFrag, postFrag, quadVert } from './postfx.glsl';
 const C = config.postfx;
 const AE = C.autoExposure;
 const size = new Vector2(); // drawing-buffer size, reused every frame
+const sceneSize = new Vector2(); // HDR scene target size (drawing buffer × preset scale), reused every frame
 
 export interface PostFx {
   /** Render scene through the scope optics to the canvas. Once per frame. */
@@ -59,8 +60,14 @@ const quadMaterial = (uniforms: Record<string, IUniform>, fragmentShader: string
   });
 
 export function createPostFx(renderer: WebGLRenderer, preset: QualityPreset): PostFx {
+  // halfRes: the scene renders into a smaller HDR target; the combined pass upsamples it (bilinear) to the canvas.
+  // Scale is fixed at load (the preset's); the target only resizes when the drawing buffer does (resize/pixel ratio).
+  const scale = preset.postFx.halfRes ? C.halfResScale : 1;
+  const sceneSizeOf = (v: Vector2): Vector2 =>
+    sceneSize.set(Math.max(1, Math.round(v.x * scale)), Math.max(1, Math.round(v.y * scale)));
   renderer.getDrawingBufferSize(size);
-  const target = new WebGLRenderTarget(size.x, size.y, {
+  sceneSizeOf(size);
+  const target = new WebGLRenderTarget(sceneSize.x, sceneSize.y, {
     type: HalfFloatType,
     samples: preset.antialias ? C.msaaSamples : 0,
   });
@@ -121,9 +128,10 @@ export function createPostFx(renderer: WebGLRenderer, preset: QualityPreset): Po
     uniforms,
     render(scene, camera, now) {
       renderer.getDrawingBufferSize(size);
-      if (size.x !== target.width || size.y !== target.height) {
-        target.setSize(size.x, size.y);
-        uniforms.uRes.value.copy(size);
+      if (!size.equals(uniforms.uRes.value)) {
+        sceneSizeOf(size);
+        target.setSize(sceneSize.x, sceneSize.y);
+        uniforms.uRes.value.copy(size); // output (canvas) pixels: mask, vignette and grain stay full-res
       }
       renderer.setRenderTarget(target);
       renderer.render(scene, camera);

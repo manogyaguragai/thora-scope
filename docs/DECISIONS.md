@@ -26,7 +26,7 @@ Pericardium colour follows frames (lavender-mauve), not the §8 text (bluish-whi
 Textures go to KTX2 per CONTEXT §6.10: UASTC (level 2, zstd 18) for normal maps, ETC1S (q128) for colour and roughness, all mipmapped. `ktx`/`toktx` come from the pinned KTX-Software 4.4.2 Linux tarball, fetched once into `.cache/ktx` (sha1-checked, gitignored, no sudo).
 - Size: KTX2 is larger on the wire than the source WebP (3.39 MiB vs 1.55 MiB). UASTC normals at 1024 put the glb at ~12.9 MB, so normals are capped at 512 (the source normal maps are low-frequency: 110 KB of WebP for 12 MP). Colour/roughness keep their source sizes (max 1024).
 - GPU memory estimate: 30.3 MP of KTX2 transcoded to BC7/ASTC (≤ 1 B/px) × 1.33 mips ≈ 40 MB, vs ≈ 195 MB if the WebP stayed (36.6 MP × 4 B × 1.33). Budget is 300 MB on Medium.
-- Per-preset caps: one glb serves all presets. KTX2 cannot be cheaply downscaled at load, and ~40 MB already fits Low. If a smaller tier is ever needed, emit a second glb from this script with a lower resize cap.
+- Per-preset caps: one glb serves all presets; Low drops each texture's top mip at load (T704, half size), ~40 MB already fits Medium. If a smaller tier is ever needed, emit a second glb from this script with a lower resize cap.
 - Runtime: KTX2Loader needs `public/decoders/basis_transcoder.{js,wasm}` (copied from the pinned three by the script). The meshopt decoder is bundled from `three/examples/jsm/libs/meshopt_decoder.module.js`. No Draco decoder is needed.
 - quantize puts the dequantisation transform into each mesh node's local matrix, so mesh-node TRS differs from the source but world-space geometry does not. Ports must be read from `extras` (CONTEXT §7.2).
 
@@ -40,3 +40,18 @@ only drives it. Revisit if panel count/complexity makes manual DOM updates error
 Stage 5 renders 2 frames per glTF camera + outside view to the default framebuffer behind the opaque loading screen,
 because rendering to a render target compiles different programs (no tone mapping/linear output) and would not warm
 the on-screen ones. Post-FX targets warm via `registerWarmupHook`.
+
+## ADR-009 Chest tube (PA31) is optional in practice scoring
+- Context: VIDEO_STEP_MAP (d) chains PA32 water test after PA31 chest tube; CONTEXT §6.3/§6.4 call the chest tube optional.
+- Decision: PA31 optional, weight 0; PA32 depends on PA29. Rule: a required action never depends on an optional one (enforced by src/sim/practiceActions.ts).
+- Status: pending clinician review (as are all weights and the 45° approach limit in PORT_CONFIG).
+
+## ADR-010 Muted text + overlay tokens lifted for WCAG AA over the scope
+- Context: T802 a11y.spec measured muted UI text over the bright scope image at 3.59–4.36:1 (below AA 4.5:1).
+- Decision: `--color-muted` #8b95a3 → #939dab and `--color-surface-overlay` 82 % → 88 % (src/ui/tokens.css). This deviates from the CONTEXT §9 muted value; the spec value is superseded by this ADR.
+- Status: measured mechanically (tests/e2e/a11y.spec.ts tests darkest + brightest scope pixel under each element).
+
+## ADR-011 Live step-3 scope snaps through the access incision (port_utility_5ICS)
+- Context: the step-3 authored view (RML vein, after poseFix) needs a ~95° optic from port_retraction_8ICS, but the rig clamps the optic at 70°, so the live step-3 view showed only chest wall (ASSET_ISSUES L3). From the access incision it needs ~72°.
+- Decision: src/content/procedure_steps.json step 3 scope port → port_utility_5ICS, matching steps 4–5 (VIDEO_STEP_MAP conflict 3). Practice mode still chooses ports per action (practice_actions.json), unaffected.
+- Status: pending clinician review (port choice per step vs the reference video).

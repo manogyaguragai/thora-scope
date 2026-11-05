@@ -21,7 +21,40 @@ export function createRenderer(container: HTMLElement, preset: QualityPreset): W
   return renderer;
 }
 
-/** Continuous loop; paused while the tab is hidden. onFrame runs before render (scene + post-FX). */
+// Render gate (T703): static screens (debrief, quiz, menus) hold rendering; requestRender() draws one frame anyway.
+const holds = new Set<string>();
+let pending = false;
+
+/** Stop rendering until every reason is released (same reason twice = one hold). */
+export function holdRendering(reason: string): void {
+  holds.add(reason);
+}
+
+export function releaseRendering(reason: string): void {
+  if (holds.delete(reason) && holds.size === 0) resetPerfClock(); // the held gap isn't a frame time
+}
+
+/** While held: draw exactly one more frame (e.g. after a static overlay changed what's behind it). */
+export function requestRender(): void {
+  pending = true;
+}
+
+export function isRenderingHeld(): boolean {
+  return holds.size > 0;
+}
+
+declare global {
+  interface Window {
+    /** Test hook for the render gate (tests/e2e/visibility.spec.ts). */
+    __render: { hold: typeof holdRendering; release: typeof releaseRendering; request: typeof requestRender };
+  }
+}
+window.__render = { hold: holdRendering, release: releaseRendering, request: requestRender };
+
+/**
+ * Continuous loop; paused while the tab is hidden, skipped (no sim tick, no render) while the gate is held
+ * except for one frame per requestRender(). onFrame runs before render (scene + post-FX).
+ */
 export function startLoop(
   renderer: WebGLRenderer,
   camera: PerspectiveCamera,
@@ -29,6 +62,11 @@ export function startLoop(
   render: (now: number) => void,
 ): void {
   const frame = (now: number): void => {
+    if (holds.size > 0) {
+      if (!pending) return;
+      resetPerfClock(); // a one-off frame after a held gap: no frame-time sample
+    }
+    pending = false;
     onFrame(now);
     renderer.info.reset();
     render(now);

@@ -12,8 +12,9 @@
     "test": "vitest run",
     "test:e2e": "playwright test",
     "perf:probe": "node scripts/perf-probe.mjs",
+    "check:paraphrase": "node scripts/check-paraphrase.mjs",
     "assets:optimize": "node scripts/optimize-assets.mjs",
-    "check": "npm run lint && npm run build && CI_STRICT=1 npm test && npm run test:e2e && npm run perf:probe"
+    "check": "npm run lint && npm run build && CI_STRICT=1 npm test && npm run test:e2e && PERF_NO_BUILD=1 npm run perf:probe"
   },
   "dependencies": {
     "@fontsource/inter": "5.3.0",

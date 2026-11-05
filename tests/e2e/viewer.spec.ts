@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import sharp from 'sharp';
+import { hideShell } from './pixels';
 
 test('viewer loads the optimised model with ?debug and exposes window.__perf', async ({ page }) => {
-  test.setTimeout(300_000); // SwiftShader is slow (physical materials since T104)
   const errors: string[] = [];
   const logs: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -19,16 +19,28 @@ test('viewer loads the optimised model with ?debug and exposes window.__perf', a
   expect(perf.triangles).toBeGreaterThan(0);
   expect(logs.some((l) => l.startsWith('[axis] PASS'))).toBe(true);
 
-  // Hover pick (throttled raycast) names the node under the cursor.
-  await page.mouse.move(640, 360);
+  // Hover pick (throttled raycast) names the node under the cursor; hidden shell lets the canvas get the pointer.
+  await hideShell(page);
+  const { width, height } = page.viewportSize() ?? { width: 0, height: 0 };
+  await page.mouse.move(width / 2, height / 2);
   await expect(page.locator('#debug-overlay')).not.toContainText('hover: —', { timeout: 30_000 });
 
   // One screenshot (each waits for SwiftShader's frame backlog); crop it for the check.
   const shot = await page.screenshot({ path: 'qa/screenshots/debug.png' });
   // Non-blank: the centre of the view (away from title/overlay) must show varied pixels, not a flat clear colour.
-  const centre = await sharp(shot).extract({ left: 340, top: 160, width: 600, height: 400 }).toBuffer();
+  const box = {
+    left: Math.round(width / 4),
+    top: Math.round(height / 4),
+    width: Math.round(width / 2),
+    height: Math.round(height / 2),
+  };
+  const centre = await sharp(shot).extract(box).toBuffer();
   const { channels } = await sharp(centre).stats();
   expect(Math.max(...channels.map((c) => c.stdev))).toBeGreaterThan(5);
+
+  // M1 gate: hover picking, overlay and frames since "ready" compiled no new shader programs (PERF.md baseline).
+  await page.waitForTimeout(1000); // > one __perf sample period (config.perf.sampleHz), so programs is fresh
+  expect(await page.evaluate(() => window.__perf.programs)).toBe(perf.programs);
 
   expect(errors).toEqual([]);
 });

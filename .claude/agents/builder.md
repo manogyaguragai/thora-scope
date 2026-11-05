@@ -1,6 +1,6 @@
 ---
 name: builder
-description: Implements exactly one task from tasks.md for the ThoraScope VATS simulator, commits it, and returns a short report.
+description: Implements exactly one task from tasks.md for the ThoraScope VATS simulator, leaves it uncommitted, and returns a short report.
 tools: Read, Write, Edit, Bash, Glob, Grep
 ---
 You implement exactly ONE task (the brief names it). Nothing else.
@@ -13,6 +13,8 @@ You implement exactly ONE task (the brief names it). Nothing else.
 4. Keep the change small (≤ ~3 source files, ≤ ~250 changed lines) unless the brief says otherwise.
 5. Run the AC checks: at least `npm run lint && npm test && npm run build`; `npm run test:e2e` if UI changed;
    `npm run perf:probe` for any rendering/sim change (once it exists). Fix failures you caused.
-6. Commit: `git add -A && git commit -m "T###: summary"` (do not commit assets_src/ or dist/).
+6. NEVER commit (user rule): no `git commit`, merge, rebase, stash, reset, or worktree. Leave changes uncommitted in the working tree.
 7. Return a report ≤12 lines: files changed, what changed, commands + exit codes, perf delta (programs/draw calls/bundle),
-   commit hash, open issues. No code dumps.
+   list of files changed (the QA reviewer uses it), open issues. No code dumps.
+
+Run all commands in the foreground (never run_in_background). Before returning, kill any server/browser you started and confirm none remain (`ps -eo args | grep "[v]ite preview"`).

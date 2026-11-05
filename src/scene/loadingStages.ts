@@ -74,7 +74,7 @@ const tick = (): Promise<void> => new Promise((r) => setTimeout(r));
 
 const hidden: Object3D[] = [];
 /** Run fn with every object under root visible (compile traverses visible objects only), then restore. */
-async function withAllVisible(root: Object3D, fn: () => Promise<unknown>): Promise<void> {
+export async function withAllVisible(root: Object3D, fn: () => Promise<unknown>): Promise<void> {
   const from = hidden.length;
   root.traverse((o) => {
     if (!o.visible) {
@@ -107,19 +107,21 @@ function collectTextures(root: Object3D, out: Set<Texture>): void {
 
 /**
  * Runs all five stages. `place` puts the decoded model into `scene` (and frames `camera`) before upload/compile.
- * `camera` is the outside view; glTF cameras are warmed up too.
+ * `camera` is the outside view; glTF cameras are warmed up too. `textureDownscale` = the preset's texture cap.
  */
 export async function runLoadingStages(
   renderer: WebGLRenderer,
   scene: Scene,
   camera: Camera,
   place: (gltf: GLTF) => void,
+  textureDownscale = false,
 ): Promise<LoadedModel> {
   enter('download');
   const loaded = await loadModel(
     renderer,
     (bytes, total) => progress(total ? bytes / total : NaN),
     () => enter('decode'),
+    textureDownscale,
   );
   place(loaded.gltf);
 

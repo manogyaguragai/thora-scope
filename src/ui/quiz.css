@@ -1,0 +1,211 @@
+/* Quiz panel (T602, §6.6/§6.7). Tokens only (tokens.css); badge = .panel-badge (panels.css). Non-modal, docked
+   top-right so the scope view stays clickable. Fade on opacity; reduced motion zeroes the --motion-* tokens. */
+.quiz {
+  position: fixed;
+  inset: var(--space-2) var(--space-2) auto auto;
+  box-sizing: border-box;
+  width: min(calc(var(--space-6) * 8), calc(100% - 2 * var(--space-2)));
+  max-height: calc(100% - 2 * var(--space-2));
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  flex-direction: column;
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-body);
+  opacity: 0;
+  transition:
+    opacity var(--motion-base) var(--ease-out),
+    display var(--motion-base) allow-discrete;
+}
+
+.quiz[open] {
+  display: flex;
+  opacity: 1;
+}
+
+@starting-style {
+  .quiz[open] {
+    opacity: 0;
+  }
+}
+
+.quiz-head,
+.quiz-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+}
+
+.quiz-head {
+  border-bottom: var(--border-width) solid var(--color-border);
+}
+
+.quiz-head .quiz-button {
+  margin-left: auto;
+}
+
+.quiz-actions {
+  justify-content: flex-end;
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.quiz-actions:empty {
+  display: none;
+}
+
+.quiz-title {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+}
+
+.quiz-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  overflow-y: auto;
+}
+
+.quiz-body p {
+  margin: 0;
+}
+
+.quiz-prompt {
+  font-weight: 600;
+}
+
+.quiz-muted,
+.quiz-review dd {
+  color: var(--color-muted);
+  font-size: var(--font-size-small);
+}
+
+.quiz-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.quiz-option {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-1);
+  width: 100%;
+  text-align: left;
+}
+
+.quiz-option kbd {
+  color: var(--color-muted);
+  font: inherit;
+  font-size: var(--font-size-small);
+}
+
+.quiz-feedback {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+}
+
+.quiz-correct {
+  border-color: var(--color-accent);
+}
+
+.quiz-wrong {
+  border-color: var(--color-warning);
+}
+
+.quiz-verdict {
+  font-weight: 600;
+}
+
+.quiz-correct .quiz-verdict {
+  color: var(--color-accent);
+}
+
+.quiz-wrong .quiz-verdict {
+  color: var(--color-warning);
+}
+
+.quiz-rationale {
+  color: var(--color-muted);
+}
+
+.quiz-total {
+  color: var(--color-muted);
+}
+
+.quiz-total strong {
+  color: var(--color-accent);
+  font-size: var(--font-size-title);
+  font-weight: 600;
+}
+
+.quiz-group-title {
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--font-size-small);
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.quiz-review {
+  margin: 0;
+}
+
+.quiz-review dt {
+  padding-top: var(--space-1);
+  border-top: var(--border-width) solid var(--color-border);
+}
+
+.quiz-review dd {
+  margin: 0 0 var(--space-1);
+}
+
+.quiz-button {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-elevated);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out);
+}
+
+.quiz-button:hover {
+  border-color: var(--color-accent);
+}
+
+.quiz-button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.quiz-primary {
+  background: var(--color-accent);
+  color: var(--color-bg);
+  border-color: var(--color-accent);
+}
+
+/* Wired (T604) into the shell inspector slot: flow there (below the top bar), and hide the other inspector
+   content (viewing aids) while the quiz is up. */
+.shell-inspector .quiz {
+  position: static;
+  max-height: none;
+}
+
+.shell[data-mode='quiz'] .shell-inspector .shell-side-body > :not(.quiz) {
+  display: none;
+}
