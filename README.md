@@ -77,3 +77,8 @@ Asset defects are logged in `docs/ASSET_ISSUES.md`.
 None. This project is not deployed anywhere. Hosting notes (for the owner to act on, not automation) belong in
 `docs/DEPLOY_HOSTINGER_KVM.md`. Only `public/models/thorax_sim.opt.glb` and the KTX2 decoders ship in `dist/`;
 nothing from `assets_src/` does (guarded by `tests/unit/dist-contents.test.ts`).
+
+## Credits
+
+Built by [Manogya Guragai](https://www.linkedin.com/in/manogya-guragai) and
+[Dr. Mandeep Guragai](https://www.linkedin.com/in/mandeep-guragai).
