@@ -39,3 +39,43 @@ test('vitals monitor follows the Physiology panel and beeps when sound is on', a
   await page.screenshot({ path: 'qa/screenshots/vitals.png' });
   expect(errors).toEqual([]);
 });
+
+// T821: in the scope view the monitor is a numbers-only strip in the black margin beside the 5:4 scope image
+// (config.postfx.maskAspect / maskFill mirrored here, as in layout.spec); the collapse toggle persists.
+const MASK_ASPECT = 1.25;
+const MASK_FILL = 1;
+for (const viewport of [
+  { width: 1280, height: 720 },
+  { width: 1920, height: 1080 },
+]) {
+  test(`vitals ${viewport.width}×${viewport.height}: compact strip off the scope image, collapsible`, async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    await page.setViewportSize(viewport);
+    await page.goto('/?view=scope');
+    await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
+    const monitor = page.getByRole('region', { name: 'Patient monitor (simulated values)' });
+    await expect(monitor.locator('[data-vital=hr] dd')).toBeVisible();
+    await expect(monitor.locator('.vitals-trace')).toBeHidden();
+    const b = await monitor.boundingBox();
+    const mh = MASK_FILL * Math.min(viewport.height, viewport.width / MASK_ASPECT);
+    const scopeRight = (viewport.width + mh * MASK_ASPECT) / 2;
+    expect(b?.x ?? 0, 'monitor left edge vs scope image right edge').toBeGreaterThanOrEqual(scopeRight);
+
+    await page.screenshot({ path: `qa/screenshots/vitals-scope-${viewport.width}.png` });
+    const toggle = monitor.getByRole('button', { name: 'Monitor details' });
+    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+    await expect(monitor.locator('[data-vital=hr] dd')).toBeHidden();
+    expect(await page.evaluate(() => localStorage.getItem('thorascope.vitalsCollapsed'))).toBe('1');
+    await monitor.screenshot({ path: `qa/screenshots/vitals-collapsed.png` });
+    await toggle.click();
+    await expect(monitor.locator('[data-vital=hr] dd')).toBeVisible();
+
+    // Outside view: the full panel with traces.
+    await page.evaluate(() => window.__sim.setView('outside', true));
+    await expect(monitor.locator('.vitals-trace')).toBeVisible();
+  });
+}

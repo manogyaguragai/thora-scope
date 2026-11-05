@@ -84,6 +84,8 @@ const NONE = '--';
 export interface MonitorView {
   readonly el: HTMLElement;
   readonly soundButton: HTMLButtonElement;
+  /** Collapse / expand toggle (T821; wireM7 persists it): aria-expanded + data-collapsed on `el`. */
+  readonly collapseButton: HTMLButtonElement;
   /** Advance the sweep; true on a beat (R wave). */
   tick(now: number): boolean;
   addMirror(canvas: HTMLCanvasElement, onDrawn: () => void): void;
@@ -95,6 +97,7 @@ export interface MonitorView {
 
 const SPEAKER = `<svg class="vitals-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 9h4l5-4v14l-5-4H4Z"/>
 <path class="vitals-on" d="M16 9a4 4 0 0 1 0 6M18.5 6.5a7.5 7.5 0 0 1 0 11"/><path class="vitals-off" d="M16 9l5 6M21 9l-5 6"/></svg>`;
+const CHEVRON = `<svg class="vitals-icon vitals-chevron" viewBox="0 0 24 24" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>`;
 
 export function mountMonitor(state: AppState, host: HTMLElement): MonitorView {
   const el = document.createElement('section');
@@ -149,7 +152,18 @@ export function mountMonitor(state: AppState, host: HTMLElement): MonitorView {
   soundButton.title = 'Pulse beep (M)';
   soundButton.innerHTML = SPEAKER;
 
-  el.append(canvas, nums, soundButton);
+  const collapseButton = document.createElement('button');
+  collapseButton.type = 'button';
+  collapseButton.className = 'vitals-sound vitals-collapse'; // same small square button look
+  collapseButton.setAttribute('aria-expanded', 'true');
+  collapseButton.setAttribute('aria-label', 'Monitor details');
+  collapseButton.title = 'Show / hide the monitor';
+  collapseButton.innerHTML = CHEVRON;
+
+  const buttons = document.createElement('div');
+  buttons.className = 'vitals-buttons';
+  buttons.append(soundButton, collapseButton);
+  el.append(canvas, nums, buttons);
   host.append(el);
 
   // Displayed strings (built ≤ textHz) — also reused by the mirror compositor.
@@ -250,6 +264,7 @@ export function mountMonitor(state: AppState, host: HTMLElement): MonitorView {
   return {
     el,
     soundButton,
+    collapseButton,
     get hr() {
       return hr;
     },

@@ -23,6 +23,8 @@ export const vitalsConfig = {
     volume: 0.12, // GainNode peak (0..1)
     storageKey: 'thorascope.vitalsSound', // localStorage '1' | '0'; default off
   },
+  /** T821: collapse toggle, persisted (localStorage '1' collapsed | '0'; default expanded). */
+  collapseStorageKey: 'thorascope.vitalsCollapsed',
   /** Numeric text refresh (§6.7: DOM writes ≤ 4 Hz). */
   textHz: 4,
   /** Mirror canvases (OT-room 3D monitor texture): traces left, numerics right. */

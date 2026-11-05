@@ -149,6 +149,10 @@ test('guided: steps 2–6 show the static held grasper, step 1 and 7 do not', as
     await page.waitForTimeout(SETTLE_MS);
     expect((await held(page)).shown, `step ${step}`).toBe(shown);
   }
-  await page.screenshot({ path: `${SHOTS}/retraction-guided-step3.png` });
+  for (const step of [2, 3, 4, 5, 6]) {
+    await page.evaluate((n) => window.__sim.setStep(n, true), step);
+    await page.waitForTimeout(SETTLE_MS);
+    await page.screenshot({ path: `${SHOTS}/guided-grasper-s${step}.png` }); // T821: grasper framed in 3, 5, 6
+  }
   expect(await programs()).toBe(before);
 });

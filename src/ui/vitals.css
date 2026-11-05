@@ -67,10 +67,15 @@ body:has(.vitals):has(#pip-inset[style*='display: block']) .shell-inspector {
   font-size: calc(var(--font-size-body) * 1.6);
 }
 
-.vitals-sound {
+.vitals-buttons {
   grid-column: 2;
   grid-row: 1;
   justify-self: end;
+  display: flex;
+  gap: calc(var(--space-1) / 2);
+}
+
+.vitals-sound {
   width: var(--space-3);
   height: var(--space-3);
   padding: calc(var(--space-1) / 2);
@@ -103,4 +108,34 @@ body:has(.vitals):has(#pip-inset[style*='display: block']) .shell-inspector {
 .vitals-sound[aria-pressed='true'] .vitals-off,
 .vitals-sound[aria-pressed='false'] .vitals-on {
   display: none;
+}
+
+/* T821 collapse: only the buttons stay; the chevron points up to re-open. */
+.vitals[data-collapsed] :is(.vitals-trace, .vitals-nums) {
+  display: none;
+}
+.vitals[data-collapsed] .vitals-chevron {
+  transform: rotate(180deg);
+}
+
+/* T821 scope view: numbers-only strip in the black margin right of the 5:4 scope image (traces hidden, smaller
+   numerals), so the monitor never covers the operative picture. */
+body:has(.shell[data-view='scope']) .vitals {
+  grid-template-columns: auto;
+  padding: calc(var(--space-1) / 2) var(--space-1);
+}
+body:has(.shell[data-view='scope']) .vitals-trace {
+  display: none;
+}
+body:has(.shell[data-view='scope']) :is(.vitals-nums, .vitals-buttons) {
+  grid-column: 1;
+}
+body:has(.shell[data-view='scope']) .vitals-nums {
+  gap: 0 var(--space-1);
+}
+body:has(.shell[data-view='scope']) .vitals-cell dt {
+  font-size: calc(var(--font-size-small) * 0.75);
+}
+body:has(.shell[data-view='scope']) .vitals-cell:is([data-vital='hr'], [data-vital='spo2']) dd {
+  font-size: calc(var(--font-size-body) * 1.3);
 }

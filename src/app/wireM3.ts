@@ -363,6 +363,7 @@ export function wireM3(ctx: M3Context): M3 {
       }
       if (rig.target !== shownTarget) {
         shownTarget = rig.target;
+        shell.root.dataset.view = shownTarget; // CSS: compact vitals strip in the scope view (T821)
         for (const { view } of SHELL_VIEWS)
           shell.viewButtons[view].setAttribute('aria-pressed', String(view === shownTarget));
       }

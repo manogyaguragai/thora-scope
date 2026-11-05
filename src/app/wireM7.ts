@@ -24,17 +24,17 @@ declare global {
 const B = vitalsConfig.beep;
 const SKIP_TARGETS = 'input, select, textarea, [contenteditable], dialog';
 
-function loadSoundPref(): boolean {
+function loadPref(key: string): boolean {
   try {
-    return localStorage.getItem(B.storageKey) === '1';
+    return localStorage.getItem(key) === '1';
   } catch {
     return false;
   }
 }
 
-function saveSoundPref(on: boolean): void {
+function savePref(key: string, on: boolean): void {
   try {
-    localStorage.setItem(B.storageKey, on ? '1' : '0');
+    localStorage.setItem(key, on ? '1' : '0');
   } catch {
     /* storage blocked: the toggle still works for this session */
   }
@@ -89,7 +89,7 @@ export function wireVitals(ctx: { state: AppState; host: HTMLElement }): VitalsM
   function setSoundOn(on: boolean): void {
     hook.soundOn = on;
     view.soundButton.setAttribute('aria-pressed', String(on));
-    saveSoundPref(on);
+    savePref(B.storageKey, on);
     if (on) ensureAudio();
     syncAudio();
   }
@@ -103,6 +103,19 @@ export function wireVitals(ctx: { state: AppState; host: HTMLElement }): VitalsM
     e.preventDefault();
   };
   view.soundButton.addEventListener('click', toggle);
+
+  // T821: collapse toggle (the compact scope-view strip and the full outside panel share it).
+  const setCollapsed = (c: boolean): void => {
+    view.el.toggleAttribute('data-collapsed', c);
+    view.collapseButton.setAttribute('aria-expanded', String(!c));
+  };
+  const toggleCollapsed = (): void => {
+    const c = !view.el.hasAttribute('data-collapsed');
+    setCollapsed(c);
+    savePref(vitalsConfig.collapseStorageKey, c);
+  };
+  setCollapsed(loadPref(vitalsConfig.collapseStorageKey));
+  view.collapseButton.addEventListener('click', toggleCollapsed);
   window.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', syncAudio);
 
@@ -112,7 +125,7 @@ export function wireVitals(ctx: { state: AppState; host: HTMLElement }): VitalsM
     window.removeEventListener('keydown', unlock);
     if (hook.soundOn) setSoundOn(true);
   };
-  if (loadSoundPref()) {
+  if (loadPref(B.storageKey)) {
     hook.soundOn = true;
     view.soundButton.setAttribute('aria-pressed', 'true');
     window.addEventListener('pointerdown', unlock);
@@ -132,6 +145,7 @@ export function wireVitals(ctx: { state: AppState; host: HTMLElement }): VitalsM
     setSoundOn,
     dispose(): void {
       view.soundButton.removeEventListener('click', toggle);
+      view.collapseButton.removeEventListener('click', toggleCollapsed);
       window.removeEventListener('keydown', onKey);
       window.removeEventListener('pointerdown', unlock);
       window.removeEventListener('keydown', unlock);

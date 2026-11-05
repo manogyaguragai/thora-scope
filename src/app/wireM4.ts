@@ -616,12 +616,14 @@ export function wireM4(ctx: M4Context): M4 {
     return toast(`${toolName(r.tool)} released: the lung falls back`);
   }
 
+  let guidedAt: readonly number[] | null = null;
   /** Guided steps 2–6: the authored static grasper (event time; the tip rides the authored lobe vertex). */
   function showGuided(): void {
     const a = getMode() === 'guided' ? R.guided[guided.current] : undefined;
     const port = a && ports.find((p) => p.id === a.port);
     if (!a || !port) return hide(guidedHeld);
-    if (guidedHeld.target !== a.target || guidedHeld.port !== port) {
+    if (guidedAt !== a.at || guidedHeld.target !== a.target) {
+      guidedAt = a.at; // steps 3 → 4 share target + port but not the point
       model.updateMatrixWorld();
       track(guidedHeld, a.target, tB.set(...a.at), true);
     }
