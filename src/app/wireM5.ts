@@ -100,9 +100,6 @@ export function wireM5(ctx: M5Context): M5 {
   msg.setAttribute('aria-live', 'polite');
   const vitalsEl = document.createElement('p');
   vitalsEl.className = 'practice-vitals';
-  const badge = document.createElement('span');
-  badge.className = 'panel-badge';
-  badge.textContent = 'Pending clinician review';
   const row = document.createElement('div');
   row.style.cssText = 'display:flex;gap:var(--space-1);align-items:center;flex-wrap:wrap';
   const button = (text: string, onClick: () => void): HTMLButtonElement => {
@@ -114,7 +111,6 @@ export function wireM5(ctx: M5Context): M5 {
     return b;
   };
   row.append(
-    badge,
     button('Hint', () => hint()),
     button('End run', () => void m5.endRun()),
   );

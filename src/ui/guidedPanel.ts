@@ -82,7 +82,6 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
       { className: 'guided-head' },
       title,
       port,
-      h('span', { className: 'panel-badge' }, 'Pending clinician review'),
       h('div', { className: 'guided-controls' }, more, prev, counter, next),
     ),
     body,

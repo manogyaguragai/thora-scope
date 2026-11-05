@@ -52,7 +52,7 @@ function fill(d: HTMLDialogElement, b: ScoreBreakdown): void {
   const head = el('div', 'debrief-head');
   const title = el('h2', 'debrief-title', 'Case debrief');
   title.id = 'debrief-title';
-  head.append(title, el('span', 'panel-badge', 'Pending clinician review'));
+  head.append(title);
 
   const total = el('p', 'debrief-total');
   total.append(el('strong', undefined, String(b.total)), ' / 100');

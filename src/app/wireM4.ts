@@ -23,15 +23,19 @@ import { setDivisionPlane, Staples } from '../scene/staples';
 import { Dissect } from '../sim/actions/dissect';
 import * as F from '../sim/actions/finish';
 import { Retract } from '../sim/actions/retract';
+import type { RetractKey } from '../sim/actions/retract';
 import { Encircle, StapleFire } from '../sim/actions/staple';
 import { SLOTS } from '../sim/hotbar';
 import { InstrumentController } from '../sim/instrumentControl';
+import { getMode, onModeChange } from '../sim/modes';
 import { PortOccupancy } from '../sim/portOccupancy';
 import type { Port } from '../sim/ports';
 import type { PracticeAttempt } from '../sim/practice';
 import type { ActionKind, PracticeTool } from '../sim/practiceActions';
-import { tweenTo } from '../sim/state';
+import { retractionConfig as R } from '../sim/retraction.config';
+import { startOLV, tweenTo } from '../sim/state';
 import type { TweenKey } from '../sim/state';
+import { mountRetractionStrip } from '../ui/hotbar';
 import { createPip } from '../ui/pip';
 import type { Pip } from '../ui/pip';
 import type { M3, M3Context } from './wireM3';
@@ -69,6 +73,12 @@ export interface M4 {
   press: (down: boolean) => string;
   /** Same as P with a tool selected: next port with room. */
   nextToolPort: () => string;
+  /** T820, same as G / the Hold button: lock the placed grasper / sponge-stick (and its retraction) in its port. */
+  hold: () => string;
+  /** Same as Shift+G / the Release button: let go of the most recent hold; the lung eases back. */
+  releaseHold: () => string;
+  /** Held instruments drawn right now (user holds + the guided step's static grasper). */
+  heldShown: () => number;
   /** Frame loop, after M3. Allocation-free. */
   update: (now: number) => void;
   /** After the post-FX pass drew the canvas (PiP inset). */
@@ -104,6 +114,22 @@ const Z = new Vector3(0, 0, 1);
 const tA = new Vector3();
 const tB = new Vector3();
 const tQ = new Quaternion();
+const tN = new Vector3();
+const tNdc = new Vector3();
+const tT = new Vector3();
+const tQ2 = new Quaternion();
+
+/** A held instrument's look + where its tip sits: a lobe vertex, read morph-aware so the tip rides the retraction. */
+interface Held {
+  target: string | null;
+  key: RetractKey;
+  port: Port | null;
+  obj: Object3D | null;
+  mesh: Mesh | null;
+  vi: number;
+  /** Per holdable tool: a clone of the hand's instrument (shared geometry + materials → no new programs). */
+  clones: Record<string, Object3D>;
+}
 const fovRef = { fov: 0 };
 
 export function wireM4(ctx: M4Context): M4 {
@@ -172,7 +198,6 @@ export function wireM4(ctx: M4Context): M4 {
       overrides.set(n, false);
       setShown(w, true);
     },
-    cautery: (at) => fx.cautery(at),
     clearView: () => {
       fx.suction();
       fx.fog.clear();
@@ -241,15 +266,16 @@ export function wireM4(ctx: M4Context): M4 {
   m3.portHooks.refusal = (id) =>
     occupancy.hasRoom(id)
       ? ''
-      : occupancy.heldPort === id
-        ? `${portLabel(id)} holds the retraction: transfer it via another port (G) first`
+      : occupancy.heldIn(id) > 0
+        ? `${portLabel(id)} holds a retraction: transfer it via another port (G) or release it (Shift+G) first`
         : occupancy.activePort === id
           ? `${portLabel(id)} is occupied by the ${toolName(occupancy.activeTool).toLowerCase()}: withdraw it (Esc) or move it (P)`
           : `${portLabel(id)} is full`;
   m3.portHooks.toast = toast;
   m3.portHooks.occupant = (id) => {
     const a = occupancy.activePort === id ? toolName(occupancy.activeTool) : '';
-    const h = occupancy.heldPort === id ? `Held: ${toolName(occupancy.heldTool)}` : '';
+    const held = occupancy.holds.filter((x) => x.port === id).map((x) => toolName(x.tool));
+    const h = held.length ? `Held: ${held.join(', ')}` : '';
     return a && h ? `${a} + ${h}` : a || h;
   };
 
@@ -258,6 +284,32 @@ export function wireM4(ctx: M4Context): M4 {
   let pressing = false;
   const point = new Vector3(); // live target point (pick hit)
   let lastPort: string = config.ports.toolDefault;
+
+  // ── Held instruments (T820): user holds + the guided step's static grasper; clones built once, here ──
+  const newHeld = (): Held => {
+    const clones: Record<string, Object3D> = {};
+    for (const id of R.holdable) {
+      const c = inst.tools[id as ToolId].clone();
+      c.visible = false;
+      inst.root.add(c);
+      clones[id] = c;
+    }
+    return { target: null, key: 'retract_posterior', port: null, obj: null, mesh: null, vi: 0, clones };
+  };
+  const userHeld = Array.from({ length: R.maxHeld }, newHeld);
+  const guidedHeld = newHeld();
+  const allHeld = [...userHeld, guidedHeld];
+  /** The hand's grasp (vertex the active tip rides while dragging). */
+  const act: Held = {
+    target: null,
+    key: 'retract_posterior',
+    port: null,
+    obj: null,
+    mesh: null,
+    vi: 0,
+    clones: {},
+  };
+  let olvGrasp: string | null = null;
 
   function abort(): void {
     if (pressing) release();
@@ -329,6 +381,7 @@ export function wireM4(ctx: M4Context): M4 {
     const r = control.snapTo(port, at);
     if (!r.ok) return toast(`${r.reason}: try another port (P)`);
     m4.target = tid;
+    act.target = null;
     point.copy(at);
     return 'ok';
   }
@@ -354,12 +407,22 @@ export function wireM4(ctx: M4Context): M4 {
     if (tool === 'grasper' || tool === 'sponge') {
       if (!allowed('retract', tool, tid, port)) return 'gated';
       const g = retract.grasp(tid, point);
-      return g === 'ok' ? g : toast(REASONS[g] ?? g);
+      if (g === 'ok') track(act, tid, point);
+      if (g !== 'not-collapsed') return g === 'ok' ? g : toast(REASONS[g] ?? g);
+      // §7.3: retraction morphs exist for the collapsed lung only → collapse it, grasp once it is down (update).
+      startOLV(state);
+      olvGrasp = tid;
+      return toast('One-lung ventilation started');
     }
     if (tool === 'peanut' || tool === 'cautery') {
       if (!allowed('dissect', tool, tid, port)) return 'gated';
-      if (tool === 'cautery') inst.setGlow(1);
-      if (!dissect.begin(tid, tool, control.tipPos) && tool === 'cautery') fx.cautery(control.tipPos);
+      dissect.begin(tid, tool);
+      if (tool === 'cautery') {
+        // T817: smoke plume at the tip, char mark at the contact point, ECG diathermy interference (vitals).
+        inst.setGlow(1);
+        state.cauteryActive = true;
+        fx.cautery(control.tipPos, point, contactNormal(point, tN));
+      }
       return 'ok';
     }
     if (tool === 'clamp') {
@@ -417,10 +480,13 @@ export function wireM4(ctx: M4Context): M4 {
   }
 
   function release(): void {
+    olvGrasp = null;
     if (!pressing) return;
     pressing = false;
     control.activate(false);
     inst.setGlow(0);
+    fx.cautery(null);
+    state.cauteryActive = false;
     dissect.end();
     if (retract.key === null) return;
     retract.release(false);
@@ -447,7 +513,136 @@ export function wireM4(ctx: M4Context): M4 {
     m4.flags.add(`divided:${r.target}`);
   }
 
+  /** Char decal orientation: the surface normal under `at` seen from the scope (BVH re-pick, press time only),
+   *  turned toward the camera; facing the camera when the point isn't the visible surface (as wireM5's bleeds). */
+  function contactNormal(at: Vector3, out: Vector3): Vector3 {
+    out.subVectors(camera.position, at).normalize();
+    tNdc.copy(at).project(camera);
+    const hit = m3.picker.pick(tNdc.x, tNdc.y, camera);
+    const tol = config.effects.decal.normalPickTolM;
+    if (!hit || hit.normal.lengthSq() === 0 || hit.point.distanceToSquared(at) > tol * tol) return out;
+    return hit.normal.dot(out) < 0 ? out.copy(hit.normal).negate() : out.copy(hit.normal);
+  }
+
   const onDissected = (id: string): void => void toast(`${labelFor(id).name}: dissected`);
+
+  /** Grasp time only: the vertex of `tid` nearest world `at`, morph-aware (`rest` = against the un-morphed mesh). */
+  function track(h: Held, tid: string, at: Vector3, rest = false): void {
+    let best = Infinity;
+    h.mesh = null;
+    h.target = tid;
+    for (const m of meshesOf(tid)) {
+      const pos = m.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        if (rest) tT.fromBufferAttribute(pos, i);
+        else m.getVertexPosition(i, tT);
+        const d = tT.applyMatrix4(m.matrixWorld).distanceToSquared(at);
+        if (d < best) {
+          best = d;
+          h.mesh = m;
+          h.vi = i;
+        }
+      }
+    }
+  }
+
+  /** Tip on the tracked vertex, shaft through the port fulcrum (roll from the port frame, as the controller). */
+  function aim(obj: Object3D, port: Port, h: Held): void {
+    if (!h.mesh) return;
+    h.mesh.getVertexPosition(h.vi, tT).applyMatrix4(h.mesh.matrixWorld);
+    obj.position.copy(tT);
+    tN.subVectors(tT, port.pleura).normalize();
+    tQ.setFromUnitVectors(Z, port.axis);
+    tQ2.setFromUnitVectors(port.axis, tN);
+    obj.quaternion.multiplyQuaternions(tQ2, tQ);
+  }
+
+  function hide(h: Held): void {
+    if (h.obj) h.obj.visible = false;
+    h.obj = null;
+    h.target = null;
+    h.mesh = null;
+  }
+
+  function hold(): string {
+    const tool = m4.tool;
+    const tid = m4.target;
+    const port = control.port;
+    if (
+      !tool ||
+      !tid ||
+      !port ||
+      !R.holdable.includes(tool) ||
+      sub === 'ring' ||
+      control.phase === 'inserting'
+    )
+      return toast('Nothing to hold: place the grasper (2) or sponge-stick (3) on a lobe first');
+    if (occupancy.holdFull(tid))
+      return toast(`${R.maxHeld} instruments already hold the lung: release one first (Shift+G)`);
+    const key = retract.key ?? config.retract.morphFor[tid] ?? 'retract_posterior';
+    if (retract.key !== null) retract.release(true);
+    pressing = false;
+    olvGrasp = null;
+    control.activate(false);
+    occupancy.hold(tid);
+    const h = (userHeld.find((x) => x.target === tid) ?? userHeld.find((x) => x.target === null)) as Held;
+    hide(h);
+    if (act.target === tid && act.mesh) {
+      h.mesh = act.mesh;
+      h.vi = act.vi;
+    } else track(h, tid, control.tipPos);
+    Object.assign(h, { target: tid, key, port, obj: h.clones[tool] ?? null });
+    if (h.obj) h.obj.visible = true;
+    act.target = null;
+    m3.hotbar.select(0); // the hand is free: pick the next instrument
+    refreshPorts();
+    strip.setHeld(occupancy.holds.length);
+    return toast(
+      `${toolName(tool)} held via the ${port.label.toLowerCase()}: pick another tool (Shift+G releases)`,
+    );
+  }
+
+  function releaseHold(): string {
+    const r = occupancy.release();
+    if (!r) return toast('Nothing is held');
+    const h = userHeld.find((x) => x.target === r.target);
+    if (h) {
+      hide(h);
+      if (retract.key !== h.key && !userHeld.some((x) => x.target !== null && x.key === h.key))
+        tweenTo(state, h.key, R.releaseTo, R.releaseMs);
+    }
+    refreshPorts();
+    strip.setHeld(occupancy.holds.length);
+    return toast(`${toolName(r.tool)} released: the lung falls back`);
+  }
+
+  /** Guided steps 2–6: the authored static grasper (event time; the tip rides the authored lobe vertex). */
+  function showGuided(): void {
+    const a = getMode() === 'guided' ? R.guided[guided.current] : undefined;
+    const port = a && ports.find((p) => p.id === a.port);
+    if (!a || !port) return hide(guidedHeld);
+    if (guidedHeld.target !== a.target || guidedHeld.port !== port) {
+      model.updateMatrixWorld();
+      track(guidedHeld, a.target, tB.set(...a.at), true);
+    }
+    guidedHeld.port = port;
+    guidedHeld.obj = guidedHeld.clones.grasper ?? null;
+    if (guidedHeld.obj) guidedHeld.obj.visible = true;
+  }
+  guided.on('stepchange', showGuided);
+  onModeChange(() => {
+    // A new mode starts from its own state: drop user holds without a spring-back tween.
+    occupancy.releaseAll();
+    for (const h of userHeld) hide(h);
+    strip.setHeld(0);
+    refreshPorts();
+    showGuided();
+  });
+  const strip = mountRetractionStrip(ctx.shell.ports, {
+    hold: () => void hold(),
+    release: () => void releaseHold(),
+  });
+  showGuided();
 
   // ── Keys: Esc withdraw, P instrument port, G hold, A / B / T context actions, I PiP ──
   window.addEventListener('keydown', (e) => {
@@ -466,15 +661,8 @@ export function wireM4(ctx: M4Context): M4 {
     } else if (tool && !e.shiftKey && matchesKey(K.nextPort, c))
       nextToolPort(); // Shift+P: scope (M3)
     else if (c === CONTEXT_KEYS.hold) {
-      if (!tool || !m4.target || !occupancy.hold(m4.target)) {
-        toast('Nothing to hold: place a retractor first');
-        return;
-      }
-      if (retract.key !== null) retract.release(true);
-      pressing = false;
-      control.activate(false);
-      toast(`Retraction held via the ${portLabel(occupancy.heldPort).toLowerCase()}`);
-      refreshPorts();
+      if (e.shiftKey) releaseHold();
+      else hold();
     } else if (c === CONTEXT_KEYS.ventilate) {
       if (allowed('ventilate', 'ventilate', finish.fluidFilled ? FIN.stump : BRONCHUS, null))
         dispatch(F.ventilate(finish));
@@ -581,6 +769,9 @@ export function wireM4(ctx: M4Context): M4 {
     snapTo,
     press,
     nextToolPort,
+    hold,
+    releaseHold,
+    heldShown: () => allHeld.filter((h) => h.obj?.visible).length,
     update(now) {
       const dt = last ? Math.min(now - last, A.maxDtMs) : 0;
       last = now;
@@ -596,6 +787,17 @@ export function wireM4(ctx: M4Context): M4 {
       control.update(dt);
       const tool = m4.tool;
       if (tool) control.writeTransform(inst.tools[tool].position, inst.tools[tool].quaternion);
+      if (olvGrasp !== null && pressing && retract.grasp(olvGrasp, point) === 'ok') {
+        track(act, olvGrasp, point);
+        olvGrasp = null;
+      }
+      // The grasped tip rides the lobe while it is pulled (and after, until the tool moves).
+      if (tool && act.mesh && act.target === m4.target && control.phase === 'placed' && control.port)
+        aim(inst.tools[tool], control.port, act);
+      for (let i = 0; i < allHeld.length; i++) {
+        const h = allHeld[i] as Held;
+        if (h.obj && h.port) aim(h.obj, h.port, h);
+      }
       if (fire.update(dt)) onDivide();
       inst.setJaw(tool === 'stapler' && fire.phase !== 'idle' ? fire.jaw : 1 - control.jaw);
       retract.update(dt);

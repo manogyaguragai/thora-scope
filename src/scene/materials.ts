@@ -52,7 +52,7 @@ interface TissueUniforms {
   uTissueWrap: { value: number };
   uTissueScatter: { value: Color }; // colour × strength
   uTissueRim: { value: Color }; // colour × strength
-  uTissueExtra: { value: Vector4 }; // T807: env-reflection scale, ring-groove strength, normal fix (0/1), unused
+  uTissueExtra: { value: Vector4 }; // T807: env-reflection scale, ring-groove strength; T818: normal-fix edges (0,0 = off)
 }
 
 declare global {
@@ -154,7 +154,7 @@ const NORMAL_BEGIN = ShaderChunk.normal_fragment_begin.replace(
   TBN_ANCHOR,
   /* glsl */ `
 	vec3 tissueFlat = normalize( cross( dFdx( vViewPosition ), dFdy( vViewPosition ) ) );
-	if ( uTissueExtra.z > 0.0 ) normal = normalize( mix( tissueFlat, normal, smoothstep( ${f(look.normalFix[0])}, ${f(look.normalFix[1])}, dot( normal, tissueFlat ) ) ) );
+	if ( uTissueExtra.w > 0.0 ) normal = normalize( mix( tissueFlat, normal, smoothstep( uTissueExtra.z, uTissueExtra.w, dot( normal, tissueFlat ) ) ) );
 ${TBN_ANCHOR}`,
 );
 const ENV = /* glsl */ `
@@ -320,6 +320,13 @@ function makeMaterial(
   return m;
 }
 
+/** TissueParams.normalFix → smoothstep edges (true = look.normalFix; off = 0, 0). */
+function normalFixEdges(n: TissueParams['normalFix']): [number, number] {
+  if (!n) return [0, 0];
+  const [a, b] = n === true ? look.normalFix : n;
+  return [a, b];
+}
+
 function apply(mesh: Mesh, v: Variants): void {
   const a = (xray ? Math.min(v.opacity, look.xrayOpacity) : v.opacity) * v.fade;
   if (a >= 1) {
@@ -385,7 +392,7 @@ export function applyMaterials(root: Object3D): Group {
         uTissueWrap: { value: t.wrap },
         uTissueScatter: { value: new Color(t.scatter).multiplyScalar(t.scatterStrength) },
         uTissueRim: { value: new Color(t.rim).multiplyScalar(t.rimStrength) },
-        uTissueExtra: { value: new Vector4(t.env ?? 1, t.rings ?? 0, t.normalFix ? 1 : 0, 0) },
+        uTissueExtra: { value: new Vector4(t.env ?? 1, t.rings ?? 0, ...normalFixEdges(t.normalFix)) },
       };
       uniforms.set(cls, u);
     }

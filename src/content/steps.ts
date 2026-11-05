@@ -9,7 +9,6 @@ export interface GuidedStep {
   video: { from: string; to: string; text: string };
   portLabel: string;
   note?: string;
-  pendingReview: true;
 }
 
 const CAMERA_PORT = 'Camera port (8th space)';
@@ -35,7 +34,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
       text: 'In the reference video: the anterior working port and a roughly 4 cm access incision are made, then the collapsed lung is surveyed.',
     },
     portLabel: CAMERA_PORT,
-    pendingReview: true,
   },
   {
     step: 2,
@@ -55,7 +53,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
       text: 'In the reference video: the scope changes port, two retractors hold the upper and middle lobes back and the pleura over the SVC is cleared bluntly.',
     },
     portLabel: CAMERA_PORT,
-    pendingReview: true,
   },
   {
     step: 3,
@@ -76,7 +73,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     },
     portLabel: WORKING_PORT,
     note: 'Model limitation: the middle lobe branches run straight into a lobe whose fissure has not been opened, so they look simpler than in a real dissection.',
-    pendingReview: true,
   },
   {
     step: 4,
@@ -97,7 +93,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     },
     portLabel: ACCESS_INCISION,
     note: 'This guided view is authored with a 44° optic offset; the hands-on scope is a 30° telescope.',
-    pendingReview: true,
   },
   {
     step: 5,
@@ -118,7 +113,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     },
     portLabel: ACCESS_INCISION,
     note: 'Model limitation: the artery branches run into the lobe without an opened fissure, so the tunnel looks shorter and cleaner than in the video.',
-    pendingReview: true,
   },
   {
     step: 6,
@@ -139,7 +133,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     },
     portLabel: CAMERA_PORT,
     note: 'Not modelled: the video patient had a middle lobe tumour, so an extra strip of upper lobe was taken with the specimen. Neither is in this model.',
-    pendingReview: true,
   },
   {
     step: 7,
@@ -159,7 +152,6 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
       text: 'In the reference video: the lobe is bagged and removed, nodes are cleared, a chest tube goes in and the stump is checked under saline while ventilating.',
     },
     portLabel: CAMERA_PORT,
-    pendingReview: true,
   },
 ];
 

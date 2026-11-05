@@ -71,12 +71,41 @@ describe('port occupancy', () => {
     o.insert('grasper', UTIL);
     o.hold('lung_upper_lobe_right');
     o.insert('grasper', UTIL);
-    o.hold('lung_middle_lobe_right');
+    o.hold('lung_upper_lobe_right');
     expect(o.swaps).toBe(0);
+    expect(o.holds).toHaveLength(1);
+    o.insert('grasper', UTIL);
+    o.hold('lung_middle_lobe_right');
     expect(o.heldTarget).toBe('lung_middle_lobe_right');
-    o.release();
+    expect(o.release()?.target).toBe('lung_middle_lobe_right'); // most recent first
+    expect(o.release('lung_upper_lobe_right')?.port).toBe(UTIL);
     expect(o.used(UTIL)).toBe(0);
+    expect(o.release()).toBeNull();
     expect(o.hold('x')).toBe(false); // nothing inserted
+  });
+
+  test('T820: two held instruments + the active tool; a third hold and full ports are refused', () => {
+    const o = new PortOccupancy(PORTS);
+    expect(o.maxHeld).toBe(2);
+    o.moveScope(CAM);
+    expect(o.insert('grasper', ANT)).toBe(true); // lung grasper on the upper lobe via the anterior port
+    expect(o.hold('lung_upper_lobe_right')).toBe(true);
+    expect(o.insert('sponge', UTIL)).toBe(true); // sponge-stick on the middle lobe via the access incision
+    expect(o.hold('lung_middle_lobe_right')).toBe(true);
+    expect(o.insert('cautery', UTIL)).toBe(true); // the working tool
+    expect([o.used(CAM), o.used(ANT), o.used(UTIL)]).toEqual([1, 1, 2]);
+    expect(o.holds.map((h) => h.tool)).toEqual(['grasper', 'sponge']);
+    expect(o.insert('peanut', ANT)).toBe(false); // the held grasper fills the anterior port
+    expect(o.canFire('stapler', 'lung_middle_lobe_right', ANT, 'parenchyma')).toBe('retraction-in-port');
+    expect(o.holdFull('LN_11R')).toBe(true);
+    expect(o.hold('LN_11R')).toBe(false); // no third hold slot; the active tool stays in
+    expect(o.activeTool).toBe('cautery');
+    expect(o.holdFull('lung_upper_lobe_right')).toBe(false); // re-holding a held target is a transfer
+    o.release('lung_upper_lobe_right');
+    expect(o.hasRoom(ANT)).toBe(true);
+    o.releaseAll();
+    expect(o.holds).toHaveLength(0);
+    expect(o.used(UTIL)).toBe(1);
   });
 
   test('approach angles: bronchus waiver, fissure via anterior working port, live point, unknowns', () => {

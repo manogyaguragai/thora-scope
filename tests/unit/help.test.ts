@@ -36,8 +36,8 @@ describe('help overlay model', () => {
       keybindings.toggleView.label,
     );
     expect(model.find((g) => g.title === 'Scope')?.rows[0]).toEqual({
-      keys: ['H'],
-      label: keybindings.horizonLock.label,
+      keys: ['↑'],
+      label: keybindings.scopeUp.label,
     });
   });
 
@@ -46,7 +46,9 @@ describe('help overlay model', () => {
     expect(keyCap('Numpad3')).toBe('Num 3');
     expect(keyCap('ArrowRight')).toBe('→');
     const next = model.flatMap((g) => g.rows).find((r) => r.label === keybindings.guidedNext.label);
-    expect(next?.keys).toEqual(['→', 'PgDn']);
+    expect(next?.keys).toEqual(['PgDn']);
+    const zoom = model.flatMap((g) => g.rows).find((r) => r.label === keybindings.zoomIn.label);
+    expect(zoom?.keys).toEqual(['+', 'Num +']);
   });
 
   it('drops empty groups and appends unknown groups before Mouse', () => {

@@ -1,7 +1,8 @@
 // Procedural gloved hands (CONTEXT §6.4 Gloved hands, §8): two low-poly grips (scope camera head, instrument handle)
 // merged at load into one geometry each, ONE shared glove material (latex/nitrile = colour change only, §6.10).
 // Hands follow target objects each frame allocation-free and render only in the outside view and the PiP inset —
-// never in the scope view. Grip frame: handle axis = +Z (toward the tip, same as instruments.ts), palm on +X.
+// never in the scope view. T819: gloves hidden everywhere (GLOVES_SHOWN); only the scope body is drawn.
+// Grip frame: handle axis = +Z (toward the tip, same as instruments.ts), palm on +X.
 import {
   CapsuleGeometry,
   Color,
@@ -21,8 +22,13 @@ import type { BufferGeometry, Object3D } from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import type { ViewMode } from './cameras';
 import { config } from '../core/config';
+import { instrumentGeom } from './instruments.config';
 
 export const HANDS_CONFIG = config.hands; // values in src/core/config.ts
+/** T819: the procedural gloves read as unrealistic, so they are never drawn (scope, outside or PiP); the instrument
+ *  handles (instruments.ts) and the scope body carry the outside view. Gloves still follow their targets so they can
+ *  return once a convincing hand model exists. ponytail: belongs in config.hands (config.ts owned elsewhere). */
+export const GLOVES_SHOWN = false;
 
 export type GloveKind = 'latex' | 'nitrile';
 export type HandId = keyof typeof HANDS_CONFIG.hands;
@@ -140,7 +146,7 @@ export function buildHands(glove: GloveKind = HANDS_CONFIG.glove): Hands {
   // Scope body (shaft + camera head) in the scope target's frame; plain standard material = the instruments' program.
   const B = HANDS_CONFIG.scopeBody;
   const zHead = HANDS_CONFIG.hands.scope.position[2];
-  const seg = HANDS_CONFIG.segments.radial;
+  const seg = instrumentGeom.radialSegments; // T819: round like the instrument shafts (glove count read faceted)
   const bodyGeo = mergeGeometries([
     new CylinderGeometry(B.shaftRadius, B.shaftRadius, -zHead, seg)
       .rotateX(Math.PI / 2)
@@ -175,13 +181,13 @@ export function buildHands(glove: GloveKind = HANDS_CONFIG.glove): Hands {
     update() {
       for (const s of slots) {
         const t = s.target;
-        s.mesh.visible = t !== null && t.visible;
+        s.mesh.visible = GLOVES_SHOWN && t !== null && t.visible;
         if (!t || !t.visible) continue;
         t.updateWorldMatrix(true, false);
         s.mesh.matrix.multiplyMatrices(t.matrixWorld, s.offset);
         s.mesh.matrixWorldNeedsUpdate = true;
       }
-      body.visible = scope.mesh.visible;
+      body.visible = scope.target !== null && scope.target.visible;
       if (body.visible) {
         body.matrix.copy((scope.target as Object3D).matrixWorld);
         body.matrixWorldNeedsUpdate = true;

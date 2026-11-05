@@ -184,10 +184,12 @@ describe('mode registry', () => {
 
 describe('keybindings', () => {
   test('guided next/prev keys, with descriptions', () => {
-    expect(matchesKey(keybindings.guidedNext, 'ArrowRight')).toBe(true);
     expect(matchesKey(keybindings.guidedNext, 'PageDown')).toBe(true);
     expect(matchesKey(keybindings.guidedPrev, 'PageUp')).toBe(true);
-    expect(matchesKey(keybindings.guidedPrev, 'ArrowRight')).toBe(false);
+    // T816: arrows belong to the scope (pivot), not guided prev/next.
+    expect(matchesKey(keybindings.guidedNext, 'ArrowRight')).toBe(false);
+    expect(matchesKey(keybindings.guidedPrev, 'ArrowLeft')).toBe(false);
+    expect(matchesKey(keybindings.scopeLeft, 'ArrowLeft')).toBe(true);
     for (const b of Object.values(keybindings)) expect(b.label.length).toBeGreaterThan(0);
   });
 });

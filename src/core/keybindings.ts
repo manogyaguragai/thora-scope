@@ -11,8 +11,14 @@ export interface KeyBinding {
 export const keybindings = {
   toggleView: { code: 'KeyO', label: 'Toggle outside / scope view' },
   help: { code: 'Slash', label: 'Show / hide this help' },
-  guidedNext: { code: 'ArrowRight', alt: ['PageDown'], label: 'Guided: next step', group: 'Guided' },
-  guidedPrev: { code: 'ArrowLeft', alt: ['PageUp'], label: 'Guided: previous step', group: 'Guided' },
+  toggleSound: { code: 'KeyM', label: 'Monitor pulse beep on / off' },
+  guidedNext: { code: 'PageDown', label: 'Guided: next step', group: 'Guided' },
+  guidedPrev: { code: 'PageUp', label: 'Guided: previous step', group: 'Guided' },
+  // Scope view, any tool (T816): hold to pivot the scope about its port, in screen terms.
+  scopeUp: { code: 'ArrowUp', label: 'Hold: angle the scope view up', group: 'Scope' },
+  scopeDown: { code: 'ArrowDown', label: 'Hold: angle the scope view down', group: 'Scope' },
+  scopeLeft: { code: 'ArrowLeft', label: 'Hold: pan the scope view left', group: 'Scope' },
+  scopeRight: { code: 'ArrowRight', label: 'Hold: pan the scope view right', group: 'Scope' },
   // Scope (§6.2): active with Hands (slot 1).
   horizonLock: { code: 'KeyH', label: 'Horizon lock on / off', group: 'Scope' },
   opticLeft: { code: 'KeyZ', label: '30° optic: rotate light post left', group: 'Scope' },
@@ -21,7 +27,7 @@ export const keybindings = {
   zoomOut: { code: 'Minus', alt: ['NumpadSubtract'], label: 'Digital zoom out', group: 'Scope' },
   nextPort: {
     code: 'KeyP',
-    label: 'Move the scope to the next port (Shift+P with an instrument; P then moves the instrument)',
+    label: 'Shift+P: move the scope to the next port (plain P moves the instrument)',
     group: 'Scope',
   },
   snapToStep: { code: 'KeyV', label: 'Snap to the step view', group: 'Scope' },

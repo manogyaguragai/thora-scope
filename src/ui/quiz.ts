@@ -132,7 +132,7 @@ function submit(given: string | number): void {
     );
   }
   const why = a.item.kind === 'identify' ? labelFor(a.item.item.node).description : a.item.item.rationale;
-  fb.append(el('p', 'quiz-rationale', why), el('span', 'panel-badge', 'Pending clinician review'));
+  fb.append(el('p', 'quiz-rationale', why));
   const done = isFinished(session);
   const next = button(
     done ? 'See results' : 'Next',
@@ -161,7 +161,6 @@ function renderResults(): void {
       dl.append(el('dt', undefined, questionText(m.item)), el('dd', 'quiz-muted', correctText(m.item)));
     body.push(dl);
   }
-  body.push(el('span', 'panel-badge', 'Pending clinician review'));
   const seed = session.seed + 1;
   const count = session.items.length;
   const again = button('Try again', 'quiz-button quiz-primary', () => start(seed, count));

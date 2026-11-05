@@ -1,6 +1,7 @@
-import { Vector3 } from 'three';
+import { Matrix4, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { config } from '../../src/core/config';
+import { cauteryConfig as CAUTERY } from '../../src/scene/cautery.config';
 import { createEffects, EFFECTS_CONFIG, LensFog, poolCapacity } from '../../src/scene/effects';
 
 const presets = config.quality.presets;
@@ -50,22 +51,46 @@ describe('effect pools (§6.10 fixed capacity)', () => {
   });
 });
 
-describe('lens fog driver', () => {
-  it('rises to the pulse then decays to 0', () => {
+describe('cautery (T817)', () => {
+  it('energised: smoke plume keeps emitting, char mark grows while held; off: plume stops, mark stays', () => {
+    const fx = createEffects(presets.medium);
+    const tip = new Vector3(0, 0, 0);
+    const scale = (): number => {
+      const m = new Matrix4();
+      fx.char.mesh.getMatrixAt(0, m);
+      return new Vector3().setFromMatrixScale(m).x;
+    };
+    fx.cautery(tip, new Vector3(0, 0, 0), new Vector3(0, 1, 0));
+    expect(fx.energised).toBe(true);
+    expect(fx.char.count).toBe(1);
+    expect(scale()).toBeCloseTo(CAUTERY.char.startRadiusM);
+    for (let i = 0; i < 60; i++) fx.update(1 / 30); // 2 s > smoke life: still alive = still emitting
+    expect(fx.smoke.aliveCount).toBeGreaterThan(0);
+    expect(scale()).toBeGreaterThan(CAUTERY.char.startRadiusM);
+    expect(fx.fog.value).toBeGreaterThan(0);
+    fx.cautery(null);
+    expect(fx.energised).toBe(false);
+    const grown = scale();
+    fx.update(EFFECTS_CONFIG.smoke.lifeSec + 0.01);
+    expect(fx.smoke.aliveCount).toBe(0);
+    expect(scale()).toBeCloseTo(grown);
+    fx.cautery(tip, tip, new Vector3(0, 1, 0)); // a new press = a new mark (ring-buffer slot)
+    expect(fx.char.count).toBe(2);
+  });
+});
+
+describe('smoke haze driver', () => {
+  it('builds slowly to haze.max while on, clears after', () => {
     const fog = new LensFog();
-    fog.pulse(0.6);
-    fog.update(0.05);
-    expect(fog.value).toBeCloseTo(Math.min(0.6, EFFECTS_CONFIG.fog.riseRate * 0.05));
-    fog.update(0.05);
-    fog.update(0.05); // 0.15 s × riseRate 4 ≥ 0.6: at the target
-    const peak = fog.value;
-    expect(peak).toBeCloseTo(0.6);
-    fog.update(0.5);
-    expect(fog.value).toBeLessThan(peak);
-    for (let i = 0; i < 100; i++) fog.update(0.1);
+    fog.on = true;
+    fog.update(1);
+    expect(fog.value).toBeCloseTo(CAUTERY.haze.riseRate);
+    for (let i = 0; i < 100; i++) fog.update(1);
+    expect(fog.value).toBe(CAUTERY.haze.max);
+    fog.on = false;
+    fog.update(1);
+    expect(fog.value).toBeCloseTo(CAUTERY.haze.max - CAUTERY.haze.decayRate);
+    for (let i = 0; i < 100; i++) fog.update(1);
     expect(fog.value).toBe(0);
-    fog.pulse(5);
-    for (let i = 0; i < 10; i++) fog.update(0.1);
-    expect(fog.value).toBeLessThanOrEqual(1);
   });
 });

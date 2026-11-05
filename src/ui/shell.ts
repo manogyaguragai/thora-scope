@@ -15,6 +15,8 @@ export interface Shell {
   root: HTMLElement;
   /** Mode switcher buttons, keyed by mode (data-mode attr). */
   modeButtons: Record<ShellMode, HTMLButtonElement>;
+  /** Inside (scope) / Outside (theatre) view switch (T816); wired + aria-pressed in M3. */
+  viewButtons: Record<ShellView, HTMLButtonElement>;
   /** `?` button; the help overlay is wired in M3. */
   help: HTMLButtonElement;
   rail: HTMLElement;
@@ -26,6 +28,12 @@ export interface Shell {
   /** Reflect the active mode: aria-pressed on the switcher + `data-mode` on the root for CSS. */
   setMode: (mode: ShellMode) => void;
 }
+
+export const SHELL_VIEWS = [
+  { view: 'scope', label: 'Inside (scope)' },
+  { view: 'outside', label: 'Outside (theatre)' },
+] as const;
+export type ShellView = (typeof SHELL_VIEWS)[number]['view'];
 
 let uid = 0;
 
@@ -74,11 +82,23 @@ export function mountShell(host: HTMLElement, onModeSelect: (mode: ShellMode) =>
     modeButtons[mode] = b;
     nav.append(b);
   }
+  const views = el('nav', 'shell-modes shell-views');
+  views.setAttribute('aria-label', 'View');
+  const viewButtons = {} as Record<ShellView, HTMLButtonElement>;
+  for (const { view, label } of SHELL_VIEWS) {
+    const b = el('button', 'shell-mode');
+    b.type = 'button';
+    b.dataset.view = view;
+    b.textContent = label;
+    b.setAttribute('aria-pressed', 'false');
+    viewButtons[view] = b;
+    views.append(b);
+  }
   const help = el('button', 'shell-help');
   help.type = 'button';
   help.textContent = '?';
   help.setAttribute('aria-label', 'Keyboard shortcuts');
-  top.append(name, nav, help);
+  top.append(name, nav, views, help);
 
   const [railPanel, rail] = collapsible('rail', 'Steps');
   const [inspectorPanel, inspector] = collapsible('inspector', 'Inspector');
@@ -100,5 +120,5 @@ export function mountShell(host: HTMLElement, onModeSelect: (mode: ShellMode) =>
   };
   setMode('guided');
 
-  return { root, modeButtons, help, rail, inspector, caption, hotbar, ports, setMode };
+  return { root, modeButtons, viewButtons, help, rail, inspector, caption, hotbar, ports, setMode };
 }

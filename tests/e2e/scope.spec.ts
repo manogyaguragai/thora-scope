@@ -43,7 +43,7 @@ test('scope controls: drag, wheel, Z/X, H, +/-, P, V, R (Hands only)', async ({ 
 
   const s0 = await read(page);
   expect(s0.port).toBe('port_camera_8ICS');
-  expect(s0.lock).toBe(false); // snapped to the (rolled) authored step view
+  expect(s0.lock).toBe(true); // T816: the authored step view, levelled (H brings back its roll)
 
   // Left-drag pivots about the fulcrum: view turns, lens stays `depth` past the pleura point.
   await page.mouse.move(cx, cy);
@@ -61,6 +61,8 @@ test('scope controls: drag, wheel, Z/X, H, +/-, P, V, R (Hands only)', async ({ 
   expect((await read(page)).lightPost).not.toBeCloseTo(s1.lightPost, 3);
 
   await page.keyboard.press('KeyH');
+  expect((await read(page)).lock).toBe(false);
+  await page.keyboard.press('KeyH');
   expect((await read(page)).lock).toBe(true);
   await expect(page.locator('.port-chip[data-port=port_camera_8ICS]')).toContainText('level');
 
@@ -69,7 +71,7 @@ test('scope controls: drag, wheel, Z/X, H, +/-, P, V, R (Hands only)', async ({ 
   expect(zoomed.zoom).toBeGreaterThan(1);
   expect(zoomed.fov).toBeLessThan(s1.fov);
 
-  await page.keyboard.press('KeyP');
+  await page.keyboard.press('Shift+KeyP');
   const moved = await read(page);
   expect(moved.port).not.toBe(s0.port);
   await expect(page.locator(`.port-chip[data-port=${moved.port}]`)).toContainText('Scope');

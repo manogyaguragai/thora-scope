@@ -26,7 +26,9 @@ async function meanDiff(a: Buffer, b: Buffer): Promise<number> {
   return sum / x.length;
 }
 
-test('ports: chips + P move the scope through every port in Explore; refusal toasts', async ({ page }) => {
+test('ports: chips + Shift+P move the scope through every port in Explore; refusal toasts', async ({
+  page,
+}) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -61,12 +63,16 @@ test('ports: chips + P move the scope through every port in Explore; refusal toa
   await expect.poll(() => scopePort(page)).not.toBe(start);
   expect(await page.evaluate(() => window.__sim.m4?.occupancy.activePort)).toBe(toolPort);
 
-  // P with Hands: cycles through all three ports.
+  // Only Shift+P moves the scope: plain P with Hands leaves it put; Shift+P cycles all three ports.
   await page.keyboard.press('Digit1');
+  const stay = await scopePort(page);
+  await page.keyboard.press('KeyP');
+  await page.waitForTimeout(300);
+  expect(await scopePort(page)).toBe(stay);
   const seen = new Set<string>();
   for (let k = 0; k < 3; k++) {
     const before = await scopePort(page);
-    await page.keyboard.press('KeyP');
+    await page.keyboard.press('Shift+KeyP');
     await expect.poll(() => scopePort(page)).not.toBe(before);
     seen.add((await scopePort(page)) ?? '');
   }

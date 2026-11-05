@@ -33,6 +33,8 @@ export interface AppState extends Record<TweenKey, number> {
   port: string;
   /** Once divided, the RML stays collapsed: releaseClamp does not re-inflate it. */
   rmlDivided: boolean;
+  /** Electrocautery energised (T817): the vitals ECG shows diathermy interference while true. */
+  cauteryActive: boolean;
   /** Sim clock (ms) of the last tick; commands start tweens here. 0 = not started. */
   t: number;
   heartPhase: number; // 0..1
@@ -59,6 +61,7 @@ export function createState(): AppState {
     camera: '',
     port: '',
     rmlDivided: false,
+    cauteryActive: false,
     t: 0,
     heartPhase: 0,
     breathPhase: 0,

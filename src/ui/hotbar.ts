@@ -130,7 +130,7 @@ export function mountPortChips(
     btn.className = 'port-chip';
     btn.dataset.port = p.id;
     btn.setAttribute('aria-pressed', 'false');
-    btn.title = `View from the ${p.label.toLowerCase()} (P)`;
+    btn.title = `View from the ${p.label.toLowerCase()} (Shift+P)`;
     const name = document.createElement('span');
     name.className = 'port-chip-name';
     name.textContent = p.label;
@@ -154,4 +154,45 @@ export function mountPortChips(
     },
     dispose: () => list.remove(),
   };
+}
+
+export interface RetractionStrip {
+  /** Number of held instruments (enables Release, shows the count). */
+  setHeld(n: number): void;
+  dispose(): void;
+}
+
+/** T820: Hold / Release buttons beside the port chips, keys shown (G, Shift+G). Event-driven DOM writes only. */
+export function mountRetractionStrip(
+  host: HTMLElement,
+  on: { hold: () => void; release: () => void },
+): RetractionStrip {
+  const strip = document.createElement('div');
+  strip.className = 'retraction-strip';
+  strip.setAttribute('role', 'group');
+  strip.setAttribute('aria-label', 'Retraction');
+  const button = (id: string, text: string, title: string, fn: () => void): HTMLButtonElement => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'retraction-btn';
+    b.dataset.action = id;
+    b.textContent = text;
+    b.title = title;
+    b.addEventListener('click', fn);
+    strip.append(b);
+    return b;
+  };
+  button('hold', 'Hold (G)', 'Lock the placed grasper / sponge-stick in its port, lung retracted', on.hold);
+  const rel = button('release', 'Release (Shift+G)', 'Let go of the most recent held instrument', on.release);
+  host.append(strip);
+  const api = {
+    setHeld(n: number) {
+      rel.disabled = n === 0;
+      const text = n ? `Release (Shift+G) · ${n} held` : 'Release (Shift+G)';
+      if (rel.textContent !== text) rel.textContent = text;
+    },
+    dispose: () => strip.remove(),
+  };
+  api.setHeld(0);
+  return api;
 }

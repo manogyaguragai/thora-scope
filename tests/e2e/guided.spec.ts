@@ -19,7 +19,7 @@ async function settled(page: Page): Promise<void> {
   );
 }
 
-test('guided mode: Next through steps 1–7, captions match, arrow keys navigate', async ({ page }) => {
+test('guided mode: Next through steps 1–7, captions match, PageUp/PageDown navigate', async ({ page }) => {
   test.setTimeout(600_000); // SwiftShader, full size: 7 steps + key/rail navigation (~3 min alone, ~6 contended)
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -45,10 +45,10 @@ test('guided mode: Next through steps 1–7, captions match, arrow keys navigate
   const last = GUIDED_STEPS.length - 1;
   // Focus away from the buttons (a canvas click lands on the rail at the small test viewport).
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-  await page.keyboard.press('ArrowLeft');
+  await page.keyboard.press('PageUp'); // T816: arrows pivot the scope; guided prev/next is PageUp/PageDown
   await expect(title).toHaveText(GUIDED_STEPS[last - 1]?.title ?? '');
   await settled(page); // input during a transition queues until it ends
-  await page.keyboard.press('ArrowRight');
+  await page.keyboard.press('PageDown');
   await expect(title).toHaveText(GUIDED_STEPS[last]?.title ?? '');
   await settled(page);
 
@@ -70,7 +70,6 @@ test('guided layout: all rail steps visible and clickable at 1280×720 and 1024�
   const more = bar.getByRole('button', { name: 'More' });
   await expect(more).toHaveAttribute('aria-expanded', 'false');
   await expect(bar.locator('.guided-points')).toBeHidden();
-  await expect(bar.getByText('Pending clinician review')).toBeVisible();
   await more.click();
   await expect(bar.getByRole('button', { name: 'Less' })).toHaveAttribute('aria-expanded', 'true');
   await expect(bar.locator('.guided-points')).toBeVisible();

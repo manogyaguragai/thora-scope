@@ -1,7 +1,7 @@
 import { Group, Mesh, Scene, Vector3 } from 'three';
 import type { BufferGeometry, Material, WebGLRenderer } from 'three';
 import { describe, expect, it } from 'vitest';
-import { HANDS_CONFIG, buildHands } from '../../src/scene/hands';
+import { GLOVES_SHOWN, HANDS_CONFIG, buildHands } from '../../src/scene/hands';
 import { createPip } from '../../src/ui/pip';
 
 describe('gloved hands (CONTEXT §6.4)', () => {
@@ -44,13 +44,13 @@ describe('gloved hands (CONTEXT §6.4)', () => {
     expect(hands.root.visible).toBe(true);
   });
 
-  it('follows its target allocation-free; no target or hidden target = hidden hand', () => {
+  it('follows its target allocation-free; gloves hidden (T819), no target or hidden target = hidden hand', () => {
     const tool = new Group();
     tool.position.set(0.1, 0.2, 0.3);
     hands.setTarget('tool', tool);
     hands.update();
     const mesh = hands.meshes.tool;
-    expect(mesh.visible).toBe(true);
+    expect(mesh.visible).toBe(GLOVES_SHOWN);
     expect(hands.meshes.scope.visible).toBe(false);
     const p = new Vector3().setFromMatrixPosition(mesh.matrix);
     expect(p.distanceTo(new Vector3(0.1, 0.2, 0.3 + HANDS_CONFIG.hands.tool.position[2]))).toBeLessThan(1e-9);

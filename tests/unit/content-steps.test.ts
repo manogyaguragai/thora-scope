@@ -14,7 +14,6 @@ describe('guided step content', () => {
   });
 
   test.each(GUIDED_STEPS.map((s) => [s.step, s] as const))('step %i fields', (_, s) => {
-    expect(s.pendingReview).toBe(true);
     expect(s.title.length).toBeGreaterThan(0);
     expect(s.caption.length).toBeGreaterThan(0);
     expect(s.portLabel.length).toBeGreaterThan(0);

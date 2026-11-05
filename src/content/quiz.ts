@@ -18,8 +18,6 @@ export interface NextStepItem {
   practiceActionId?: string;
 }
 
-export const QUIZ_META = { pendingReview: true } as const;
-
 export const IDENTIFY_ITEMS: readonly IdentifyItem[] = [
   {
     node: 'lung_middle_lobe_right',

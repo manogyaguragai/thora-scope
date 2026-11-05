@@ -82,13 +82,16 @@ export function createCameraRig(
   const orbitCam = new PerspectiveCamera(C.fovDeg, camera.aspect, C.near, C.far);
   const box = new Box3().setFromObject(root);
   const center = box.getCenter(new Vector3());
-  const radius = box.getSize(new Vector3()).length() / 2;
-  const dist = (radius * config.viewer.frameMargin) / Math.sin((C.fovDeg * Math.PI) / 360);
-  orbitCam.position.copy(center).addScaledVector(new Vector3(...config.viewer.viewDir).normalize(), dist);
+  const dir = new Vector3(...config.viewer.viewDir).normalize();
+  orbitCam.position.copy(center).addScaledVector(dir, config.viewer.distance);
   const controls = new OrbitControls(orbitCam, dom);
   controls.target.copy(center);
+  controls.cursor.copy(center); // pan stays within maxTargetRadius of the thorax (inside the OT room)
+  controls.maxTargetRadius = C.orbitMaxTargetRadius;
   controls.minDistance = C.orbitMinDistance;
   controls.maxDistance = C.orbitMaxDistance;
+  controls.minPolarAngle = C.orbitMinPolarRad;
+  controls.maxPolarAngle = C.orbitMaxPolarRad;
   controls.update();
 
   const scopePoses = new Map<string, Pose>();

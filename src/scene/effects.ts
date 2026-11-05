@@ -1,7 +1,7 @@
 // Pooled effects (§6.4 cautery/bleeding/water test, §8 effects, §6.10 build-once pools). Everything is allocated at
 // load for the chosen preset's capacity; spawns reuse slots ring-buffer style (oldest overwritten), never grow.
-// Wiring (later pass): scene.add(fx.group); registerWarmupObject(fx.group); per frame fx.update(dt) then
-// postUniforms.uFog.value = fx.fog.value.
+// Wiring: scene.add(fx.group) before the compile stage; per frame fx.update(dt) then uFog.value = fx.fog.value.
+// T817: cautery = smoke plume at the tip while energised + growing char decal + slow smoke haze (no image warp).
 import {
   BufferAttribute,
   BufferGeometry,
@@ -12,14 +12,17 @@ import {
   LinearFilter,
   Matrix4,
   MeshPhysicalMaterial,
+  MeshStandardMaterial,
   Points,
   PointsMaterial,
   Quaternion,
+  SRGBColorSpace,
   Vector3,
   type Object3D,
 } from 'three';
 import type { QualityPreset } from '../core/quality';
 import { config } from '../core/config';
+import { cauteryConfig as CAUTERY } from './cautery.config';
 
 export const EFFECTS_CONFIG = config.effects; // values in src/core/config.ts
 
@@ -45,25 +48,18 @@ export function buildSoftSprite(size = EFFECTS_CONFIG.spriteSize): DataTexture {
   return tex;
 }
 
-/** Lens fog 0…1: pulse() sets a target the value rises to, then it decays back to 0. Drives the post uFog uniform. */
+/** Smoke haze 0…1 (post uFog): builds slowly while `on` (energy active) up to haze.max, clears slowly after. */
 export class LensFog {
   value = 0;
-  private target = 0;
-  pulse(amount: number): void {
-    this.target = Math.min(1, Math.max(this.target, this.value + amount));
-  }
+  on = false;
   clear(): void {
-    this.value = this.target = 0;
+    this.value = 0;
   }
   update(dt: number): void {
-    const F = EFFECTS_CONFIG.fog;
-    if (this.target > this.value) {
-      this.value = Math.min(this.target, this.value + F.riseRate * dt);
-      if (this.value >= this.target) this.target = 0;
-    } else {
-      this.target = 0;
-      this.value = Math.max(0, this.value - F.decayRate * dt);
-    }
+    const H = CAUTERY.haze;
+    this.value = this.on
+      ? Math.min(H.max, this.value + H.riseRate * dt)
+      : Math.max(0, this.value - H.decayRate * dt);
   }
 }
 
@@ -293,6 +289,99 @@ export class BloodPool {
   }
 }
 
+/** Radial char texture, built once: dark mottled eschar core → pale coagulated rim → transparent edge. */
+export function buildCharTexture(size: number = CAUTERY.char.textureSize): DataTexture {
+  const K = CAUTERY.char;
+  const data = new Uint8Array(size * size * 4);
+  const h = (size - 1) / 2;
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const r = Math.min(1, Math.hypot(x - h, y - h) / h);
+      const n = Math.sin(x * 12.9898 + y * 78.233) * 43758.5453;
+      const core = 1 + K.mottle * (n - Math.floor(n) - 0.5) * 2;
+      const t = Math.min(1, Math.max(0, (r - K.coreEnd) / (K.rimPeak - K.coreEnd)));
+      const i = (y * size + x) * 4;
+      for (let c = 0; c < 3; c++) {
+        const v = (K.coreRgb[c] ?? 0) * core * (1 - t) + (K.rimRgb[c] ?? 0) * t;
+        data[i + c] = Math.min(255, Math.round(v));
+      }
+      const fade = r <= K.edgeStart ? 1 : Math.max(0, 1 - (r - K.edgeStart) / (1 - K.edgeStart));
+      data[i + 3] = Math.round(255 * K.coreAlpha * fade);
+    }
+  }
+  const tex = new DataTexture(data, size, size);
+  tex.colorSpace = SRGBColorSpace;
+  tex.magFilter = tex.minFilter = LinearFilter;
+  tex.needsUpdate = true;
+  return tex;
+}
+
+/** Char / singe marks (one InstancedMesh). begin() places a mark at the contact point; it grows while held. */
+export class CharPool {
+  readonly mesh: InstancedMesh;
+  readonly capacity: number;
+  /** Marks placed so far (capped at capacity; oldest slots are reused). */
+  count = 0;
+  private readonly pos: Float32Array;
+  private readonly quat: Float32Array;
+  private head = 0;
+  private held = -1;
+  private heldAge = 0;
+
+  constructor(capacity: number) {
+    const K = CAUTERY.char;
+    this.capacity = capacity;
+    this.pos = new Float32Array(capacity * 3);
+    this.quat = new Float32Array(capacity * 4);
+    // transparent/depthWrite fixed from creation (§6.10)
+    const mat = new MeshStandardMaterial({
+      map: buildCharTexture(),
+      roughness: K.roughness,
+      transparent: true,
+      depthWrite: false,
+      polygonOffset: true,
+      polygonOffsetFactor: -1,
+      polygonOffsetUnits: -1,
+    });
+    this.mesh = new InstancedMesh(new CircleGeometry(1, K.segments), mat, capacity);
+    this.mesh.frustumCulled = false;
+    for (let i = 0; i < capacity; i++) this.mesh.setMatrixAt(i, _zero);
+  }
+
+  begin(point: Vector3, normal: Vector3): void {
+    const i = this.head;
+    this.head = (i + 1) % this.capacity;
+    this.count = Math.min(this.capacity, this.count + 1);
+    _n.copy(normal).normalize();
+    _q.setFromUnitVectors(_z, _n);
+    _p.copy(point).addScaledVector(_n, CAUTERY.char.normalOffset);
+    _p.toArray(this.pos, i * 3);
+    _q.toArray(this.quat, i * 4);
+    this.held = i;
+    this.heldAge = 0;
+    this.write(i, CAUTERY.char.startRadiusM);
+  }
+
+  release(): void {
+    this.held = -1;
+  }
+
+  update(dt: number): void {
+    const K = CAUTERY.char;
+    if (this.held < 0 || this.heldAge >= K.growSec) return;
+    this.heldAge = Math.min(K.growSec, this.heldAge + dt);
+    this.write(this.held, K.startRadiusM + ((K.maxRadiusM - K.startRadiusM) * this.heldAge) / K.growSec);
+  }
+
+  private write(i: number, r: number): void {
+    _p.fromArray(this.pos, i * 3);
+    _q.fromArray(this.quat, i * 4);
+    _m.compose(_p, _q, _s.set(r, r, r));
+    this.mesh.setMatrixAt(i, _m);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+}
+
 export interface Effects {
   /** Add to the scene and registerWarmupObject() it once at load. */
   readonly group: Group;
@@ -301,9 +390,13 @@ export interface Effects {
   readonly ooze: PointPool;
   readonly bubbles: PointPool;
   readonly blood: BloodPool;
+  readonly char: CharPool;
   readonly fog: LensFog;
-  /** Cautery puff at the tip: smoke wisps + lens-fog pulse. */
-  cautery(at: Vector3): void;
+  /** Energy on: smoke burst + plume from `tip` (kept by reference, read every frame), char mark at `contact`
+   *  facing `normal` (copied), haze builds. Energy off: `cautery(null)`. */
+  cautery(tip: Vector3 | null, contact?: Vector3, normal?: Vector3): void;
+  /** Energy on (smoke plume emitting). */
+  readonly energised: boolean;
   /** Irrigation leak bubbles (water test). */
   bubbleBurst(at: Vector3): void;
   /** Sucker: clear smoke and loose fluid. */
@@ -332,10 +425,13 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
   const ooze = new PointPool(poolCapacity(C.ooze.capScale, preset), C.ooze, sprite);
   const bubbles = new PointPool(poolCapacity(C.bubbles.capScale, preset), C.bubbles, sprite);
   const blood = new BloodPool(poolCapacity(C.decal.capScale, preset), ooze);
+  const char = new CharPool(poolCapacity(CAUTERY.char.capScale, preset));
   const fog = new LensFog();
+  let tip: Vector3 | null = null;
+  let smokeAcc = 0;
   const group = new Group();
   group.name = 'effects';
-  const objects = [smoke.points, ooze.points, bubbles.points, blood.mesh];
+  const objects = [smoke.points, ooze.points, bubbles.points, blood.mesh, char.mesh];
   group.add(...objects);
   return {
     group,
@@ -344,10 +440,21 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
     ooze,
     bubbles,
     blood,
+    char,
     fog,
-    cautery(at) {
+    get energised() {
+      return tip !== null;
+    },
+    cautery(at, contact, normal) {
+      tip = at;
+      fog.on = at !== null;
+      if (!at) {
+        char.release();
+        return;
+      }
+      smokeAcc = 0;
       burst(smoke, at, C.smoke.perPuff, C.smoke.riseSpeed, C.smoke.jitter);
-      fog.pulse(C.fog.cauteryPulse);
+      if (contact && normal) char.begin(contact, normal);
     },
     bubbleBurst(at) {
       burst(bubbles, at, C.bubbles.perBurst, C.bubbles.riseSpeed, C.bubbles.jitter);
@@ -358,6 +465,13 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
     },
     update(dt) {
       blood.update(dt);
+      char.update(dt);
+      if (tip) {
+        smokeAcc += CAUTERY.smoke.ratePerSec * dt;
+        const n = Math.floor(smokeAcc);
+        smokeAcc -= n;
+        burst(smoke, tip, n, C.smoke.riseSpeed, C.smoke.jitter);
+      }
       smoke.update(dt);
       ooze.update(dt);
       bubbles.update(dt);

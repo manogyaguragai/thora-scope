@@ -104,7 +104,8 @@
   list-style: none;
   font-size: var(--font-size-small);
 }
-.port-chip {
+.port-chip,
+.retraction-btn {
   display: flex;
   gap: var(--space-1);
   white-space: nowrap;
@@ -116,7 +117,19 @@
   border-radius: var(--radius-sm);
   cursor: pointer;
 }
-.port-chip:hover {
+.retraction-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-small);
+}
+.retraction-btn:disabled {
+  color: var(--color-muted);
+  cursor: default;
+}
+.port-chip:hover,
+.retraction-btn:hover:enabled {
   border-color: var(--color-muted);
 }
 .port-chip[aria-pressed='true'] {

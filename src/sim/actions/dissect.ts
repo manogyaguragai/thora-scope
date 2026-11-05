@@ -1,7 +1,6 @@
 // Dissect (CONTEXT §6.4): peanut / cautery held on a dissectable target builds per-target progress 0..1. Targets with
-// a pre-built `_window` mesh fade while progress builds, then swap to the window at 1. Cautery puffs smoke + lens fog;
-// the sucker clears the view. Scene/effects are injected as hooks; allocation-free after construction.
-import type { Vector3 } from 'three';
+// a pre-built `_window` mesh fade while progress builds, then swap to the window at 1. Cautery smoke / char / haze are
+// the effect pools' (wireM4 energises them); the sucker clears the view. Hooks injected; allocation-free.
 import { TARGETS } from '../../content/targets';
 import { config } from '../../core/config';
 
@@ -14,8 +13,6 @@ export interface DissectHooks {
   setFade(node: string, f: number): void;
   /** Hide `node`, show `windowNode`. */
   swapToWindow(node: string, windowNode: string): void;
-  /** effects.cautery(at): smoke wisps + lens-fog pulse. */
-  cautery(at: Vector3): void;
   /** Sucker: effects.suction() + fog.clear(). */
   clearView(): void;
 }
@@ -31,8 +28,6 @@ export class Dissect {
   tool: DissectTool | null = null;
   private readonly slots = new Map<string, Slot>();
   private readonly tools = new Map<string, readonly DissectTool[]>();
-  private at: Vector3 | null = null;
-  private puffT = 0;
 
   constructor(private readonly hooks: DissectHooks) {
     for (const t of TARGETS) {
@@ -51,25 +46,22 @@ export class Dissect {
   }
 
   /**
-   * Start holding `tool` on `id` (a picked node; `_window` names map to their base). `at` = live tip position
-   * (kept by reference, read on each cautery puff). A completed target restarts from 0 without fading again.
+   * Start holding `tool` on `id` (a picked node; `_window` names map to their base). A completed target restarts
+   * from 0 without fading again.
    */
-  begin(id: string, tool: DissectTool, at: Vector3): boolean {
+  begin(id: string, tool: DissectTool): boolean {
     const target = baseId(id);
     const slot = this.slots.get(target);
     if (!slot || this.tools.get(target)?.includes(tool) !== true) return false;
     if (slot.p >= 1) slot.p = 0;
     this.target = target;
     this.tool = tool;
-    this.at = at;
-    this.puffT = 0;
-    if (tool === 'cautery') this.hooks.cautery(at);
     return true;
   }
 
   /** Release the hold; progress is kept (resume later). */
   end(): void {
-    this.target = this.tool = this.at = null;
+    this.target = this.tool = null;
   }
 
   /** Sucker activation. */
@@ -85,15 +77,7 @@ export class Dissect {
     const slot = this.slots.get(target);
     if (!slot) return null;
     const C = DISSECT_CONFIG;
-    const dt = dtMs / 1000;
-    if (tool === 'cautery' && this.at) {
-      this.puffT += dt;
-      if (this.puffT >= C.cauteryPuffSec) {
-        this.puffT -= C.cauteryPuffSec;
-        this.hooks.cautery(this.at);
-      }
-    }
-    slot.p = Math.min(1, slot.p + C.ratePerSec[tool] * dt);
+    slot.p = Math.min(1, slot.p + (C.ratePerSec[tool] * dtMs) / 1000);
     const win = C.windows[target];
     if (slot.p < 1) {
       if (win !== undefined && !slot.swapped) this.hooks.setFade(target, 1 - (1 - C.fadeTo) * slot.p);

@@ -35,16 +35,26 @@ describe('instruments (CONTEXT §6.4)', () => {
     expect(set.active).toBeNull();
   });
 
-  it('shares a handful of geometries and materials; no clipping, transparency fixed', () => {
-    expect(before.geos.size).toBeLessThanOrEqual(6);
-    expect(before.mats.size).toBeLessThanOrEqual(7); // + white cautery shaft (T410), same program
+  it('a handful of materials, ≲ 6k triangles per tool; no clipping, transparency fixed', () => {
+    expect(before.mats.size).toBeLessThanOrEqual(7); // + white bands / cautery (T410), same program
     const programKeys = new Set<string>();
     for (const m of before.mats) {
       expect(m).toBeInstanceOf(MeshStandardMaterial);
       expect(m.clippingPlanes ?? []).toHaveLength(0);
-      programKeys.add(String(m.transparent));
+      const s = m as MeshStandardMaterial;
+      programKeys.add(
+        `${s.transparent}|${s.roughnessMap !== null}|${s.map !== null}|${s.normalMap !== null}`,
+      );
     }
     expect(programKeys.size).toBeLessThanOrEqual(2); // ≤ 2 programs (opaque + leader)
+    for (const id of TOOL_IDS) {
+      let tris = 0;
+      set.tools[id].traverse((o) => {
+        const g = (o as Mesh).geometry as BufferGeometry | undefined;
+        if ((o as Mesh).isMesh && g) tris += (g.index ?? g.getAttribute('position')).count / 3;
+      });
+      expect(tris, id).toBeLessThanOrEqual(6000);
+    }
   });
 
   it('show/hide and sub-options only toggle visibility (counts stable)', () => {
@@ -85,15 +95,20 @@ describe('instruments (CONTEXT §6.4)', () => {
   it('jaws open by pivot rotation; tip stays near the origin when closed', () => {
     const box = new Box3();
     const size = new Vector3();
+    const jawBox = (): Box3 => {
+      box.makeEmpty(); // jaw pivots only (the handle sits far behind)
+      for (const o of set.tools.clip.children) if (!(o as Mesh).isMesh) box.expandByObject(o);
+      return box;
+    };
     set.show('clip');
     set.setJaw(0);
     set.root.updateMatrixWorld(true);
-    box.setFromObject(set.tools.clip);
+    jawBox();
     const closed = box.getSize(size).y;
     expect(box.max.z).toBeCloseTo(0, 3);
     set.setJaw(1);
     set.root.updateMatrixWorld(true);
-    box.setFromObject(set.tools.clip);
+    jawBox();
     const c = instrumentGeom.clip;
     expect(box.getSize(size).y).toBeGreaterThan(closed + c.jawLength * Math.sin(c.open / 2));
     set.setJaw(0);

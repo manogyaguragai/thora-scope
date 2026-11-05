@@ -1,7 +1,6 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-const BADGE = 'Pending clinician review';
 const HELD_WAIT_MS = 600; // several frames: a held gate must not render any
 const PICK_GRID = 40; // NDC scan resolution for a screen point on the identify target
 
@@ -31,7 +30,7 @@ function findTarget(page: Page, grid: number): Promise<{ x: number; y: number } 
   }, grid);
 }
 
-test('quiz: next-step + identify items, feedback badge, render gate, exit to guided', async ({ page }) => {
+test('quiz: next-step + identify items, feedback, render gate, exit to guided', async ({ page }) => {
   test.setTimeout(240_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -67,7 +66,6 @@ test('quiz: next-step + identify items, feedback badge, render gate, exit to gui
         expect(await renders()).toBe(r0);
         await page.keyboard.press(`Digit${q.correctIndex + 1}`); // keyboard path
         await expect(feedback).toContainText('Correct');
-        await expect(feedback.getByText(BADGE)).toBeVisible();
         await expect(quiz.locator('.quiz-rationale')).not.toBeEmpty();
         nextStepDone = true;
       } else await options.nth(q.correctIndex === 0 ? 1 : 0).click(); // deliberately wrong
@@ -79,7 +77,6 @@ test('quiz: next-step + identify items, feedback badge, render gate, exit to gui
         await expect.poll(renders).toBeGreaterThan(r0);
         await page.mouse.click(target.x, target.y);
         await expect(feedback).toContainText('Correct');
-        await expect(feedback.getByText(BADGE)).toBeVisible();
         await expect(page.locator('.label3d-pin')).toBeHidden();
         identifyDone = true;
         await page.screenshot({ path: 'qa/screenshots/quiz.png' });

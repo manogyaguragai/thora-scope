@@ -25,8 +25,10 @@ import type { StepVisibility } from '../sim/steps';
 import { mountHotbar, mountPortChips } from '../ui/hotbar';
 import { createAnchors, createLabels3D, stepFocus } from '../ui/labels3d';
 import type { Labels3D } from '../ui/labels3d';
+import { mountCompass } from '../ui/compass';
 import { LAYER_GROUPS, mountLayersPanel } from '../ui/layersPanel';
 import type { Layers } from '../ui/layersPanel';
+import { SHELL_VIEWS } from '../ui/shell';
 import type { Shell } from '../ui/shell';
 
 export interface M3Context {
@@ -77,7 +79,7 @@ export interface M3 {
 const HANDS = 0; // hotbar slot driving the scope (§6.3 slot 1)
 const R = config.scopeRig;
 const SKIP_TARGETS = 'input, select, textarea, [contenteditable], dialog';
-const PORT_HINT = 'Click a port chip or press P to view from another port';
+const PORT_HINT = 'Click a port chip or press Shift+P to view from another port';
 
 // Port-switch aim (T808): mean rest point of the step's focus targets, else of every target (the operative field).
 const aim = new Vector3();
@@ -136,7 +138,10 @@ export function wireM3(ctx: M3Context): M3 {
     rig.easeScope();
     return true;
   }
-  const snapStep = (): void => scope.snapTo(rig.scopePoseOf(state.camera), state.port);
+  const snapStep = (): void => {
+    scope.snapTo(rig.scopePoseOf(state.camera), state.port);
+    if (R.levelOnStepSnap) scope.setHorizonLock(true); // T816: level by default; H brings back the authored roll
+  };
 
   // Viewing aids.
   const { layers } = mountLayersPanel(shell.inspector, {
@@ -190,6 +195,25 @@ export function wireM3(ctx: M3Context): M3 {
     );
   shell.help.addEventListener('click', toggleHelp);
 
+  // T816: Inside / Outside view switch (same as O) + the scope orientation compass.
+  for (const { view } of SHELL_VIEWS)
+    shell.viewButtons[view].addEventListener('click', () => ctx.setView(view));
+  let shownTarget: ViewMode | null = null;
+  const compass = mountCompass(shell.root, K.resetScope.code.replace(/^Key/, ''));
+  const root = lookup('thorax_root') ?? model;
+
+  // T816: held arrows pivot the scope (screen terms) in the scope view, any tool; applied per frame in update.
+  const ARROWS = [K.scopeUp, K.scopeDown, K.scopeLeft, K.scopeRight] as const;
+  const ARROW_DIR = [0, 1, 0, -1, -1, 0, 1, 0] as const; // [right, up] per arrow
+  const held = [false, false, false, false];
+  const arrowIndex = (c: string): number => ARROWS.findIndex((b) => matchesKey(b, c));
+  let lastFrame = -1;
+  window.addEventListener('keyup', (e) => {
+    const i = arrowIndex(e.code);
+    if (i >= 0) held[i] = false;
+  });
+  window.addEventListener('blur', () => held.fill(false));
+
   const hands = (): boolean => hotbar.slot === HANDS;
   const portIds = scope.ports.map((p) => p.id);
 
@@ -207,8 +231,9 @@ export function wireM3(ctx: M3Context): M3 {
     } else if (matchesKey(K.toggleLabels, c)) {
       if (!e.repeat) labels.toggleAll();
     } else if (matchesKey(K.dismissLabel, c)) labels.dismiss();
-    else if (matchesKey(K.nextPort, c) && (hands() || e.shiftKey)) {
-      if (!e.repeat) nextPort(); // P with a tool moves the instrument (M4); Shift+P moves the scope from any tool
+    else if (arrowIndex(c) >= 0 && rig.target === 'scope') held[arrowIndex(c)] = true;
+    else if (matchesKey(K.nextPort, c) && e.shiftKey) {
+      if (!e.repeat) nextPort(); // Only Shift+P moves the scope (user choice 2026-11-05); plain P moves the instrument (M4)
     } else if (hands() && scopeKey(c, e.repeat)) syncScope();
     else return;
     e.preventDefault();
@@ -321,6 +346,27 @@ export function wireM3(ctx: M3Context): M3 {
     portHooks,
     moveScope,
     update(now) {
+      const dtMs = lastFrame < 0 ? 0 : Math.min(now - lastFrame, R.arrowMaxDtMs);
+      lastFrame = now;
+      if (rig.target !== 'scope') held.fill(false);
+      let right = 0;
+      let up = 0;
+      for (let i = 0; i < 4; i++)
+        if (held[i]) {
+          right += ARROW_DIR[2 * i] ?? 0;
+          up += ARROW_DIR[2 * i + 1] ?? 0;
+        }
+      if (right !== 0 || up !== 0) {
+        const k = (R.arrowRadPerS * dtMs) / 1000;
+        scope.pivot(right * k, up * k);
+        scope.writePose(live.position, live.quaternion, live); // chips unchanged by a pivot
+      }
+      if (rig.target !== shownTarget) {
+        shownTarget = rig.target;
+        for (const { view } of SHELL_VIEWS)
+          shell.viewButtons[view].setAttribute('aria-pressed', String(view === shownTarget));
+      }
+      compass.update(now, rig.mode === 'scope', root, camera);
       let tweening = false;
       for (let i = 0; i < TWEEN_KEYS.length && !tweening; i++)
         tweening = state.tweens[TWEEN_KEYS[i] ?? 'deflate_RUL'].active;

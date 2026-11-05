@@ -1,8 +1,9 @@
-import { AxesHelper, PerspectiveCamera, Scene } from 'three';
+import { AxesHelper, Box3, PerspectiveCamera, Scene } from 'three';
 import type { Mesh } from 'three';
 import type { M3 } from './app/wireM3';
 import type { M4 } from './app/wireM4';
 import type { M5, M5Context } from './app/wireM5';
+import type { VitalsMonitor } from './app/wireM7';
 import {
   AdaptiveResolution,
   applyPixelRatio,
@@ -17,6 +18,8 @@ import { createRenderer, holdRendering, releaseRendering, requestRender, startLo
 import { registerWarmupObject, runLoadingStages } from './scene/loadingStages';
 import { createCameraRig } from './scene/cameras';
 import type { CameraRig, ViewMode } from './scene/cameras';
+import { buildOtRoom } from './scene/otRoom';
+import type { OtRoom } from './scene/otRoom';
 import { createPostFx } from './scene/postfx';
 import { applyRealism, setFade } from './scene/materials';
 import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
@@ -76,6 +79,8 @@ declare global {
       probeScript?: (phase: (name: string) => void) => Promise<ProbeResult>;
       /** e2e / probe: select a tool and place it on a target through the first port that works (lazy probe chunk). */
       placeTool?: (id: string, target: string, sub?: string, port?: string) => Promise<string>;
+      /** T813 static OT room (outside view only); null until the model is loaded. */
+      room: OtRoom | null;
     };
   }
 }
@@ -97,6 +102,7 @@ const sim: Window['__sim'] = {
   m3: null,
   m4: null,
   m5: null,
+  room: null,
 };
 window.__sim = sim;
 
@@ -183,12 +189,14 @@ async function main(): Promise<void> {
     if (overlay) overlay.textContent = `${axisLine}\nhover: ${name ?? '—'}`;
   };
 
+  let vitals: VitalsMonitor | null = null; // T814, lazy chunk wired after "ready"
   let lastNow = 0;
   function frame(now: number): void {
     if (lastNow) applyPixelRatio(renderer, adaptive.update(now - lastNow));
     lastNow = now;
     if (adaptive.downgradeRequested) downgrade();
     tickSim(state, now);
+    vitals?.tick(now);
     sim.rig?.update(now);
     sim.guided?.update(now);
     if (sim.morphs) updateMorphs(sim.morphs, state);
@@ -236,6 +244,8 @@ async function main(): Promise<void> {
       scene.add(m);
       registerWarmupObject(applyRealism(scene, renderer, camera, m)); // X-ray variants compile in stage 4
       sim.morphs = buildMorphBindings(collectMorphMeshes(m));
+      // T813: theatre fitted around the unmoved patient's skin, in the scene before the compile stage.
+      const room = (sim.room = buildOtRoom(scene, new Box3().setFromObject(m.getObjectByName('skin') ?? m)));
       const v = createStepVisibility((name) => m.getObjectByName(name));
       applyVisibility(v, state); // default_hidden
       const r = (sim.rig = createCameraRig(
@@ -246,6 +256,7 @@ async function main(): Promise<void> {
         post.uniforms.uScopeMode,
         (mode) => {
           v.scope = mode === 'scope';
+          room.setVisible(mode === 'outside');
           applyVisibility(v, state);
           sim.m3?.reapplyLayers();
         },
@@ -291,6 +302,11 @@ async function main(): Promise<void> {
   });
   await irisOpen();
   armReady();
+  void import('./app/wireM7').then(({ wireVitals }) => {
+    const room = sim.room;
+    vitals = wireVitals({ state, host: app });
+    if (room) vitals.addMirror(room.screenCanvas, () => room.markScreenDirty());
+  });
   const startMode = params.get('mode'); // ?mode=practice (practice retry reloads into a fresh case)
   if ((MODES as readonly string[]).includes(startMode ?? '')) setMode(startMode as Mode);
 }

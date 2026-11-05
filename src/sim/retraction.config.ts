@@ -1,0 +1,27 @@
+// Multi-instrument retraction (T820, user feedback 2026-11-05): a lung grasper / sponge-stick holds a lobe from one
+// port while another tool works through a second port. Pending clinician review (ports per step are approximations;
+// the model's port positions differ from the video, ADR-004).
+export const retractionConfig = {
+  /** Instruments that may be held at once (plus the active tool in the hand). */
+  maxHeld: 2,
+  /** Tools whose retraction can be held (G); ring forceps stay on node removal. */
+  holdable: ['grasper', 'sponge'] as readonly string[],
+  /** Release (Shift+G): the morph eases back to this value over releaseMs. */
+  releaseTo: 0,
+  releaseMs: 700,
+  /** Guided steps 2–6: a static held grasper whose tip rides the `target` vertex nearest `at` (un-morphed world
+   *  point, picked so the tip shows in that step's camera; step 2's camera sees no lobe, only the shaft edge), shaft
+   *  through `port` (never the step's scope port). */
+  guided: {
+    2: { port: 'port_retraction_8ICS', target: 'lung_upper_lobe_right', at: [-0.0258, 0.0577, 0.0712] },
+    3: { port: 'port_retraction_8ICS', target: 'lung_middle_lobe_right', at: [-0.0404, 0.0316, 0.0904] },
+    4: { port: 'port_retraction_8ICS', target: 'lung_middle_lobe_right', at: [-0.0345, 0.0265, 0.0106] },
+    5: { port: 'port_retraction_8ICS', target: 'lung_middle_lobe_right', at: [-0.0404, 0.0316, 0.0904] },
+    6: { port: 'port_utility_5ICS', target: 'lung_middle_lobe_right', at: [-0.0491, 0.1057, 0.0203] },
+  } as Readonly<
+    Record<
+      number,
+      { readonly port: string; readonly target: string; readonly at: readonly [number, number, number] }
+    >
+  >,
+} as const;

@@ -77,11 +77,14 @@ export class ScopeRig {
 
   /** Pointer drag in px (screen: +x right, +y down). Fulcrum: the tip (and view) moves opposite to the hand. */
   drag(dxPx: number, dyPx: number): void {
-    this.frame();
     const k = this.cfg.dragRadPerPx;
-    tS.addScaledVector(tRight, -dxPx * k)
-      .addScaledVector(tUp, dyPx * k)
-      .normalize();
+    this.pivot(-dxPx * k, dyPx * k);
+  }
+
+  /** Swing the shaft tip (≈ the view) toward image right / up by these angles, radians (arrow keys, drag). */
+  pivot(rightRad: number, upRad: number): void {
+    this.frame();
+    tS.addScaledVector(tRight, rightRad).addScaledVector(tUp, upRad).normalize();
     this.setShaft(tS);
   }
 

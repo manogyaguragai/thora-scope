@@ -186,7 +186,6 @@ test('practice: full reference run PA01→PA32 is accepted in order → scored d
   // Completion opens the lazy debrief (rendering held behind it).
   const debrief = page.getByRole('dialog', { name: 'Case debrief' });
   await expect(debrief).toBeVisible({ timeout: 10_000 });
-  await expect(debrief.getByText('Pending clinician review')).toBeVisible();
   await page.screenshot({ path: `${SHOTS}/practice-complete.png` });
   const renders = (): Promise<number> => page.evaluate(() => window.__perf.renders);
   const held = await renders();

@@ -22,7 +22,8 @@ export interface TissueParams {
   bakedMaps?: boolean; // false: drop the glTF colour/normal/roughness maps (broken bakes); default true
   env?: number; // × env-map reflections (scene.environmentIntensity overrides per-material intensity); default 1
   rings?: number; // cartilage-ring groove darkening (look.rings), default 0
-  normalFix?: boolean; // shade with the derivative normal where the rest-pose normal is wrong (look.normalFix)
+  // Shade with the derivative normal where the rest-pose normal is wrong: true = look.normalFix edges, or own edges.
+  normalFix?: boolean | readonly [number, number];
 }
 
 const wet = {
@@ -62,7 +63,10 @@ export const TISSUES = {
     roughness: 0.4,
     microNormal: 0.8, // T111: breaks the env reflection into wet glints (frames: many small sharp highlights)
     scatterStrength: 0.6, // T807b: less red back-scatter → greyer than the plum vein / pleura
-    normalFix: true, // T807b: collapsed lobes kept rest-pose normals → dark maroon blotches at the step-3 pose
+    // T807b: collapsed lobes kept rest-pose normals → dark maroon blotches at the step-3 pose. T818: retract_fissure
+    // tilts the RLL fissural face only 25–35° off its rest normals (dot 0.8–0.9, under look.normalFix), which then
+    // face away from the headlight → dark maroon "V" between RML and RLL at step 6; lungs use tighter edges.
+    normalFix: [0.88, 0.97],
     env: 0.3, // T807: grazing lobe surfaces mirrored the env room as silver bands close up
     speckle: 0.35, // T807b: fine anthracotic flecks (0.85 read as polka dots close up)
     lobular: 0.22,
@@ -160,7 +164,7 @@ export const TISSUES = {
   },
   pericardium: {
     ...wet,
-    color: '#9a7090', // lavender-mauve (01:01)
+    color: '#8a7cc0', // T810: lavender after the warm grade (01:01); #9a7090 read tan and collided with the SPV
     bakedMaps: false, // T807: its baked streaks read as grey chrome close up
     clearcoat: 0.8,
     clearcoatRoughness: 0.12,
@@ -171,7 +175,7 @@ export const TISSUES = {
   heart: { ...wet, ...subsurface, color: '#8a3a3c', mapLuma: 0.1 },
   pleuraWall: {
     ...wet,
-    color: '#946084', // T807c: glossy lavender pleura (05:21); still lighter than the plum vein, darker than the lung
+    color: '#9c8494', // T810: mauve-grey so the SPV is the only plum; T807c (#946084): glossy lavender pleura (05:21); still lighter than the plum vein, darker than the lung
     retint: 1,
     bakedMaps: false, // T111: its baked maps have patchy islands (crimson/grey blotches); plain violet matches 04:29
     mapLuma: 0.5,

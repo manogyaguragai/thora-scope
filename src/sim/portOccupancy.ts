@@ -1,8 +1,9 @@
 // Port occupancy, stapler approach angle and the retraction swap (CONTEXT §6.4, ADR-004, VIDEO_STEP_MAP (b)/(d)).
 // Pure logic: no scene objects, no allocations after construction. Each port holds at most one scope, one active
-// tool and one held retraction; capacity caps how many of those may share it.
+// tool and up to retractionConfig.maxHeld held retractions (T820); capacity caps how many of those may share it.
 import { TARGET_BY_ID, type ToolId } from '../content/targets';
 import { config } from '../core/config';
+import { retractionConfig } from './retraction.config';
 
 export const PORT_CONFIG = config.ports; // values in src/core/config.ts
 
@@ -30,13 +31,19 @@ export type FireCheck =
 
 const RAD2DEG = 180 / Math.PI;
 
+/** A retraction held in its port while the hand changes tool. */
+export interface Hold {
+  tool: ToolId;
+  port: string;
+  target: string;
+}
+
 export class PortOccupancy {
   scopePort: string | null = null;
   activeTool: ToolId | null = null;
   activePort: string | null = null;
-  heldTool: ToolId | null = null;
-  heldPort: string | null = null;
-  heldTarget: string | null = null;
+  /** Held retractions, oldest first (≤ maxHeld). */
+  readonly holds: Hold[] = [];
   /** Held retraction moved to a different port (debrief: "retraction swaps"). */
   swaps = 0;
   lastSwapFrom: string | null = null;
@@ -44,8 +51,33 @@ export class PortOccupancy {
 
   private readonly ports: ReadonlyMap<string, PortLike>;
 
-  constructor(ports: readonly PortLike[]) {
+  constructor(
+    ports: readonly PortLike[],
+    readonly maxHeld = retractionConfig.maxHeld,
+  ) {
     this.ports = new Map(ports.map((p) => [p.id, p]));
+  }
+
+  /** Most recent hold (null = none). */
+  get heldTool(): ToolId | null {
+    return this.holds.at(-1)?.tool ?? null;
+  }
+  get heldPort(): string | null {
+    return this.holds.at(-1)?.port ?? null;
+  }
+  get heldTarget(): string | null {
+    return this.holds.at(-1)?.target ?? null;
+  }
+
+  heldIn(port: string): number {
+    let n = 0;
+    for (const h of this.holds) if (h.port === port) n++;
+    return n;
+  }
+
+  /** Would hold(target) need a free hold slot it can't get? */
+  holdFull(target: string): boolean {
+    return this.holds.length >= this.maxHeld && !this.holds.some((h) => h.target === target);
   }
 
   capacity(port: string): number {
@@ -53,11 +85,7 @@ export class PortOccupancy {
   }
 
   used(port: string): number {
-    return (
-      (this.scopePort === port ? 1 : 0) +
-      (this.activePort === port ? 1 : 0) +
-      (this.heldPort === port ? 1 : 0)
-    );
+    return (this.scopePort === port ? 1 : 0) + (this.activePort === port ? 1 : 0) + this.heldIn(port);
   }
 
   hasRoom(port: string): boolean {
@@ -86,28 +114,32 @@ export class PortOccupancy {
     this.activePort = null;
   }
 
-  /** G: the active tool's retraction on `target` stays while the hand changes tool. Replaces any previous held
-   *  retraction; a port change counts as a retraction swap. Returns false if no tool is in. */
+  /** G: the active tool's retraction on `target` stays while the hand changes tool. Re-holding an already held
+   *  target replaces that hold (a port change counts as a retraction swap); a new target takes a free hold slot.
+   *  Returns false if no tool is in or all hold slots are taken. Event-time only. */
   hold(target: string): boolean {
-    if (this.activePort === null || this.activeTool === null) return false;
-    // ponytail: one held retraction at a time (all the video needs); make it a list if two-retractor holds appear.
-    if (this.heldPort !== null && this.heldPort !== this.activePort) {
+    if (this.activePort === null || this.activeTool === null || this.holdFull(target)) return false;
+    const i = this.holds.findIndex((h) => h.target === target);
+    const prev = i >= 0 ? this.holds.splice(i, 1)[0] : undefined;
+    if (prev && prev.port !== this.activePort) {
       this.swaps++;
-      this.lastSwapFrom = this.heldPort;
+      this.lastSwapFrom = prev.port;
       this.lastSwapTo = this.activePort;
     }
-    this.heldTool = this.activeTool;
-    this.heldPort = this.activePort;
-    this.heldTarget = target;
+    this.holds.push({ tool: this.activeTool, port: this.activePort, target });
     this.activeTool = null;
     this.activePort = null;
     return true;
   }
 
-  release(): void {
-    this.heldTool = null;
-    this.heldPort = null;
-    this.heldTarget = null;
+  /** Let go of the hold on `target` (undefined = the most recent one); returns the released hold. */
+  release(target?: string): Hold | null {
+    const i = target === undefined ? this.holds.length - 1 : this.holds.findIndex((h) => h.target === target);
+    return i >= 0 ? (this.holds.splice(i, 1)[0] ?? null) : null;
+  }
+
+  releaseAll(): void {
+    this.holds.length = 0;
   }
 
   /** Deviation (deg) of the shaft pleura → target from perpendicular to the target axis; 0 if the target has no
@@ -146,6 +178,6 @@ export class PortOccupancy {
     )
       return 'poor-angle';
     if (this.activePort === port || this.hasRoom(port)) return 'ok';
-    return this.heldPort === port ? 'retraction-in-port' : 'port-full';
+    return this.heldIn(port) > 0 ? 'retraction-in-port' : 'port-full';
   }
 }

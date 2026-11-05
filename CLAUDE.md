@@ -14,7 +14,7 @@ Vite + TypeScript (strict) + three.js (pinned) + three-mesh-bvh. Static site, no
 ## Hard rules
 - NEVER deploy anywhere. Deployment = notes only (`docs/DEPLOY_HOSTINGER_KVM.md`).
 - NEVER edit anything in `assets_src/` (read-only inputs, gitignored).
-- NEVER paste book text/figures or transcript lines verbatim into the app. Paraphrase. All teaching text carries a "Pending clinician review" badge.
+- NEVER paste book text/figures or transcript lines verbatim into the app. Paraphrase. (No "Pending clinician review" badges in the UI: removed by user request 2026-11-05.)
 - NEVER ship ref-frames (or anything from `assets_src/`) in the build. Only `public/models/thorax_sim.opt.glb` + decoders.
 - No external network calls at runtime; no CDNs; no analytics.
 - Config, not magic numbers (`src/core/config.ts`, `src/scene/materials.config.ts`, `src/core/keybindings.ts`).

@@ -17,7 +17,7 @@ const sceneSize = new Vector2(); // HDR scene target size (drawing buffer × pre
 export interface PostFx {
   /** Render scene through the scope optics to the canvas. Once per frame. */
   render(scene: Scene, camera: Camera, now: number): void;
-  /** uScopeMode (0 outside, 1 scope), uFog (0…1, M5) etc. — drive effects here, never via defines. */
+  /** uScopeMode (0 outside, 1 scope), uFog (0…1, cautery smoke haze) etc. — drive effects here, never via defines. */
   uniforms: PostUniforms;
 }
 export type PostUniforms = ReturnType<typeof makeUniforms>;
@@ -40,7 +40,6 @@ function makeUniforms(scene: Texture, preset: QualityPreset) {
     uCA: { value: preset.postFx.chromaticAberration ? C.chromaticAberration : 0 },
     uGrain: { value: preset.postFx.grain ? C.grain : 0 },
     uFog: { value: 0 },
-    uFogRadius: { value: C.fogRadius },
     uFogColor: { value: new Vector3(...C.fogColor) },
     uLift: { value: new Vector3(...C.lift) },
     uGamma: { value: new Vector3(...C.gamma) },

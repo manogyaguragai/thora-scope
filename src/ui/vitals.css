@@ -1,0 +1,106 @@
+/* OT patient monitor (T814): bottom-right, right of the hotbar dock; lifts above the PiP inset when it shows.
+   Black screen + monitor colours by OT convention; frame, button and focus use the app tokens (§9). */
+.vitals {
+  position: fixed;
+  right: var(--space-2);
+  bottom: var(--space-2);
+  z-index: 1; /* with the shell: above the canvas, below the loading screen / dialogs */
+  display: grid;
+  grid-template-columns: auto auto;
+  grid-template-rows: auto 1fr;
+  gap: 0 var(--space-1);
+  padding: var(--space-1);
+  background: var(--vitals-bg);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
+  transition: bottom var(--motion-base) var(--ease-out);
+}
+
+body:has(#pip-inset[style*='display: block']) .vitals {
+  bottom: calc(var(--space-2) + var(--vitals-pip-h) + var(--space-1));
+}
+
+/* Keep the inspector (Layers / Physiology) clear of the monitor: it scrolls instead of running under it. */
+body:has(.vitals) .shell-inspector {
+  max-height: calc(100% - var(--space-6));
+}
+body:has(.vitals):has(#pip-inset[style*='display: block']) .shell-inspector {
+  max-height: calc(100% - var(--space-6) - var(--vitals-pip-h) - var(--space-1));
+}
+
+.vitals-trace {
+  grid-row: 1 / 3;
+  display: block;
+}
+
+.vitals-nums {
+  grid-column: 2;
+  grid-row: 2;
+  margin: 0;
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: calc(var(--space-1) / 2) var(--space-1);
+  align-content: start;
+}
+
+.vitals-cell dt {
+  font-size: calc(var(--font-size-small) * 0.85);
+  line-height: 1.1;
+  opacity: 0.85;
+}
+
+.vitals-unit {
+  opacity: 0.7;
+}
+
+.vitals-cell dd {
+  margin: 0;
+  font-size: var(--font-size-body);
+  font-weight: 600;
+  line-height: 1.1;
+}
+
+/* HR and SpO2 are the big numbers, as on a real monitor. */
+.vitals-cell:is([data-vital='hr'], [data-vital='spo2']) dd {
+  font-size: calc(var(--font-size-body) * 1.6);
+}
+
+.vitals-sound {
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  width: var(--space-3);
+  height: var(--space-3);
+  padding: calc(var(--space-1) / 2);
+  display: grid;
+  place-items: center;
+  background: var(--color-elevated);
+  color: var(--color-muted);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: calc(var(--radius-sm) / 2);
+  cursor: pointer;
+  transition: border-color var(--motion-fast) var(--ease-out);
+}
+
+.vitals-sound:hover,
+.vitals-sound[aria-pressed='true'] {
+  border-color: var(--color-accent);
+  color: var(--color-text);
+}
+
+.vitals-icon {
+  width: 100%;
+  height: 100%;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.vitals-sound[aria-pressed='true'] .vitals-off,
+.vitals-sound[aria-pressed='false'] .vitals-on {
+  display: none;
+}

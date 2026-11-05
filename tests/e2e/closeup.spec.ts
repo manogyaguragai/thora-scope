@@ -22,6 +22,11 @@ const MIN_FOCUS_HITS: Readonly<Record<number, number>> = {
 // attributed to the structure behind the veil.
 const VEILS = ['hilar_connective_tissue', 'hilar_connective_tissue_window'];
 const SETTLE_MS = 1500; // auto-exposure
+// T818: lung pixels in this luma band read as the black/purple "V" the rest-pose normals made on the retracted RLL
+// (V ≈ L35; distant lobes ≥ L85; below L15 = scope mask / vitals monitor over the canvas).
+const DARK_LUMA = [15, 60] as const;
+const MAX_DARK_LUNG = 0.03; // fraction of lung-lobe rays (rest normals: step 3 28 %, step 5 7 %, step 6 6 %)
+const DARK_STEPS = [3, 5, 6];
 
 const classOf = (name: string): string => TISSUE_RULES.find(([re]) => re.test(name))?.[1] ?? FALLBACK_TISSUE;
 const lum = ([r, g, b]: number[]): number => 0.2126 * (r ?? 0) + 0.7152 * (g ?? 0) + 0.0722 * (b ?? 0);
@@ -34,6 +39,7 @@ test('per-step scope close-ups: focus structures visible, structure colour table
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   const table: Record<number, Record<string, { n: number; rgb: string; luma: number }>> = {};
   const focusHits: Record<number, number> = {};
+  const darkLung: Record<number, number> = {};
 
   for (let step = 2; step <= 7; step++) {
     await page.goto(`/?view=scope&step=${step}`);
@@ -67,6 +73,8 @@ test('per-step scope close-ups: focus structures visible, structure colour table
     const sum: Record<string, number[]> = {};
     const focus = STEP_FOCUS[step] ?? [];
     let onFocus = 0;
+    let lung = 0;
+    let dark = 0;
     hits.forEach((name, k) => {
       if (!name) return;
       if (focus.includes(name)) onFocus++;
@@ -79,9 +87,15 @@ test('per-step scope close-ups: focus structures visible, structure colour table
       const o = (py * info.width + px) * info.channels;
       const s = (sum[classOf(name)] ??= [0, 0, 0, 0]);
       for (let c = 0; c < 3; c++) s[c] = (s[c] ?? 0) + (data[o + c] ?? 0);
+      if (name.startsWith('lung_')) {
+        lung++;
+        const l = lum([data[o] ?? 0, data[o + 1] ?? 0, data[o + 2] ?? 0]);
+        if (l >= DARK_LUMA[0] && l < DARK_LUMA[1]) dark++;
+      }
       s[3] = (s[3] ?? 0) + 1;
     });
     focusHits[step] = onFocus / hits.length;
+    darkLung[step] = lung ? dark / lung : 0;
     table[step] = Object.fromEntries(
       Object.entries(sum).map(([cls, s]) => {
         const n = s[3] ?? 1;
@@ -90,10 +104,11 @@ test('per-step scope close-ups: focus structures visible, structure colour table
       }),
     );
   }
-  writeFileSync('qa/closeup-colours.json', JSON.stringify({ focusHits, table }, null, 2));
+  writeFileSync('qa/closeup-colours.json', JSON.stringify({ focusHits, darkLung, table }, null, 2));
   for (const [step, row] of Object.entries(table))
     console.log(
       `step ${step} focus ${(100 * (focusHits[Number(step)] ?? 0)).toFixed(1)}% · ` +
+        `dark lung ${(100 * (darkLung[Number(step)] ?? 0)).toFixed(1)}% · ` +
         Object.entries(row)
           .sort((a, b) => b[1].n - a[1].n)
           .map(([c, v]) => `${c} ${v.rgb} L${v.luma} n${v.n}`)
@@ -101,5 +116,6 @@ test('per-step scope close-ups: focus structures visible, structure colour table
     );
   for (let step = 2; step <= 7; step++)
     expect(focusHits[step], `step ${step} focus`).toBeGreaterThan(MIN_FOCUS_HITS[step] ?? 0);
+  for (const step of DARK_STEPS) expect(darkLung[step], `step ${step} dark lung`).toBeLessThan(MAX_DARK_LUNG);
   expect(errors).toEqual([]);
 });

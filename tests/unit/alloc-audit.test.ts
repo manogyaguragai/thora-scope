@@ -27,10 +27,13 @@ const HOT: Record<string, string[]> = {
   'src/sim/instrumentControl.ts': ['update'],
   'src/sim/complications.ts': ['update'],
   'src/ui/pip.ts': ['render'],
-  'src/sim/scopeRig.ts': ['drag', 'writePose', 'frame', 'viewDir', 'shaftFrame', 'setShaft'],
+  'src/scene/otRoom.ts': ['markScreenDirty'],
+  'src/ui/compass.ts': ['update', 'projectAxes'],
+  'src/sim/scopeRig.ts': ['drag', 'pivot', 'writePose', 'frame', 'viewDir', 'shaftFrame', 'setShaft'],
   'src/sim/actions/dissect.ts': ['update'],
   'src/sim/actions/retract.ts': ['update', 'drag'],
   'src/sim/actions/staple.ts': ['update'],
+  'src/ui/vitalsMonitor.ts': ['tick', 'stroke'],
 };
 
 /** Known, documented exceptions (`file:name` → labels), each with its reason. Keep this short. */

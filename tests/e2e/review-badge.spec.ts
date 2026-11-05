@@ -1,23 +1,24 @@
 import { expect, test } from '@playwright/test';
 
-// CLAUDE.md hard rule: every teaching surface shows the "Pending clinician review" badge.
-// Covered: loading tip, guided caption, physiology lab, quiz feedback + results, practice bar + debrief.
-// TODO when wired into the app: click-to-label inspector (src/ui/labels3d.ts / src/content/labels.ts), practice teaching notes / tips.
+// T812 (user request 2026-11-05): no "Pending clinician review" badge/note on any surface.
+// Covered: loading screen, guided caption, physiology lab, quiz feedback + results, practice bar + debrief.
 const BADGE = 'Pending clinician review';
 
-test('loading tip carries the review badge', async ({ page }) => {
+test('loading screen has no review badge', async ({ page }) => {
   await page.goto('/?holdload');
   await expect(page.locator('#load-tip')).not.toBeEmpty();
-  await expect(page.locator('#loading').getByText(BADGE)).toBeVisible();
+  await expect(page.getByText(BADGE)).toHaveCount(0);
 });
 
-test('guided caption, physiology lab and quiz carry the review badge', async ({ page }) => {
+test('guided caption, physiology lab and quiz have no review badge', async ({ page }) => {
   test.setTimeout(300_000);
   await page.goto('/');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
-  await expect(page.locator('.guided-caption').getByText(BADGE)).toBeVisible();
+  await expect(page.locator('.guided-caption')).toBeVisible();
+  await expect(page.getByText(BADGE)).toHaveCount(0);
   await page.click('button[data-mode=physiology]');
-  await expect(page.getByRole('region', { name: 'Physiology lab' }).getByText(BADGE)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Physiology lab' })).toBeVisible();
+  await expect(page.getByText(BADGE)).toHaveCount(0);
 
   // Quiz: feedback after every answer, then the results summary (Skip identify items, pick option 1 otherwise).
   await page.click('button[data-mode=quiz]');
@@ -29,24 +30,27 @@ test('guided caption, physiology lab and quiz carry the review badge', async ({ 
     // The quiz chunk loads lazily: wait until the item is rendered before choosing Skip vs an option.
     await expect(skip.or(option)).toBeVisible();
     await ((await skip.isVisible()) ? skip : option).click();
-    await expect(quiz.locator('.quiz-feedback').getByText(BADGE)).toBeVisible();
+    await expect(quiz.locator('.quiz-feedback')).toBeVisible();
+    await expect(page.getByText(BADGE)).toHaveCount(0);
     if (await finish.isVisible()) break;
     await quiz.getByRole('button', { name: 'Next' }).click();
   }
   await finish.click();
   await expect(quiz.locator('.quiz-total')).toBeVisible();
-  await expect(quiz.locator('.quiz-body').getByText(BADGE)).toBeVisible();
+  await expect(page.getByText(BADGE)).toHaveCount(0);
 });
 
-test('practice bar and debrief carry the review badge', async ({ page }) => {
+test('practice bar and debrief have no review badge', async ({ page }) => {
   test.setTimeout(300_000);
   await page.goto('/?mode=practice');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const bar = page.getByRole('region', { name: 'Practice' });
-  await expect(bar.getByText(BADGE)).toBeVisible();
+  await expect(bar).toBeVisible();
+  await expect(page.getByText(BADGE)).toHaveCount(0);
   await bar.getByRole('button', { name: 'End run' }).click();
   const debrief = page.getByRole('dialog', { name: 'Case debrief' });
-  await expect(debrief.getByText(BADGE)).toBeVisible();
+  await expect(debrief).toBeVisible();
+  await expect(page.getByText(BADGE)).toHaveCount(0);
   await debrief.getByRole('button', { name: 'Close' }).click();
   await expect(debrief).toBeHidden();
 });

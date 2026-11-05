@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, test } from 'vitest';
 import { STRUCTURE_LABELS } from '../../src/content/labels';
 import raw from '../../src/content/practice_actions.json';
-import { IDENTIFY_ITEMS, NEXT_STEP_ITEMS, QUIZ_META, isAccepted } from '../../src/content/quiz';
+import { IDENTIFY_ITEMS, NEXT_STEP_ITEMS, isAccepted } from '../../src/content/quiz';
 
 const actionIds = new Set(raw.actions.map((a) => a.id));
 const RUN = 8;
@@ -15,8 +15,7 @@ const runs = (s: string): Set<string> => {
 };
 
 describe('quiz content', () => {
-  test('meta + counts', () => {
-    expect(QUIZ_META.pendingReview).toBe(true);
+  test('counts', () => {
     expect(IDENTIFY_ITEMS.length).toBeGreaterThanOrEqual(15);
     expect(NEXT_STEP_ITEMS.length).toBeGreaterThanOrEqual(10);
   });

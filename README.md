@@ -6,7 +6,7 @@ anterior approach, aimed at medical students and junior surgical trainees. It ru
 
 > **Pending clinician review.** All teaching text (step captions, learning points, tips, quiz and debrief
 > wording, labels) is the project's own paraphrase and has not yet been reviewed by a clinician. It is not
-> clinical guidance. Every teaching surface in the app carries this badge.
+> clinical guidance. The in-app review badges were removed by user request (2026-11-05).
 
 Modes: **Guided** (steps 1–7 with captions and learning points), **Practice** (perform the operation with
 instruments; scored), **Explore** (free orbit, layers, cut-away) and **Physiology lab** (one-lung ventilation,

@@ -17,6 +17,7 @@ const LAZY_CHUNKS = [
   'quiz',
   'wireM5',
   'debrief',
+  'wireM7',
 ]; // dynamic import()
 
 if (!existsSync(html) && !strict)

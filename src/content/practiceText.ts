@@ -1,6 +1,5 @@
 // Practice-mode text (T505): complication + vitals messages (keys from src/sim/complications.ts), engine error
-// feedback and debrief complication names. Paraphrased teaching text; shown beside the "Pending clinician review"
-// badge in the practice bar.
+// feedback and debrief complication names. Paraphrased teaching text.
 import type { ToastKey, VitalsKey } from '../sim/complications';
 import type { PracticeErrorKind } from '../sim/practice';
 

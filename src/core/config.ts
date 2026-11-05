@@ -47,9 +47,13 @@ export const config = {
   camera: {
     fovDeg: 45,
     near: 0.001, // §7.5: ≤ 1 mm
-    far: 5,
+    far: 8, // T813: the OT room walls are up to ~6 m from the orbit camera
     orbitMinDistance: 0.12, // OrbitControls limits around the thorax centre (m)
-    orbitMaxDistance: 1.5,
+    // T813: target radius + max distance stays inside the OT room walls/ceiling (src/scene/otRoom.config.ts) …
+    orbitMaxDistance: 3,
+    orbitMaxTargetRadius: 0.3, // pan limit around the thorax centre (m)
+    orbitMinPolarRad: 0.9, // … and the polar range keeps it below the ceiling and above the floor
+    orbitMaxPolarRad: 1.75,
   },
   // Scope view through the glTF step cameras (§7.5) + scope ⇄ outside transitions.
   scope: {
@@ -144,6 +148,9 @@ export const config = {
     opticStepDeg: 15, // light-post rotation per Z/X press
     zoomStep: 1.15, // zoom factor per +/− press
     aimDepthFrac: 0.5, // port switch: lens at most this fraction of the fulcrum→focus distance in (T808)
+    arrowRadPerS: 0.5, // T816: shaft swing rate while an arrow key is held (screen-space pivot about the port)
+    arrowMaxDtMs: 100, // T816: longest frame step applied to a held arrow (no jump after a stall / hidden tab)
+    levelOnStepSnap: true, // T816: step / V snaps keep the authored view direction but level it (H restores the roll)
   },
   // Viewing aids (§6.5): layers panel + 3D labels.
   viewing: {
@@ -153,7 +160,8 @@ export const config = {
     labelMaxCount: 12, // toggle-all name tags shown at once: step focus first, then nearest the view centre
     labelGapPx: 2, // declutter: min gap between tags
     labelNudges: 1, // declutter: rows tried above/below an overlapping tag before it is skipped
-    labelAvoid: '.shell-top, .guided-caption', // T806: tags never land under these (rects measured on resize/toggle)
+    compassHz: 10, // T816: orientation compass DOM updates per second (max)
+    labelAvoid: '.shell-top, .guided-caption, .scope-compass', // T806: tags never land under these (rects measured on resize/toggle)
     labelAvoidMax: 4, // at most this many labelAvoid rects
     focusLabelModes: ['guided'] as readonly string[], // T807: L shows only the step-focus structures' tags here
   },
@@ -198,8 +206,9 @@ export const config = {
   },
   // Outside-view framing (lights live in src/scene/lights.ts).
   viewer: {
-    frameMargin: 0.55, // distance multiplier on the bbox half-diagonal (T801: 1.3 left the torso a small blob)
-    viewDir: [0, 0.6, 1] as const, // from anterior, slightly from patient's right (+Y)
+    // T813: walking into theatre: table, drapes, lamps and the anaesthesia monitor in frame (zoom in to explore).
+    distance: 2.7, // orbit camera → thorax centre (m)
+    viewDir: [-0.35, 0.75, 1] as const, // from anterior, above (patient's right, +Y), slightly from the foot end
   },
   debug: {
     axesSize: 0.1,
@@ -236,7 +245,6 @@ export const config = {
     chromaticAberration: 0.006, // uv offset at the rim (× r²); frames show next to none
     grain: 0.012, // near-zero; frames are soft, not noisy
     grainPeriodS: 60, // grain time seed wraps to keep float precision
-    fogRadius: 0.006, // lens-fog blur tap offset (uv); amount (uFog) driven by M5
     fogColor: [1, 0.86, 0.84] as const, // milky orange-pink veil (06:46)
     // Warm red-magenta grade (frames: mean sRGB ≈ 184/117/125, high saturation, maroon shadows).
     lift: [0.01, 0, 0.012] as const, // T111: maroon-violet shadows; T807c: halved (steel shafts read maroon)
@@ -260,8 +268,8 @@ export const config = {
     surround: '#5d2f3d', // REFERENCE_FRAMES "Dark cavity background" (01:25)
     surroundIntensity: 3,
     spot: '#fff4ea', // warm lamp patch toward the ports (+Y = patient's right, up; §7.1), seen in steel
-    spotIntensity: 12,
-    spotRadius: 0.3, // sphere radius at distance 1
+    spotIntensity: 36, // T810: sharper steel glints (was 12)
+    spotRadius: 0.12, // T810 (was 0.3): sphere radius at distance 1
     spotDir: [0, 1, 0.35] as const,
   },
   // Physiology + morph controller (§6.1 Physiology lab, §7.3). HR/RR defaults come from procedure_steps.json.
@@ -335,7 +343,7 @@ export const config = {
       capScale: 1,
       color: [0.86, 0.86, 0.84] as const,
       size: 0.012, // m, point size (size-attenuated); T410: 0.008 read too thin
-      opacity: 0.35,
+      opacity: 0.5, // T817: 0.35 was faint against pink tissue
       lifeSec: 1.6,
       riseSpeed: 0.012, // m/s along +Y (gravity is −Y, §7.1)
       jitter: 0.004, // m/s random lateral/vertical velocity
@@ -363,7 +371,7 @@ export const config = {
     },
     decal: {
       capScale: 1 / 8, // low 8, medium 32, high 64 (one instanced draw)
-      color: 0xc4241a, // fresh blood red (ref 01:25 / 02:44); T807c: 0x9a1410 read as a dark blob
+      color: 0xe8402c, // T810: tonemaps to ≈#8b0010; fresh blood red (ref 01:25 / 02:44); T807c: 0x9a1410 read as a dark blob
       roughness: 0.08, // glossy fresh blood
       clearcoat: 1,
       clearcoatRoughness: 0.08,
@@ -373,11 +381,6 @@ export const config = {
       growSec: 4, // time to reach maxRadius
       normalOffset: 0.0004, // m, lift off the surface
       normalPickTolM: 0.01, // T806: bleed point re-picked from the camera; a hit this close lends its surface normal
-    },
-    fog: {
-      riseRate: 4, // per second toward the pulse target
-      decayRate: 0.35, // per second back to 0
-      cauteryPulse: 0.6, // target added per cautery emit()
     },
   },
   // Encircle + staple-divide logic (src/sim/actions/staple.ts).
@@ -535,7 +538,6 @@ export const config = {
       mediastinal_fat: 'mediastinal_fat_window',
       hilar_connective_tissue: 'hilar_connective_tissue_window',
     } as Readonly<Record<string, string>>,
-    cauteryPuffSec: 0.3, // seconds between cautery puffs (smoke + fog pulse) while held; one fires on contact
     windowSuffix: '_window',
   },
   // M4 wiring (src/app/wireM4.ts).

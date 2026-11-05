@@ -124,7 +124,6 @@ export function mountPhysiologyPanel(host: HTMLElement, sim: PhysiologySim): () 
     'section',
     { className: 'panel' },
     h('h2', { id: titleId, className: 'panel-title' }, 'Physiology lab'),
-    h('span', { className: 'panel-badge' }, 'Pending clinician review'),
     h(
       'div',
       { className: 'panel-group' },

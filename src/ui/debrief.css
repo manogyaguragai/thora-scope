@@ -1,4 +1,4 @@
-/* Practice debrief (T504, §6.1/§6.7). Tokens only (tokens.css); badge = .panel-badge (panels.css). Fade on opacity;
+/* Practice debrief (T504, §6.1/§6.7). Tokens only (tokens.css). Fade on opacity;
    reduced motion zeroes the --motion-* tokens. */
 .debrief {
   box-sizing: border-box;
