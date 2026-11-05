@@ -81,4 +81,4 @@ nothing from `assets_src/` does (guarded by `tests/unit/dist-contents.test.ts`).
 ## Credits
 
 Built by [Manogya Guragai](https://www.linkedin.com/in/manogya-guragai) and
-[Dr. Mandeep Guragai](https://www.linkedin.com/in/mandeep-guragai).
+[Dr. Mandeep Guragai](https://www.linkedin.com/in/mandeep-guragai-280589117).
