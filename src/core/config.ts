@@ -80,10 +80,11 @@ export const config = {
     ringSize: 120, // frame-time samples kept for fps / p95
     p95: 0.95,
   },
-  // Temporary outside view (T004); M1 replaces the look.
+  // Temporary outside view (T004). T104: placeholder lights off — the look's lights live in src/scene/lights.ts.
+  // ponytail: zeroed (not removed) to keep main.ts untouched during the T102 merge; delete both lights afterwards.
   viewer: {
-    ambientIntensity: 0.35,
-    headlightIntensity: 2.5,
+    ambientIntensity: 0,
+    headlightIntensity: 0,
     frameMargin: 1.3, // distance multiplier when framing thorax_root
     viewDir: [0, 0.6, 1] as const, // from anterior, slightly from patient's right (+Y)
   },

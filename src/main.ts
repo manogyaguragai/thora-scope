@@ -1,24 +1,45 @@
-import { AmbientLight, AxesHelper, PerspectiveCamera, PointLight, Raycaster, Scene, Vector2 } from 'three';
-import type { Intersection, Object3D } from 'three';
+import { AxesHelper, PerspectiveCamera, Scene } from 'three';
+import type { Mesh } from 'three';
+import type { M3 } from './app/wireM3';
+import type { M4 } from './app/wireM4';
+import type { M5, M5Context } from './app/wireM5';
+import {
+  AdaptiveResolution,
+  applyPixelRatio,
+  loadQualityChoice,
+  nextLowerPreset,
+} from './core/adaptiveResolution';
 import { config } from './core/config';
-import { keybindings } from './core/keybindings';
 import { armReady } from './core/perf';
 import { pickQuality } from './core/quality';
-import type { QualityPreset } from './core/quality';
-import { createRenderer, startLoop } from './core/renderer';
-import { runLoadingStages } from './scene/loadingStages';
+import type { QualityName, QualityPreset } from './core/quality';
+import { createRenderer, holdRendering, releaseRendering, requestRender, startLoop } from './core/renderer';
+import { registerWarmupObject, runLoadingStages } from './scene/loadingStages';
 import { createCameraRig } from './scene/cameras';
 import type { CameraRig, ViewMode } from './scene/cameras';
 import { createPostFx } from './scene/postfx';
+import { applyRealism, setFade } from './scene/materials';
 import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
 import type { MorphBindings } from './scene/morphs';
+import { GUIDED_STEPS } from './content/steps';
+import { createGuided } from './sim/guided';
+import type { Guided } from './sim/guided';
+import { getMode, MODES, onModeChange, setMode } from './sim/modes';
+import type { Mode } from './sim/modes';
 import { tickSim } from './sim/physiology';
 import { clampRMLReinflate, createState, releaseClamp, setLobe, startOLV } from './sim/state';
 import type { AppState, Lobe } from './sim/state';
-import { applyStep, applyVisibility, createStepVisibility, STEPS } from './sim/steps';
+import type { ProbeResult } from './sim/probe';
+import { applyVisibility, createStepVisibility, STEPS } from './sim/steps';
+import { mountGuidedPanel } from './ui/guidedPanel';
 import { irisOpen, setOverall, setStage, showError } from './ui/loadingScreen';
+import { mountShell } from './ui/shell';
+import type { Shell } from './ui/shell';
 
 const params = new URLSearchParams(location.search);
+// M3 controls + BVH picking: own chunk (keeps the initial JS in budget), fetched beside the glb download.
+const m3Chunk = import('./app/wireM3');
+const m4Chunk = import('./app/wireM4'); // M4 instruments + actions, own chunk
 const debug = params.has('debug');
 const { holdFraction, stages } = config.loading;
 // ?view=scope|outside (?scope = legacy alias from T105) and ?step=N (implies a step camera for the scope).
@@ -43,6 +64,18 @@ declare global {
       setView: (mode: ViewMode, instant?: boolean) => void;
       /** null until the model is loaded. */
       rig: CameraRig | null;
+      /** Guided controller (transitioning = fades still running); null until the model is loaded. */
+      guided: Guided | null;
+      /** M3 controls (scope rig, picking, hotbar, viewing aids); null until the model is loaded. */
+      m3: M3 | null;
+      /** M4 instruments + surgical actions; null until the model is loaded. */
+      m4: M4 | null;
+      /** M5 practice run (lazy chunk, wired on the first switch to Practice). */
+      m5: M5 | null;
+      /** perf:probe scripted run (lazy chunk src/sim/probe.ts); phase(name) tags the stats that follow. */
+      probeScript?: (phase: (name: string) => void) => Promise<ProbeResult>;
+      /** e2e / probe: select a tool and place it on a target through the first port that works (lazy probe chunk). */
+      placeTool?: (id: string, target: string, sub?: string, port?: string) => Promise<string>;
     };
   }
 }
@@ -60,6 +93,10 @@ const sim: Window['__sim'] = {
   setStep: () => {},
   setView: () => {},
   rig: null,
+  guided: null,
+  m3: null,
+  m4: null,
+  m5: null,
 };
 window.__sim = sim;
 
@@ -82,12 +119,18 @@ if (params.has('holdload')) {
 
 function makeRenderer(app: HTMLElement): {
   renderer: ReturnType<typeof createRenderer>;
+  name: QualityName;
   preset: QualityPreset;
+  locked: boolean;
 } {
+  // Persisted settings choice; ?quality= still wins. A chosen preset adapts unless locked (or set by URL).
+  const choice = loadQualityChoice();
+  const locked = choice.locked || params.has('quality');
+  if (choice.preset && !params.has('quality')) params.set('quality', choice.preset);
   const { name, preset } = pickQuality(params); // throws if WebGL2 is missing
   window.__perf.preset = name;
   try {
-    return { renderer: createRenderer(app, preset), preset };
+    return { renderer: createRenderer(app, preset), name, preset, locked };
   } catch {
     throw new Error('WebGL2 is not available. Use a current desktop Chrome, Edge, Firefox or Safari.');
   }
@@ -96,9 +139,24 @@ function makeRenderer(app: HTMLElement): {
 async function main(): Promise<void> {
   const app = document.getElementById('app');
   if (!app) throw new Error('#app missing');
-  const { renderer, preset } = makeRenderer(app);
+  const { renderer, name, preset, locked } = makeRenderer(app);
   if (params.has('failload')) throw new Error('Forced load failure (?failload).');
   const post = createPostFx(renderer, preset);
+  let quality = name;
+  const adaptive = new AdaptiveResolution(Math.min(window.devicePixelRatio, preset.maxPixelRatio));
+  adaptive.setLocked(locked);
+  if (params.has('perf'))
+    void import('./ui/perfOverlay').then((m) => m.mountPerfOverlay(() => renderer.getPixelRatio()));
+  // Sustained low fps at the minimum ratio: step down one preset via uniforms + ratio ceiling only.
+  // ponytail: MSAA / half-res targets keep the load-time preset (changing them needs a reload).
+  const downgrade = (): void => {
+    quality = nextLowerPreset(quality) ?? quality;
+    const p = config.quality.presets[quality];
+    window.__perf.preset = quality;
+    post.uniforms.uCA.value = p.postFx.chromaticAberration ? config.postfx.chromaticAberration : 0;
+    post.uniforms.uGrain.value = p.postFx.grain ? config.postfx.grain : 0;
+    adaptive.setMaxRatio(Math.min(window.devicePixelRatio, p.maxPixelRatio)); // clears the request
+  };
   const scene = new Scene();
   // viewCamera: the one rendered camera; the rig (created at load) drives its pose for scope + outside views.
   const camera = new PerspectiveCamera(
@@ -107,11 +165,7 @@ async function main(): Promise<void> {
     config.camera.near,
     config.camera.far,
   );
-  // Temporary look (T004): dim ambient + co-axial headlight on viewCamera. M1 (T104) replaces the look.
-  scene.add(new AmbientLight(0xffffff, config.viewer.ambientIntensity));
-  const headlight = new PointLight(0xffffff, config.viewer.headlightIntensity, 0, 0);
-  camera.add(headlight);
-  scene.add(camera);
+  scene.add(camera); // the scope headlight (applyRealism) is its child, so it follows step cams and orbit
 
   let overlay: HTMLDivElement | null = null;
   if (debug) {
@@ -124,78 +178,119 @@ async function main(): Promise<void> {
     app.append(overlay);
   }
 
-  // ponytail: plain Raycaster over ~770k tris, debug only; BVH picking lands in M3.
-  const raycaster = new Raycaster();
-  const pointer = new Vector2();
-  const hits: Intersection[] = [];
-  const hoverMs = 1000 / config.pick.hoverHz;
-  let pointerDirty = false;
-  let lastPick = 0;
-  let hoverName = '—';
   let axisLine = '';
-  let model: Object3D | null = null;
-  if (debug) {
-    renderer.domElement.addEventListener('pointermove', (e) => {
-      pointer.set((e.clientX / window.innerWidth) * 2 - 1, -(e.clientY / window.innerHeight) * 2 + 1);
-      pointerDirty = true;
-    });
-  }
+  const showHover = (name: string | null): void => {
+    if (overlay) overlay.textContent = `${axisLine}\nhover: ${name ?? '—'}`;
+  };
 
-  function hover(now: number): void {
-    if (!overlay || !model || !pointerDirty || now - lastPick < hoverMs) return;
-    pointerDirty = false;
-    lastPick = now;
-    raycaster.setFromCamera(pointer, camera);
-    raycaster.intersectObject(model, true, hits);
-    const name = hits[0]?.object.name || '—';
-    hits.length = 0;
-    if (name === hoverName) return;
-    hoverName = name;
-    overlay.textContent = `${axisLine}\nhover: ${hoverName}`;
-  }
-
+  let lastNow = 0;
   function frame(now: number): void {
+    if (lastNow) applyPixelRatio(renderer, adaptive.update(now - lastNow));
+    lastNow = now;
+    if (adaptive.downgradeRequested) downgrade();
     tickSim(state, now);
     sim.rig?.update(now);
+    sim.guided?.update(now);
     if (sim.morphs) updateMorphs(sim.morphs, state);
-    hover(now);
+    sim.m3?.update(now);
+    sim.m4?.update(now);
+    sim.m5?.update(now);
   }
 
-  const { axis } = await runLoadingStages(renderer, scene, camera, (gltf) => {
-    const m = (model = gltf.scene);
-    scene.add(m);
-    sim.morphs = buildMorphBindings(collectMorphMeshes(m));
-    const v = createStepVisibility((name) => m.getObjectByName(name));
-    applyVisibility(v, state); // default_hidden
-    const r = (sim.rig = createCameraRig(
-      camera,
-      renderer.domElement,
-      m.getObjectByName('thorax_root') ?? m,
-      gltf.cameras,
-      post.uniforms.uScopeMode,
-      (mode) => {
-        v.scope = mode === 'scope';
-        applyVisibility(v, state);
-      },
-    ));
-    sim.setStep = (n, instant = false) => r.setScopeCamera(applyStep(v, state, n, instant).camera, instant);
-    sim.setView = (mode, instant = false) => {
-      if (mode === 'scope' && !state.step) sim.setStep(config.steps.defaultStep, instant);
-      r.setView(mode, instant);
-    };
-    if (initialStep) sim.setStep(initialStep, true);
-    sim.setView(initialView, true);
-    r.update(0);
-  });
+  let m5Ctx: M5Context | null = null; // set once M4 is wired
+  const mountUi = (g: Guided): Shell => {
+    const shell = mountShell(app, setMode);
+    mountGuidedPanel(shell, g, GUIDED_STEPS);
+    let closePhysiology: (() => void) | null = null;
+    onModeChange((m) => {
+      shell.setMode(m);
+      const m3 = sim.m3;
+      if (m === 'practice' && m5Ctx && !sim.m5) {
+        const c = m5Ctx;
+        void import('./app/wireM5').then((p) => (sim.m5 ??= p.wireM5(c)));
+      }
+      if (m === 'quiz' && m3) {
+        const gate = { holdRendering, releaseRendering, requestRender };
+        void import('./app/wireM6').then((q) => q.enterQuiz({ host: shell.inspector, m3, ...gate }));
+      }
+      if (m !== 'physiology') {
+        closePhysiology?.();
+        closePhysiology = null;
+        return;
+      }
+      void import('./ui/physiologyPanel').then(({ mountPhysiologyPanel }) => {
+        if (getMode() === 'physiology' && !closePhysiology)
+          closePhysiology = mountPhysiologyPanel(shell.inspector, sim);
+      });
+    });
+    return shell;
+  };
+
+  const [{ wireM3 }, { wireM4 }] = await Promise.all([m3Chunk, m4Chunk]);
+  const { axis } = await runLoadingStages(
+    renderer,
+    scene,
+    camera,
+    (gltf) => {
+      const m = gltf.scene;
+      scene.add(m);
+      registerWarmupObject(applyRealism(scene, renderer, camera, m)); // X-ray variants compile in stage 4
+      sim.morphs = buildMorphBindings(collectMorphMeshes(m));
+      const v = createStepVisibility((name) => m.getObjectByName(name));
+      applyVisibility(v, state); // default_hidden
+      const r = (sim.rig = createCameraRig(
+        camera,
+        renderer.domElement,
+        m.getObjectByName('thorax_root') ?? m,
+        gltf.cameras,
+        post.uniforms.uScopeMode,
+        (mode) => {
+          v.scope = mode === 'scope';
+          applyVisibility(v, state);
+          sim.m3?.reapplyLayers();
+        },
+      ));
+      const g = (sim.guided = createGuided({
+        vis: v,
+        state,
+        setCamera: (cam, instant) => r.setScopeCamera(cam, instant),
+        setFade: (o, a) => setFade(o as Mesh, a), // non-mesh nodes have no variants: they switch at the end
+      }));
+      sim.setStep = (n, instant = false) => g.goTo(n, instant);
+      sim.setView = (mode, instant = false) => r.setView(mode, instant);
+      sim.setStep(initialStep || config.steps.defaultStep, true); // guided is the default mode
+      sim.setView(initialView, true);
+      r.update(0);
+      sim.probeScript = (phase) => import('./sim/probe').then((p) => p.runProbeScript(sim, scene, phase));
+      sim.placeTool = (...a) => import('./sim/probe').then((p) => p.placeTool(sim, scene, ...a));
+      const shell = mountUi(g); // under the loading screen until the iris opens
+      const ui = {
+        app,
+        canvas: renderer.domElement,
+        model: m,
+        camera,
+        rig: r,
+        guided: g,
+        state,
+        vis: v,
+        shell,
+      };
+      const ctx = { ...ui, setView: (mode: ViewMode) => sim.setView(mode), onHover: showHover };
+      const m3 = (sim.m3 = wireM3(ctx));
+      const m4 = (sim.m4 = wireM4({ ...ctx, m3, scene, renderer, preset, fog: post.uniforms.uFog }));
+      m5Ctx = { ...ui, m3, m4, gain: post.uniforms.uGain, setStep: sim.setStep, setView: sim.setView };
+    },
+    preset.textureDownscale,
+  );
   axisLine = axis;
-  if (overlay) overlay.textContent = `${axisLine}\nhover: ${hoverName}`;
-  window.addEventListener('keydown', (e) => {
-    const { rig } = sim;
-    if (rig && !e.repeat && e.code === keybindings.toggleView.code)
-      sim.setView(rig.target === 'scope' ? 'outside' : 'scope');
-  });
+  showHover(null);
   // Visible loop only after all five stages; "ready" once the lens has opened.
-  startLoop(renderer, camera, frame, (now) => post.render(scene, camera, now));
+  startLoop(renderer, camera, frame, (now) => {
+    post.render(scene, camera, now);
+    sim.m4?.afterRender();
+  });
   await irisOpen();
   armReady();
+  const startMode = params.get('mode'); // ?mode=practice (practice retry reloads into a fresh case)
+  if ((MODES as readonly string[]).includes(startMode ?? '')) setMode(startMode as Mode);
 }

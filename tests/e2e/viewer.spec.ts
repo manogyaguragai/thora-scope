@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 import sharp from 'sharp';
 
 test('viewer loads the optimised model with ?debug and exposes window.__perf', async ({ page }) => {
-  test.setTimeout(180_000); // SwiftShader is slow
+  test.setTimeout(300_000); // SwiftShader is slow (physical materials since T104)
   const errors: string[] = [];
   const logs: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -23,9 +23,10 @@ test('viewer loads the optimised model with ?debug and exposes window.__perf', a
   await page.mouse.move(640, 360);
   await expect(page.locator('#debug-overlay')).not.toContainText('hover: —', { timeout: 30_000 });
 
-  await page.screenshot({ path: 'qa/screenshots/debug.png' });
+  // One screenshot (each waits for SwiftShader's frame backlog); crop it for the check.
+  const shot = await page.screenshot({ path: 'qa/screenshots/debug.png' });
   // Non-blank: the centre of the view (away from title/overlay) must show varied pixels, not a flat clear colour.
-  const centre = await page.screenshot({ clip: { x: 340, y: 160, width: 600, height: 400 } });
+  const centre = await sharp(shot).extract({ left: 340, top: 160, width: 600, height: 400 }).toBuffer();
   const { channels } = await sharp(centre).stats();
   expect(Math.max(...channels.map((c) => c.stdev))).toBeGreaterThan(5);
 
