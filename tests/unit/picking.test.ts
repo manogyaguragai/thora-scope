@@ -7,6 +7,7 @@ import {
   PerspectiveCamera,
   Scene,
   SphereGeometry,
+  Vector3,
 } from 'three';
 import { describe, expect, test } from 'vitest';
 import { buildPickBVH } from '../../src/scene/picking';
@@ -80,5 +81,36 @@ describe('BVH picking', () => {
     picker.refreshMorphs([lung]);
     expect(picker.pick(0, 0, cam)?.distance).toBeCloseTo(9.5, 2);
     expect(picker.pick(0, 0, cam)?.point.z).toBeCloseTo(0.5, 2);
+  });
+});
+
+describe('nearest surface (T822 cautery contact gating)', () => {
+  test('a point in free space has no contact; near a face it returns that mesh, point and normal', () => {
+    const { scene } = boxes();
+    const picker = buildPickBVH(scene);
+    expect(picker.nearest(new Vector3(0, 0, 0.6), 0.05)).toBeNull(); // 0.1 off the near box's +z face
+    const hit = picker.nearest(new Vector3(0.1, 0.2, 0.52), 0.05);
+    expect(hit?.nodeName).toBe('near');
+    expect(hit?.distance).toBeCloseTo(0.02);
+    expect(hit?.point.z).toBeCloseTo(0.5);
+    expect(hit?.normal.z).toBeCloseTo(1);
+  });
+
+  test('pick looks through skipped hits unless raw', () => {
+    const { scene } = boxes();
+    const picker = buildPickBVH(scene);
+    picker.skip = (m) => m.name === 'near';
+    expect(picker.pick(0, 0, camera())?.nodeName).toBe('far');
+    expect(picker.pick(0, 0, camera(), true)?.nodeName).toBe('near');
+  });
+
+  test('nearest honours skip at the contact point (no contact inside an opening)', () => {
+    const { scene } = boxes();
+    const picker = buildPickBVH(scene);
+    const p = new Vector3(0.1, 0.2, 0.52);
+    picker.skip = (m, at) => m.name === 'near' && at.x > 0; // an "opening" over x > 0
+    expect(picker.nearest(p, 0.05)).toBeNull();
+    expect(picker.nearest(p, 0.05, true)?.nodeName).toBe('near'); // raw: mid-stroke the hook rides the layer
+    expect(picker.nearest(p.set(-0.1, 0.2, 0.52), 0.05)?.nodeName).toBe('near');
   });
 });

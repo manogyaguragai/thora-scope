@@ -2,28 +2,23 @@
 // afterwards (§6.10). T819: real VATS proportions — lathed ferrules, bevelled extruded jaws (toothed ring rims,
 // serrated Maryland jaws, stapler channel/insert/anvil), tube-swept hooks and blades, crumpled gauze, handles for the
 // outside view. Parts are merged at load into one geometry per tool part × material (few draw calls). Jaws animate by
-// pivot rotation only. All opaque materials share one brushed roughness map (built at load) → one opaque program +
-// the translucent leader, as before. No clipping planes (instruments are never cut away).
+// pivot rotation only. T825: every opaque material binds the same three texture slots (instrumentTextures.ts, built
+// at load) + one shared soil hook (uniforms only) → one opaque program + the translucent leader. No clipping planes.
 // Local frame: tip at origin, +Z toward the tip.
 import {
   CatmullRomCurve3,
   Color,
   CurvePath,
   CylinderGeometry,
-  DataTexture,
   ExtrudeGeometry,
   Float32BufferAttribute,
   Group,
   LatheGeometry,
   LineCurve3,
-  LinearFilter,
-  LinearMipmapLinearFilter,
   Mesh,
   MeshStandardMaterial,
-  Path,
   QuadraticBezierCurve3,
   Quaternion,
-  RepeatWrapping,
   Shape,
   SphereGeometry,
   TorusGeometry,
@@ -31,9 +26,11 @@ import {
   Vector2,
   Vector3,
 } from 'three';
-import type { BufferGeometry, Curve, Material, Object3D } from 'three';
+import type { BufferGeometry, Curve, Material, Object3D, WebGLProgramParametersWithUniforms } from 'three';
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
-import { instrumentGeom as G, instrumentLook as L } from './instruments.config';
+import { instrumentGeom as G, instrumentLook as L, instrumentTex as T } from './instruments.config';
+import { buildInstrumentTextures } from './instrumentTextures';
+import type { TexSet } from './instrumentTextures';
 import { getInstrumentEnv } from './lights';
 
 /** Hotbar slot ids (src/sim/hotbar.ts) that carry an instrument; 'hands' has none. */
@@ -61,6 +58,8 @@ export interface InstrumentSet {
   setJaw(open: number): void;
   /** Cautery glow, 0 … 1 (emissive uniform only). */
   setGlow(glow: number): void;
+  /** T825: blood/tissue soil on the steel tips or soak of the gauze swabs, 0 … 1 (uniform only). */
+  setSoil(kind: 'steel' | 'gauze', amount: number): void;
 }
 
 interface Jaw {
@@ -79,7 +78,8 @@ type Pts = readonly (readonly [number, number])[];
 type Bag = Map<Material, Geo[]>;
 
 const HALF_PI = Math.PI / 2;
-const UV = L.brushed.uvPerMetre;
+const UV = T.uvPerMetre;
+const TAU = 2 * Math.PI;
 const seg = G.radialSegments;
 const tV = new Vector3(); // load-time temps
 const tC = new Vector3();
@@ -87,26 +87,38 @@ const tQ = new Quaternion();
 const UP = new Vector3(0, 1, 0);
 
 // ── Load-time geometry helpers ──
-const scaleUv = (g: Geo, k: number = UV): Geo => {
+const scaleUv = (g: Geo, ku: number = UV, kv: number = ku): Geo => {
   const uv = g.getAttribute('uv');
-  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * k, uv.getY(i) * k);
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, uv.getX(i) * ku, uv.getY(i) * kv);
   return g;
 };
 /** Surface of revolution about +Z from [radius, z] pairs ordered by z (normals point outward). */
-const lathe = (pts: Pts, n: number = seg): Geo =>
-  new LatheGeometry(
+/** UVs in metres × UV: u round the circumference, v along the profile (texture streaks run along the part). */
+const lathe = (pts: Pts, n: number = seg): Geo => {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    const [a, b] = [pts[i - 1] ?? [0, 0], pts[i] ?? [0, 0]];
+    len += Math.hypot(b[0] - a[0], b[1] - a[1]);
+  }
+  const g = new LatheGeometry(
     pts.map(([r, z]) => new Vector2(r, z)),
     n,
-  ).rotateX(HALF_PI);
+  );
+  return scaleUv(g, TAU * Math.max(...pts.map(([r]) => r)) * UV, len * UV).rotateX(HALF_PI);
+};
 /** Cylinder along +Z, z ∈ [z0, z0 + len]. */
 const cylZ = (r: number, len: number, z0: number, open = false): Geo =>
-  new CylinderGeometry(r, r, len, seg, 1, open).rotateX(HALF_PI).translate(0, 0, z0 + len / 2);
+  scaleUv(new CylinderGeometry(r, r, len, seg, 1, open), TAU * r * UV, len * UV)
+    .rotateX(HALF_PI)
+    .translate(0, 0, z0 + len / 2);
 /** Round rod from a to b. */
 const rod = (a: Vector3, b: Vector3, r: number): Geo => {
   const len = tV.subVectors(b, a).length();
   tQ.setFromUnitVectors(UP, tV.normalize());
   tC.addVectors(a, b).multiplyScalar(0.5);
-  return new CylinderGeometry(r, r, len, seg / 2).applyQuaternion(tQ).translate(tC.x, tC.y, tC.z);
+  return scaleUv(new CylinderGeometry(r, r, len, seg / 2), TAU * r * UV, len * UV)
+    .applyQuaternion(tQ)
+    .translate(tC.x, tC.y, tC.z);
 };
 const shape = (pts: Pts): Shape => new Shape(pts.map(([x, y]) => new Vector2(x, y)));
 const roundRect = (w: number, h: number, r: number, cx = 0, cy = 0): Shape => {
@@ -147,8 +159,9 @@ const tube = (
   r: number,
   radial: number = seg,
   warp?: (t: number, off: Vector3) => void,
+  closed = false,
 ): Geo => {
-  const g = new TubeGeometry(c, n, r, radial, false);
+  const g = new TubeGeometry(c, n, r, radial, closed);
   const pos = g.getAttribute('position');
   const uv = g.getAttribute('uv');
   for (let i = 0; i <= n; i++) {
@@ -164,26 +177,34 @@ const tube = (
     }
   }
   if (warp) g.computeVertexNormals();
-  return scaleUv(g, UV * c.getLength());
+  return scaleUv(g, TAU * r * UV, UV * c.getLength());
 };
 const taper = (k: number) => (t: number, off: Vector3) => off.multiplyScalar(1 - (1 - k) * t);
-/** Crumpled gauze ball: welded sphere with position-hashed radial noise (seam-free normals). */
-const gauzeBall = (amp: number): Geo => {
+const UV_A = new Vector3(1, -1, 0).normalize(); // gauze planar UV axes (⊥ the (1,1,1) diagonal: no seam)
+const UV_B = new Vector3(1, 1, -2).normalize();
+/** Folded gauze swab (unit size): welded sphere, position-hashed lumps + |sin| fold creases (seam-free normals),
+ *  diagonal planar UVs in metres for a swab of radius `r`. */
+const gauzeBall = (amp: number, folds: number, r: number): Geo => {
   const base = new SphereGeometry(1, G.gauze.segments, G.gauze.segments * 0.75);
   base.deleteAttribute('uv');
   base.deleteAttribute('normal');
   const g = mergeVertices(base);
   const pos = g.getAttribute('position');
+  const uv = new Float32Array(pos.count * 2);
   for (let i = 0; i < pos.count; i++) {
     tV.fromBufferAttribute(pos, i);
+    uv[2 * i] = tV.dot(UV_A) * r * UV;
+    uv[2 * i + 1] = tV.dot(UV_B) * r * UV;
     const n =
       Math.sin(7 * tV.x + 1.3) * Math.sin(5 * tV.y + 0.7) * Math.sin(6 * tV.z + 2.1) +
-      0.35 * Math.sin(19 * tV.x + 17 * tV.y - 15 * tV.z); // soft folds + fine wrinkles
-    tV.multiplyScalar(1 + amp * n);
+      0.35 * Math.sin(19 * tV.x + 17 * tV.y - 15 * tV.z); // soft lumps + fine wrinkles
+    const crease =
+      Math.abs(Math.sin(4 * tV.x - 3 * tV.y + 0.4)) + Math.abs(Math.sin(3 * tV.z + 2 * tV.y + 1.9)) - 1.2;
+    tV.multiplyScalar(1 + amp * n + folds * crease); // |sin| valleys = sharp fold lines
     pos.setXYZ(i, tV.x, tV.y, tV.z);
   }
   g.computeVertexNormals();
-  g.setAttribute('uv', new Float32BufferAttribute(new Float32Array(pos.count * 2), 2));
+  g.setAttribute('uv', new Float32BufferAttribute(uv, 2));
   return g;
 };
 const merge = (list: Geo[]): Geo => {
@@ -204,54 +225,67 @@ const flush = (bag: Bag, parent: Object3D): void => {
   bag.clear();
 };
 
-/** Brushed-metal roughness map: smoothed per-column streak noise with faint per-row jitter (seeded). */
-function brushedMap(): DataTexture {
-  const B = L.brushed;
-  let s = B.seed;
-  const rnd = (): number => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296;
-  const raw = Array.from({ length: B.columns }, rnd);
-  const col = raw.map((v, i) => (v + (raw[(i + 1) % B.columns] ?? v) + (raw.at(i - 1) ?? v)) / 3);
-  const data = new Uint8Array(B.columns * B.rows * 4);
-  for (let y = 0; y < B.rows; y++) {
-    for (let x = 0; x < B.columns; x++) {
-      const v = (B.min + (1 - B.min) * (col[x] ?? 1) + (rnd() - 0.5) * B.rowJitter) * 255;
-      data.fill(Math.max(0, Math.min(255, v)), (y * B.columns + x) * 4, (y * B.columns + x) * 4 + 3);
-      data[(y * B.columns + x) * 4 + 3] = 255;
-    }
-  }
-  const t = new DataTexture(data, B.columns, B.rows);
-  t.wrapS = t.wrapT = RepeatWrapping;
-  t.magFilter = LinearFilter;
-  t.minFilter = LinearMipmapLinearFilter;
-  t.generateMipmaps = true;
-  t.needsUpdate = true;
-  return t;
+// T825 soil: blood/tissue mixed in over the map's alpha mask as `soilAmount` rises; soiled texels turn wet dielectric.
+// One hook source for every opaque material (customProgramCacheKey = its text) → same program, per-material uniforms.
+const SE = L.soil.edge.toFixed(3);
+const SOIL_DECL = '#include <common>\nuniform float soilAmount;\nuniform vec3 soilColor;\nfloat soil = 0.0;';
+const SOIL_MAP = `#include <map_fragment>
+soil = smoothstep(sampledDiffuseColor.a, sampledDiffuseColor.a + ${SE}, soilAmount * (1.0 + ${SE}));
+diffuseColor.rgb = mix(diffuseColor.rgb, soilColor, soil);`;
+const SOIL_PBR = `#include <metalnessmap_fragment>
+metalnessFactor *= 1.0 - soil;
+roughnessFactor = mix(roughnessFactor, ${L.soil.roughness.toFixed(3)}, soil);`;
+interface Soil {
+  amount: { value: number };
+  color: { value: Color };
 }
+const soilHook =
+  (u: Soil) =>
+  (p: WebGLProgramParametersWithUniforms): void => {
+    p.uniforms.soilAmount = u.amount;
+    p.uniforms.soilColor = u.color;
+    p.fragmentShader = p.fragmentShader
+      .replace('#include <common>', SOIL_DECL)
+      .replace('#include <map_fragment>', SOIL_MAP)
+      .replace('#include <metalnessmap_fragment>', SOIL_PBR);
+  };
 
 export function buildInstruments(): InstrumentSet {
-  const brushed = brushedMap();
+  const tex = buildInstrumentTextures();
   const envMap = getInstrumentEnv();
+  const soils = new Map<string, Soil>();
   const std = (
     p: { color: string; roughness: number; metalness: number; envMapIntensity?: number },
     name: string,
+    set: TexSet,
+    soil: { color: string; amount: number } = { color: L.soil.steel.color, amount: 0 },
   ): MeshStandardMaterial => {
     const { color, roughness, metalness, envMapIntensity = 1 } = p;
-    return new MeshStandardMaterial({
+    const m = new MeshStandardMaterial({
       name,
       color,
       roughness,
       metalness,
       envMapIntensity,
       envMap, // T821: neutral env (lights.ts), so envMapIntensity applies
-      roughnessMap: brushed,
+      ...set, // T825: map + roughnessMap + normalMap on every opaque material (fixed from load)
     });
+    const u: Soil = { amount: { value: soil.amount }, color: { value: new Color(soil.color) } };
+    soils.set(name, u);
+    m.onBeforeCompile = soilHook(u);
+    return m;
   };
-  const shaftMat = std(L.shaft, 'instrument:shaft');
-  const steel = std(L.steel, 'instrument:steel');
-  const white = std(L.white, 'instrument:white'); // same program as the others (uniforms only)
-  const gauze = std(L.gauze, 'instrument:gauze');
-  const cartridge = std({ ...L.accent, color: L.cartridge[0] }, 'instrument:cartridge');
-  const cautery = std({ ...L.accent, color: L.cauteryTip }, 'instrument:cautery');
+  const shaftMat = std(L.shaft, 'instrument:shaft', tex.shaft);
+  const steel = std(L.steel, 'instrument:steel', tex.steel, L.soil.steel);
+  const white = std(L.white, 'instrument:white', tex.shaft); // same program as the others (uniforms only)
+  const gauze = std(L.gauze, 'instrument:gauze', tex.gauze, L.soil.gauze);
+  const cartridge = std({ ...L.accent, color: L.cartridge[0] }, 'instrument:cartridge', tex.cartridge);
+  const cautery = std(
+    { ...L.cauteryWire, color: L.cauteryTip },
+    'instrument:cautery',
+    tex.steel,
+    L.soil.steel,
+  );
   cautery.emissive.set(L.accent.glowColor);
   cautery.emissiveIntensity = 0;
   const silicone = new MeshStandardMaterial({
@@ -410,24 +444,37 @@ export function buildInstruments(): InstrumentSet {
     const c = G.ringClamp;
     const rx = c.ringRadius * c.ringAspect;
     const zc = c.jawLength - c.ringRadius;
+    const n = 2 * c.teeth;
+    const loop = new CatmullRomCurve3(
+      Array.from({ length: n }, (_, k) => {
+        const a = (k / n) * TAU - HALF_PI; // start at the shank end
+        return new Vector3((rx - c.rim / 2) * Math.cos(a), 0, zc + (c.ringRadius - c.rim / 2) * Math.sin(a));
+      }),
+      true,
+    );
+    const flat = c.jawThick / c.rim;
+    const bite = 1 - (2 * c.toothDepth) / c.jawThick;
     jawPair(grasper, ringHead, -c.jawLength, 0, c.open, 'x', (s) => {
       const shank = shape([
         [-c.jawWidth / 2, 0],
         [c.jawWidth / 2, 0],
-        [c.jawWidth / 2, zc - c.ringRadius + c.rim],
-        [-c.jawWidth / 2, zc - c.ringRadius + c.rim],
+        [c.jawWidth / 2, zc - c.ringRadius + c.rim / 2],
+        [-c.jawWidth / 2, zc - c.ringRadius + c.rim / 2],
       ]);
-      const ring = new Shape().absellipse(0, zc, rx, c.ringRadius, 0, 2 * Math.PI, false, 0);
-      const n = 2 * c.teeth;
-      const hole: Vector2[] = [];
-      for (let k = 0; k < n; k++) {
-        const a = (k / n) * 2 * Math.PI;
-        const d = k % 2 ? c.toothDepth : 0; // toothed inner rim
-        hole.push(new Vector2((rx - c.rim - d) * Math.cos(a), zc + (c.ringRadius - c.rim - d) * Math.sin(a)));
-      }
-      ring.holes.push(new Path(hole));
+      // Smooth oval loop of flattened round wire; every other ring pulled back on the clamping face (−s·Y only).
+      const ring = tube(
+        loop,
+        n,
+        c.rim / 2,
+        c.radial,
+        (t, off) => {
+          off.y *= flat;
+          if (off.y * s < 0 && Math.round(t * n) % 2) off.y *= bite;
+        },
+        true,
+      );
       const y = (s * c.jawThick) / 2;
-      return [plate(shank, c.jawThick).translate(0, y, 0), plate(ring, c.jawThick, 12).translate(0, y, 0)];
+      return [plate(shank, c.jawThick).translate(0, y, 0), ring.translate(0, y, 0)];
     });
     put(bag, steel, pin(-c.jawLength, 0, 'x'));
     stem(bag, -c.jawLength, 0, { handle: 'scissor' });
@@ -441,15 +488,24 @@ export function buildInstruments(): InstrumentSet {
   // 3 · sponge-stick: crumpled gauze ball in steel ring forceps
   const sponge = newTool('sponge');
   {
-    const R = G.gauze.radius;
-    put(bag, gauze, gauzeBall(G.gauze.crumple).scale(R, R, R).translate(0, 0, -R));
+    const g = G.gauze;
+    const R = g.radius;
+    const [sx, sy, sz] = g.shape;
+    const Rz = R * sz;
+    put(
+      bag,
+      gauze,
+      gauzeBall(g.crumple, g.folds, R)
+        .scale(R * sx, R * sy, Rz)
+        .translate(0, 0, -Rz),
+    );
     for (const s of [1, -1])
       put(
         bag,
         steel,
-        rod(new Vector3(0, 0, -2 * R - 0.004), new Vector3(0, s * R * 0.35, -R), G.hinge.pin * 1.6),
+        rod(new Vector3(0, 0, -2 * Rz - 0.004), new Vector3(0, s * R * sy * 0.35, -Rz), G.hinge.pin * 1.6),
       );
-    stem(bag, -2 * R, 0, { shaft: steel, handle: 'scissor', bands: false });
+    stem(bag, -2 * Rz, 0, { shaft: steel, handle: 'scissor', bands: false });
     flush(bag, sponge.group);
   }
 
@@ -458,7 +514,11 @@ export function buildInstruments(): InstrumentSet {
   {
     const p = G.peanut;
     const half = p.radius * p.elongation;
-    put(bag, gauze, gauzeBall(p.crumple).scale(p.radius, p.radius, half).translate(0, 0, -half));
+    put(
+      bag,
+      gauze,
+      gauzeBall(p.crumple, G.gauze.folds, p.radius).scale(p.radius, p.radius, half).translate(0, 0, -half),
+    );
     for (const s of [1, -1]) {
       const jaw = shape([
         [-p.jawWidth / 2, 0],
@@ -484,8 +544,9 @@ export function buildInstruments(): InstrumentSet {
       bag,
       cautery,
       tube(path, 24, c.wire, seg / 2),
-      new SphereGeometry(c.wire, seg / 2, seg / 4).translate(0, c.hook, 0),
+      new SphereGeometry(c.wire * 1.15, seg / 2, seg / 4).translate(0, c.hook, 0), // polished ball end
     );
+    put(bag, white, cylZ(c.sheath, c.sheathLength, -c.tipLength)); // insulating sheath: a step down from the collar
     stem(bag, -c.tipLength, 0, {
       shaft: white,
       ferrule: white,
@@ -571,24 +632,37 @@ export function buildInstruments(): InstrumentSet {
     }
     flush(bag, stapler.group);
     // Head (articulated): hinge drum, cartridge channel + insert.
-    const hinge = new CylinderGeometry(r * 0.7, r * 0.7, s.cartridgeThick + s.anvilThick, seg);
-    put(bag, steel, hinge.translate(0, (s.anvilThick - s.cartridgeThick) / 2, 0));
+    const top = s.insertInset / 2 + s.jawGap + s.anvilThick; // anvil top above the insert's mid-plane
+    const hinge = new CylinderGeometry(r * 0.7, r * 0.7, s.cartridgeThick + top, seg);
+    put(bag, steel, hinge.translate(0, (top - s.cartridgeThick) / 2, 0));
     put(
       bag,
       steel,
       extrudeZ(roundRect(s.jawWidth, s.cartridgeThick, s.corner, 0, -s.cartridgeThick / 2), s.headLength),
+      new SphereGeometry(1, seg, seg / 2) // rounded cartridge nose
+        .scale(s.jawWidth / 2, s.cartridgeThick / 2, s.nose)
+        .translate(0, -s.cartridgeThick / 2, s.headLength),
     );
     const insertW = s.jawWidth - 2 * s.insertInset;
     const strip = (insertW - s.knifeSlot) / 2;
     for (const k of [1, -1]) {
-      const rr = roundRect(strip, s.insertInset, s.insertInset * 0.3, (k * (s.knifeSlot + strip)) / 2, 0);
-      put(bag, cartridge, extrudeZ(rr, s.headLength - s.insertInset));
+      const xc = (k * (s.knifeSlot + strip)) / 2;
+      const g = extrudeZ(
+        roundRect(strip, s.insertInset, s.insertInset * 0.3, xc, 0),
+        s.headLength - s.insertInset,
+      );
+      const [pos, uv] = [g.getAttribute('position'), g.getAttribute('uv')];
+      for (let i = 0; i < uv.count; i++)
+        // pocket texture: u across the strip, v = staple pitches along it
+        uv.setXY(i, (pos.getX(i) - xc) / strip + 0.5, pos.getZ(i) / T.cartridge.pitch);
+      put(bag, cartridge, g);
     }
     flush(bag, head);
     const anvil = new Group();
     head.add(anvil);
-    const yA = s.insertInset / 2 + s.anvilThick / 2;
-    put(bag, steel, extrudeZ(roundRect(s.jawWidth, s.anvilThick, s.corner, 0, yA), s.headLength));
+    const yA = s.insertInset / 2 + s.jawGap + s.anvilThick / 2;
+    const aw = s.jawWidth * s.anvilWidth;
+    put(bag, steel, extrudeZ(roundRect(aw, s.anvilThick, s.corner, 0, yA), s.headLength));
     flush(bag, anvil);
     const tl = s.curvedTipLength;
     const tipCurve = new QuadraticBezierCurve3(
@@ -597,7 +671,7 @@ export function buildInstruments(): InstrumentSet {
       new Vector3(0, yA - tl * Math.sin(s.curvedTipAngle), s.headLength + tl * Math.cos(s.curvedTipAngle)),
     );
     const end = tipCurve.getPoint(1);
-    const sx = s.jawWidth / s.anvilThick;
+    const sx = aw / s.anvilThick;
     const tipGeo = [
       tube(tipCurve, 12, s.anvilThick / 2, seg, taper(0.5)),
       new SphereGeometry(s.anvilThick / 4, seg, seg / 2).translate(end.x, end.y, end.z),
@@ -726,6 +800,15 @@ export function buildInstruments(): InstrumentSet {
       if (v === glow) return;
       glow = v;
       cautery.emissiveIntensity = L.cauteryGlow * v;
+    },
+    setSoil(kind, amount) {
+      const v = Math.min(1, Math.max(0, amount));
+      for (const name of kind === 'gauze'
+        ? ['instrument:gauze']
+        : ['instrument:steel', 'instrument:cautery']) {
+        const u = soils.get(name);
+        if (u) u.amount.value = v;
+      }
     },
   };
 }

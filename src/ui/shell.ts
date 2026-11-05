@@ -89,7 +89,9 @@ export function mountShell(host: HTMLElement, onModeSelect: (mode: ShellMode) =>
     const b = el('button', 'shell-mode');
     b.type = 'button';
     b.dataset.view = view;
-    b.textContent = label;
+    b.textContent = label.split(' ')[0] ?? label; // compact text ('Inside' / 'Outside'); full name stays the accessible label
+    b.setAttribute('aria-label', label);
+    b.title = label;
     b.setAttribute('aria-pressed', 'false');
     viewButtons[view] = b;
     views.append(b);

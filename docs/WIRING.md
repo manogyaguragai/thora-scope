@@ -145,5 +145,9 @@ Each entry: files · public API · wiring steps · follow-ups.
 - finish.ts `advance` requests are ignored (T505: engine owns steps); its physical prerequisites still apply in every mode. No `reset()` yet (T505 retry must reset fin/enc/dissect/staples/division planes/overrides).
 - Open: held retractor is not drawn after G (InstrumentSet shows one tool); no scope shaft mesh for the scope hand; PiP renders the active visibility set; specimen tray is a toast only.
 
+## T824 Procedural tissue detail → **wired (T824 phase 2, src/scene/materials.ts; per-class `detail`/`blood` in materials.config.ts)**
+- API (src/scene/tissueTextures.ts): `buildTissueDetailTexture()` → DataArrayTexture (6 layers, FAMILIES order in tissueTextures.config.ts; RG height gradient, B albedo detail, A mask); `TISSUE_DETAIL_PARS` GLSL: `vec4 tissueDetail(pObj, nObj, scale, family)` → (dH/dx, dH/dy, albedo, mask), `vec3 tissueBump(viewPos, n, dH, strength)`.
+- Wiring steps: see the header comment of tissueTextures.ts (shared `uTissueDetail` uniform bound at load; rest-pose `position`/`normal` varyings; call in uniform control flow; bump after normal_fragment_begin).
+
 ## Pending reports (in progress — entries added when they finish)
 (none)

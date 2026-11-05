@@ -109,6 +109,19 @@ export class InstrumentController {
     this.syncTip();
   }
 
+  /** T822 cautery sweep (drag while energised): tip straight to `point` through the fulcrum, cone + depth clamped. */
+  aimAt(point: Vector3): void {
+    if (!this.port || !this.isIdle()) return;
+    tD.subVectors(point, this.port.pleura);
+    const len = tD.length();
+    if (len === 0) return;
+    this.clampCone(tD.divideScalar(len));
+    this.shaftDir.copy(tD);
+    this.depth = MathUtils.clamp(len, this.cfg.depthM.min, this.cfg.depthM.max);
+    this.phase = 'manual';
+    this.syncTip();
+  }
+
   /** Wheel: insert (+) / withdraw (−) along the shaft, clamped. */
   insert(deltaM: number): void {
     if (!this.port || !this.isIdle()) return;

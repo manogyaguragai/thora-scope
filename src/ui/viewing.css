@@ -87,3 +87,24 @@
 .label3d-pin[hidden] {
   display: none;
 }
+
+/* T826 Colours: Realistic / Teaching */
+.viewing-palette {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.viewing-palette legend {
+  padding: 0;
+}
+
+.viewing-hint {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-muted);
+  font-size: var(--font-size-small);
+}

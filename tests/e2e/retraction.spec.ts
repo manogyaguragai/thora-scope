@@ -128,6 +128,18 @@ test('retraction: grasp → drag → hold → cautery in another port → releas
   await page.waitForTimeout(RELEASE_MS);
   expect(await fissure(page)).toBe(0);
   expect((await held(page)).shown).toBe(0);
+
+  // Mode change while holding: the hold drops and the lung eases back (not left floating without a grasper).
+  expect(await place(page, 'grasper', RML, 'retractor', 'port_retraction_8ICS')).toBe('ok');
+  expect(await page.evaluate(() => window.__sim.m4?.press(true))).toBe('ok');
+  await dragUp(page, 300);
+  await page.keyboard.press('KeyG');
+  expect((await held(page)).holds).toHaveLength(1);
+  expect(await fissure(page)).toBeGreaterThan(0.9);
+  await page.click('button[data-mode=physiology]');
+  await page.waitForTimeout(RELEASE_MS);
+  expect(await fissure(page)).toBe(0);
+  expect((await held(page)).holds).toHaveLength(0);
   expect(await programs()).toBe(before);
   expect(errors).toEqual([]);
 });

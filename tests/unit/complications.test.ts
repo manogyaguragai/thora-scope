@@ -6,6 +6,7 @@ import {
   type ComplicationAction,
   type ComplicationInput,
 } from '../../src/sim/complications';
+import { cauteryConfig } from '../../src/scene/cautery.config';
 
 function setup() {
   let now = 10;
@@ -187,5 +188,49 @@ describe('log + pool capacity', () => {
     expect(stopped).toEqual([100]);
     const bleeds = ctl.log.filter((e) => e.type === 'bleed');
     expect(bleeds.map((e) => e.t)).toEqual([11, 12, 13, 14, 15]);
+  });
+});
+
+describe('cautery coagulation (T822)', () => {
+  const K = cauteryConfig.coag;
+  const tear = (ctl: ComplicationController) => {
+    ctl.onAction(act({ tool: 'clamp', target: 'A4_lateral', kind: 'encircle', point: HIT }));
+    ctl.update(0.01, { suction: false, pressure: false, retract: 1 });
+  };
+
+  it('energised contact at a minor bleed slows then seals it after the dwell', () => {
+    const { ctl, input, stopped, run } = setup();
+    tear(ctl);
+    expect(ctl.activeBleeds).toBe(1);
+    expect(ctl.bleedNear(HIT)).toBe(true);
+    expect(ctl.bleedNear({ x: 9, y: 9, z: 9 })).toBe(false);
+    input.coagAt = { x: HIT.x + K.radiusM * 2, y: HIT.y, z: HIT.z }; // too far: nothing
+    run(K.sec + 0.5);
+    expect(ctl.activeBleeds).toBe(1);
+    input.coagAt = HIT;
+    run(K.sec / 2);
+    expect(ctl.oozeRate).toBeLessThan(C.oozeRate.minor);
+    expect(ctl.activeBleeds).toBe(1);
+    input.coagAt = null; // lifting off restarts the dwell
+    run(0.2);
+    input.coagAt = HIT;
+    run(K.sec + 0.2);
+    expect(ctl.activeBleeds).toBe(0);
+    expect(ctl.coagulated).toBe(1);
+    expect(stopped).toHaveLength(1);
+    expect(ctl.log.at(-1)?.type).toBe('bleed-controlled');
+  });
+
+  it('a major vessel injury is never sealed by the cautery (refused flag for the toast)', () => {
+    const { ctl, input, run } = setup();
+    ctl.onAction(act({ tool: 'stapler', target: 'superior_vena_cava', kind: 'fire', point: HIT }));
+    input.coagAt = HIT;
+    run(K.sec * 4);
+    expect(ctl.activeBleeds).toBe(1);
+    expect(ctl.coagulated).toBe(0);
+    expect(ctl.coagRefused).toBe(true);
+    input.coagAt = null;
+    run(0.1);
+    expect(ctl.coagRefused).toBe(false);
   });
 });

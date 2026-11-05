@@ -1,7 +1,8 @@
 // Pooled effects (§6.4 cautery/bleeding/water test, §8 effects, §6.10 build-once pools). Everything is allocated at
 // load for the chosen preset's capacity; spawns reuse slots ring-buffer style (oldest overwritten), never grow.
 // Wiring: scene.add(fx.group) before the compile stage; per frame fx.update(dt) then uFog.value = fx.fog.value.
-// T817: cautery = smoke plume at the tip while energised + growing char decal + slow smoke haze (no image warp).
+// T817/T822: cautery acts only at contact: smoke plume + haze at the touched point, a subtle char / sear line along
+// the path (CharPool), dissection openings in soft layers (CutPool → the tissue shader's uniform array).
 import {
   BufferAttribute,
   BufferGeometry,
@@ -366,6 +367,19 @@ export class CharPool {
     this.held = -1;
   }
 
+  /** The mark still growing lies within `r` of `p`. */
+  near(p: Vector3, r: number): boolean {
+    if (this.held < 0) return false;
+    return _p.fromArray(this.pos, this.held * 3).distanceToSquared(p) < r * r;
+  }
+
+  clear(): void {
+    this.held = -1;
+    this.count = this.head = 0;
+    for (let i = 0; i < this.capacity; i++) this.mesh.setMatrixAt(i, _zero);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
   update(dt: number): void {
     const K = CAUTERY.char;
     if (this.held < 0 || this.heldAge >= K.growSec) return;
@@ -382,6 +396,88 @@ export class CharPool {
   }
 }
 
+/** The tissue shader's opening uniforms (materials.ts cutUniforms): xyz = world centre, w = radius (m). */
+export interface CutUniforms {
+  uCuts: { value: Float32Array };
+  uCutCount: { value: number };
+}
+
+/** Dissection openings: a fixed ring buffer of world spheres written straight into the shared uniform array.
+ *  touch() per contact sample: a new opening once the tip moved spacingM (interpolated along fast sweeps), else the
+ *  newest one widens (dwell). Oldest slots are recycled. Allocation-free. */
+export class CutPool {
+  readonly capacity: number;
+  private head = 0;
+  private last = -1; // newest opening of the current stroke, -1 = lifted
+
+  constructor(private readonly u: CutUniforms) {
+    this.capacity = u.uCuts.value.length / 4;
+  }
+
+  get count(): number {
+    return this.u.uCutCount.value;
+  }
+
+  touch(p: Vector3, dt: number): void {
+    const D = CAUTERY.dissect;
+    const a = this.u.uCuts.value;
+    if (this.last >= 0) {
+      const i = this.last * 4;
+      const lx = a[i] ?? 0;
+      const ly = a[i + 1] ?? 0;
+      const lz = a[i + 2] ?? 0;
+      const d = Math.hypot(p.x - lx, p.y - ly, p.z - lz);
+      if (d < D.spacingM) {
+        a[i + 3] = Math.min(D.maxRadiusM, (a[i + 3] ?? 0) + D.growPerSec * dt);
+        return;
+      }
+      const n = Math.min(D.maxStepsPerSample, Math.floor(d / D.spacingM));
+      for (let k = 1; k < n; k++) {
+        const t = k / n;
+        this.push(lx + (p.x - lx) * t, ly + (p.y - ly) * t, lz + (p.z - lz) * t);
+      }
+    }
+    this.push(p.x, p.y, p.z);
+  }
+
+  /** A stroke is in progress (touched since the last lift). */
+  get stroking(): boolean {
+    return this.last >= 0;
+  }
+
+  /** Tip lifted / energy off: the next contact starts a new stroke. */
+  lift(): void {
+    this.last = -1;
+  }
+
+  /** `p` lies inside an opening (picking looks through it). */
+  inside(p: Vector3): boolean {
+    const a = this.u.uCuts.value;
+    for (let i = 0; i < this.count; i++) {
+      const r = a[i * 4 + 3] ?? 0;
+      if (_p.fromArray(a, i * 4).distanceToSquared(p) < r * r) return true;
+    }
+    return false;
+  }
+
+  reset(): void {
+    this.u.uCutCount.value = this.head = 0;
+    this.last = -1;
+  }
+
+  private push(x: number, y: number, z: number): void {
+    const i = this.head;
+    const a = this.u.uCuts.value;
+    this.head = (i + 1) % this.capacity;
+    a[i * 4] = x;
+    a[i * 4 + 1] = y;
+    a[i * 4 + 2] = z;
+    a[i * 4 + 3] = CAUTERY.dissect.startRadiusM;
+    this.last = i;
+    this.u.uCutCount.value = Math.min(this.capacity, this.count + 1);
+  }
+}
+
 export interface Effects {
   /** Add to the scene and registerWarmupObject() it once at load. */
   readonly group: Group;
@@ -392,11 +488,15 @@ export interface Effects {
   readonly blood: BloodPool;
   readonly char: CharPool;
   readonly fog: LensFog;
-  /** Energy on: smoke burst + plume from `tip` (kept by reference, read every frame), char mark at `contact`
-   *  facing `normal` (copied), haze builds. Energy off: `cautery(null)`. */
-  cautery(tip: Vector3 | null, contact?: Vector3, normal?: Vector3): void;
-  /** Energy on (smoke plume emitting). */
+  /** Energy on (`tip`, kept by reference) / off (null). Free space: nothing on tissue (the tip glow is the tool's). */
+  cautery(tip: Vector3 | null): void;
+  /** Energised tip touching tissue at `at` (copied) facing `normal`: smoke plume + haze from there; `mark` lays a
+   *  sear mark every char.spacingM along the path (the newest grows on dwell). null = lifted off. */
+  contact(at: Vector3 | null, normal?: Vector3, mark?: boolean): void;
+  /** Energy on. */
   readonly energised: boolean;
+  /** Energy on and touching tissue (smoke plume emitting). */
+  readonly touching: boolean;
   /** Irrigation leak bubbles (water test). */
   bubbleBurst(at: Vector3): void;
   /** Sucker: clear smoke and loose fluid. */
@@ -428,7 +528,24 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
   const char = new CharPool(poolCapacity(CAUTERY.char.capScale, preset));
   const fog = new LensFog();
   let tip: Vector3 | null = null;
+  let touching = false;
+  const touchAt = new Vector3();
   let smokeAcc = 0;
+  const contact = (p: Vector3 | null, normal?: Vector3, mark = false): void => {
+    if (!p || !tip) {
+      touching = fog.on = false;
+      char.release();
+      return;
+    }
+    if (!touching) {
+      smokeAcc = 0;
+      burst(smoke, p, C.smoke.perPuff, C.smoke.riseSpeed, C.smoke.jitter);
+    }
+    touching = fog.on = true;
+    touchAt.copy(p);
+    if (!mark || !normal) char.release();
+    else if (!char.near(p, CAUTERY.char.spacingM)) char.begin(p, normal);
+  };
   const group = new Group();
   group.name = 'effects';
   const objects = [smoke.points, ooze.points, bubbles.points, blood.mesh, char.mesh];
@@ -445,17 +562,14 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
     get energised() {
       return tip !== null;
     },
-    cautery(at, contact, normal) {
-      tip = at;
-      fog.on = at !== null;
-      if (!at) {
-        char.release();
-        return;
-      }
-      smokeAcc = 0;
-      burst(smoke, at, C.smoke.perPuff, C.smoke.riseSpeed, C.smoke.jitter);
-      if (contact && normal) char.begin(contact, normal);
+    get touching() {
+      return touching;
     },
+    cautery(t) {
+      tip = t;
+      if (!t) contact(null);
+    },
+    contact,
     bubbleBurst(at) {
       burst(bubbles, at, C.bubbles.perBurst, C.bubbles.riseSpeed, C.bubbles.jitter);
     },
@@ -466,11 +580,11 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
     update(dt) {
       blood.update(dt);
       char.update(dt);
-      if (tip) {
+      if (touching) {
         smokeAcc += CAUTERY.smoke.ratePerSec * dt;
         const n = Math.floor(smokeAcc);
         smokeAcc -= n;
-        burst(smoke, tip, n, C.smoke.riseSpeed, C.smoke.jitter);
+        burst(smoke, touchAt, n, C.smoke.riseSpeed, C.smoke.jitter);
       }
       smoke.update(dt);
       ooze.update(dt);

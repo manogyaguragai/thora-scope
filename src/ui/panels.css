@@ -131,6 +131,7 @@
   grid-area: top;
   justify-self: stretch;
   display: flex;
+  flex-wrap: wrap; /* narrow windows: buttons wrap instead of pushing Help off-screen */
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);

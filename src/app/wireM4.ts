@@ -12,13 +12,16 @@ import { CONTEXT_KEYS, keybindings as K, matchesKey } from '../core/keybindings'
 import type { QualityPreset } from '../core/quality';
 import { labelFor } from '../content/labels';
 import { SUB_IDS, TARGET_BY_ID, TARGETS } from '../content/targets';
-import { createEffects } from '../scene/effects';
+import { cauteryConfig as CAUTERY } from '../scene/cautery.config';
+import { createEffects, CutPool } from '../scene/effects';
 import { IrrigationFluid } from '../scene/fluid';
 import { buildHands } from '../scene/hands';
 import { buildInstruments, TOOL_IDS } from '../scene/instruments';
 import type { ToolId } from '../scene/instruments';
+import { instrumentLook } from '../scene/instruments.config';
 import { registerWarmupHook, withAllVisible } from '../scene/loadingStages';
-import { getDivisionPlanes, graspUniforms, setFade } from '../scene/materials';
+import { cutUniforms, getDivisionPlanes, graspUniforms, setFade } from '../scene/materials';
+import { DISSECTABLE } from '../scene/materials.config';
 import { setDivisionPlane, Staples } from '../scene/staples';
 import { Dissect } from '../sim/actions/dissect';
 import * as F from '../sim/actions/finish';
@@ -85,6 +88,13 @@ export interface M4 {
   afterRender: () => void;
   /** Effect pools (T505: complication blood decals + ooze). */
   fx: ReturnType<typeof createEffects>;
+  /** T822 cautery dissection openings (shared tissue-shader ring buffer). */
+  cuts: CutPool;
+  /** T822: energised cautery tip touching a surface right now, and where (valid while `contact`). */
+  readonly contact: boolean;
+  readonly contactPoint: Vector3;
+  /** T822 (wireM5): an active bleed near this point → the cautery may be placed there to coagulate. */
+  bleedNear: ((p: Vector3) => boolean) | null;
   /** Show the action toast (T505: practice feedback); returns `msg`. */
   toast: (msg: string) => string;
 }
@@ -115,7 +125,6 @@ const tA = new Vector3();
 const tB = new Vector3();
 const tQ = new Quaternion();
 const tN = new Vector3();
-const tNdc = new Vector3();
 const tT = new Vector3();
 const tQ2 = new Quaternion();
 
@@ -131,6 +140,10 @@ interface Held {
   clones: Record<string, Object3D>;
 }
 const fovRef = { fov: 0 };
+const SAMPLE_MS = 1000 / CAUTERY.contact.sampleHz;
+const SOIL = instrumentLook.soil;
+const baseId = (n: string): string =>
+  n.endsWith(config.dissect.windowSuffix) ? n.slice(0, -config.dissect.windowSuffix.length) : n;
 
 export function wireM4(ctx: M4Context): M4 {
   const { app, canvas, model, camera, rig, guided, state, m3, scene, renderer, preset } = ctx;
@@ -141,6 +154,9 @@ export function wireM4(ctx: M4Context): M4 {
   // Built once, in the scene before compile / warm-up.
   const inst = buildInstruments();
   const fx = createEffects(preset);
+  const cuts = new CutPool(cutUniforms);
+  // Dissected openings are looked through: hover / click reach the structure beneath.
+  m3.picker.skip = (m, p) => DISSECTABLE.test(m.name) && cuts.inside(p);
   const staples = new Staples();
   const fluid = new IrrigationFluid();
   const hands = buildHands();
@@ -370,11 +386,12 @@ export function wireM4(ctx: M4Context): M4 {
       ? name.slice(0, -config.dissect.windowSuffix.length)
       : name;
     const t = TARGET_BY_ID.get(tid);
-    if (!t || t.tools[tool] === undefined)
+    const coag = tool === 'cautery' && m4.bleedNear?.(at) === true; // T822: on a bleed = coagulate it
+    if (!coag && (!t || t.tools[tool] === undefined))
       return toast(`${toolName(tool)}: no action on the ${labelFor(name).name.toLowerCase()}`);
     const port = ports.find((p) => p.id === occupancy.activePort);
     if (!port) return toast(REASONS['no-port'] as string);
-    let c: string = occupancy.canFire(tool, tid, port.id, sub, at);
+    let c: string = coag ? 'ok' : occupancy.canFire(tool, tid, port.id, sub, at);
     if (c === 'wrong-tool' && tool === 'stapler') c = 'wrong-cartridge';
     if (c !== 'ok') return toast(REASONS[c] ?? c);
     abort();
@@ -415,13 +432,18 @@ export function wireM4(ctx: M4Context): M4 {
       return toast('One-lung ventilation started');
     }
     if (tool === 'peanut' || tool === 'cautery') {
-      if (!allowed('dissect', tool, tid, port)) return 'gated';
-      dissect.begin(tid, tool);
+      // A cautery on a bleed (practice) coagulates it: no dissection attempt there.
+      const coag = tool === 'cautery' && m4.bleedNear?.(point) === true;
+      if (!coag && (tool === 'peanut' || TARGET_BY_ID.get(tid)?.tools.cautery !== undefined)) {
+        if (!allowed('dissect', tool, tid, port)) return 'gated';
+        dissect.begin(tid, tool);
+      }
       if (tool === 'cautery') {
-        // T817: smoke plume at the tip, char mark at the contact point, ECG diathermy interference (vitals).
+        // T817/T822: energy on (tip glow, ECG diathermy interference); smoke / openings / marks only at contact.
         inst.setGlow(1);
         state.cauteryActive = true;
-        fx.cautery(control.tipPos, point, contactNormal(point, tN));
+        fx.cautery(control.tipPos);
+        sampleAcc = SAMPLE_MS; // first contact sample on the next frame
       }
       return 'ok';
     }
@@ -486,6 +508,8 @@ export function wireM4(ctx: M4Context): M4 {
     control.activate(false);
     inst.setGlow(0);
     fx.cautery(null);
+    lift();
+    sweepDirty = false;
     state.cauteryActive = false;
     dissect.end();
     if (retract.key === null) return;
@@ -513,15 +537,38 @@ export function wireM4(ctx: M4Context): M4 {
     m4.flags.add(`divided:${r.target}`);
   }
 
-  /** Char decal orientation: the surface normal under `at` seen from the scope (BVH re-pick, press time only),
-   *  turned toward the camera; facing the camera when the point isn't the visible surface (as wireM5's bleeds). */
-  function contactNormal(at: Vector3, out: Vector3): Vector3 {
-    out.subVectors(camera.position, at).normalize();
-    tNdc.copy(at).project(camera);
-    const hit = m3.picker.pick(tNdc.x, tNdc.y, camera);
-    const tol = config.effects.decal.normalPickTolM;
-    if (!hit || hit.normal.lengthSq() === 0 || hit.point.distanceToSquared(at) > tol * tol) return out;
-    return hit.normal.dot(out) < 0 ? out.copy(hit.normal).negate() : out.copy(hit.normal);
+  // ── T822 energised cautery: contact gating, sweep, openings / sear line (sampled at CAUTERY.contact.sampleHz) ──
+  let sampleAcc = 0;
+  let sweepDirty = false;
+  let sweepX = 0;
+  let sweepY = 0;
+  let contactName = '';
+  const contactPoint = new Vector3();
+  function lift(): void {
+    cuts.lift();
+    fx.contact(null);
+    m4.contact = false;
+  }
+  function sampleContact(dt: number): void {
+    if (sweepDirty) {
+      // Raw pick: the hook rides the layer it is opening, not the structure seen through the opening.
+      sweepDirty = false;
+      const h = m3.picker.pick(sweepX, sweepY, camera, true);
+      if (h) control.aimAt(h.point);
+    }
+    // Mid-stroke the hook rides the layer it is opening (raw); a fresh contact inside an opening looks through it
+    // to the structure beneath, as hover / pick do.
+    const hit = m3.picker.nearest(control.tipPos, CAUTERY.contact.distM, cuts.stroking);
+    if (!hit) return lift();
+    contactName = hit.nodeName;
+    contactPoint.copy(hit.point);
+    tN.subVectors(camera.position, hit.point).normalize(); // mark faces the scope side of the surface
+    if (hit.normal.dot(tN) < 0) hit.normal.negate();
+    const open = DISSECTABLE.test(hit.nodeName);
+    if (open) cuts.touch(hit.point, dt);
+    else cuts.lift();
+    fx.contact(hit.point, hit.normal, !open);
+    m4.contact = true;
   }
 
   const onDissected = (id: string): void => void toast(`${labelFor(id).name}: dissected`);
@@ -632,10 +679,25 @@ export function wireM4(ctx: M4Context): M4 {
     if (guidedHeld.obj) guidedHeld.obj.visible = true;
   }
   guided.on('stepchange', showGuided);
-  onModeChange(() => {
-    // A new mode starts from its own state: drop user holds without a spring-back tween.
+  // T822: openings and marks belong to the case in progress: a new step / mode / run starts clean.
+  let steelSoil: number = SOIL.steel.amount;
+  let gauzeSoak: number = SOIL.gauze.amount;
+  const clearCautery = (): void => {
+    if (pressing) release(); // energy off: glow, smoke, ECG interference (state.cauteryActive)
+    cuts.reset();
+    fx.char.clear();
+    inst.setSoil('steel', (steelSoil = SOIL.steel.amount));
+    inst.setSoil('gauze', (gauzeSoak = SOIL.gauze.amount));
+  };
+  guided.on('stepchange', clearCautery);
+  onModeChange((m) => {
+    clearCautery();
+    // A new mode drops user holds; outside Guided (which applies its own step state) the lung falls back.
     occupancy.releaseAll();
-    for (const h of userHeld) hide(h);
+    for (const h of userHeld) {
+      if (h.target !== null && m !== 'guided') tweenTo(state, h.key, R.releaseTo, R.releaseMs);
+      hide(h);
+    }
     strip.setHeld(0);
     refreshPorts();
     showGuided();
@@ -710,6 +772,11 @@ export function wireM4(ctx: M4Context): M4 {
     if (busy()) return;
     if (steering) control.steer(dx, dy);
     else if (pressing && retract.key !== null) retract.drag(dx, dy);
+    else if (pressing && m4.tool === 'cautery') {
+      sweepX = (e.clientX / canvas.clientWidth) * 2 - 1;
+      sweepY = -(e.clientY / canvas.clientHeight) * 2 + 1;
+      sweepDirty = true;
+    }
   });
   canvas.addEventListener('pointerup', (e) => {
     if (e.button === 2) steering = false;
@@ -756,7 +823,7 @@ export function wireM4(ctx: M4Context): M4 {
   let mode = rig.mode;
   hands.setView(mode);
   pip.setScopeMode(mode === 'scope');
-  const m4: M4 & { tool: ToolId | null; target: string | null; lastToast: string } = {
+  const m4: M4 & { tool: ToolId | null; target: string | null; lastToast: string; contact: boolean } = {
     occupancy,
     control,
     finish,
@@ -803,8 +870,24 @@ export function wireM4(ctx: M4Context): M4 {
       if (fire.update(dt)) onDivide();
       inst.setJaw(tool === 'stapler' && fire.phase !== 'idle' ? fire.jaw : 1 - control.jaw);
       retract.update(dt);
-      const done = dissect.update(dt);
+      if (fx.energised && (sampleAcc += dt) >= SAMPLE_MS) {
+        sampleContact(sampleAcc / 1000);
+        sampleAcc = 0;
+      }
+      // Cautery dissection progresses only while the tip touches the target layer (T822: no mid-air dissection).
+      const done =
+        dissect.tool !== 'cautery' || (m4.contact && baseId(contactName) === dissect.target)
+          ? dissect.update(dt)
+          : null;
       if (done !== null) onDissected(done);
+      // T825b: tips pick up blood/tissue while energised on tissue or grasping; swabs soak on an active bleed.
+      if (pressing) {
+        const r = SOIL.rise;
+        if (steelSoil < r.steelMax && ((fx.energised && m4.contact) || retract.key !== null))
+          inst.setSoil('steel', (steelSoil = Math.min(r.steelMax, steelSoil + (r.steelPerS * dt) / 1000)));
+        if (gauzeSoak < r.gauzeMax && (tool === 'sponge' || tool === 'peanut') && m4.bleedNear?.(point))
+          inst.setSoil('gauze', (gauzeSoak = Math.min(r.gauzeMax, gauzeSoak + (r.gauzePerS * dt) / 1000)));
+      }
       fx.update(dt / 1000);
       fluid.update(dt / 1000);
       ctx.fog.value = fx.fog.value;
@@ -830,6 +913,10 @@ export function wireM4(ctx: M4Context): M4 {
     },
     afterRender: () => pip.render(),
     fx,
+    cuts,
+    contact: false,
+    contactPoint,
+    bleedNear: null,
     toast,
   };
   return m4;

@@ -6,6 +6,7 @@
 import {
   Box3,
   Color,
+  DataArrayTexture,
   DataTexture,
   Group,
   LinearFilter,
@@ -29,9 +30,13 @@ import type {
   WebGLRenderer,
 } from 'three';
 import { config } from '../core/config';
+import { cauteryConfig } from './cautery.config';
+import type { CutUniforms } from './effects';
 import { setupLights } from './lights';
-import { FALLBACK_TISSUE, TISSUES, TISSUE_RULES, look } from './materials.config';
-import type { TissueClass, TissueParams } from './materials.config';
+import { DISSECTABLE, FALLBACK_TISSUE, TISSUES, TISSUE_RULES, look, paletteParams } from './materials.config';
+import type { Palette, TissueClass, TissueParams } from './materials.config';
+import { TISSUE_DETAIL_PARS, buildTissueDetailTexture, hash } from './tissueTextures';
+import { FAMILIES } from './tissueTextures.config';
 
 interface Variants {
   opaque: MeshPhysicalMaterial; // default look (keeps the glTF's own BLEND for pleura/pericardium/connective)
@@ -42,10 +47,13 @@ interface Variants {
   division: readonly Plane[]; // clippingPlanes[1..N] of both variants
   own: MeshUniforms; // shared by both variants
 }
-/** T807 per-mesh uniforms: step-focus highlight weight (0..1); ring origin (xyz world, w = 2π / spacing). */
+/** T807 per-mesh uniforms: step-focus highlight weight (0..1); ring origin (xyz world, w = 2π / spacing).
+ *  T822: uCutOn = 1 on DISSECTABLE layers (the cautery openings apply), fixed at load. */
 interface MeshUniforms {
   uFocus: { value: number };
   uRingOrigin: { value: Vector4 };
+  uCutOn: { value: number };
+  uRestScale: { value: Vector3 }; // T824: world scale of the mesh (quantised glb positions → metres)
 }
 interface TissueUniforms {
   uTissueMap: { value: Vector4 }; // retint, mapLuma, speckle, lobular
@@ -53,6 +61,9 @@ interface TissueUniforms {
   uTissueScatter: { value: Color }; // colour × strength
   uTissueRim: { value: Color }; // colour × strength
   uTissueExtra: { value: Vector4 }; // T807: env-reflection scale, ring-groove strength; T818: normal-fix edges (0,0 = off)
+  uTissueDetailA: { value: Vector4 }; // T824: family, scale (0 = off), bump, albedo
+  uTissueDetailB: { value: Vector4 }; // T824: mask colour (linear rgb), mask strength
+  uTissueBlood: { value: number }; // T824: blood-staining strength (0 = off)
 }
 
 declare global {
@@ -63,11 +74,15 @@ declare global {
       setOpacity: (name: string, a: number) => void;
       setCutaway: (normal: readonly [number, number, number], constant: number) => void;
       parkCutaway: () => void;
+      setPalette: (p: Palette) => void;
     };
   }
 }
 
 const variants = new Map<Mesh, Variants>();
+/** T826: per tissue class, its uniforms + every variant material (setPalette writes their colour values). */
+const byClass = new Map<TissueClass, { u: TissueUniforms; mats: MeshPhysicalMaterial[] }>();
+let palette: Palette = look.palette.default;
 const _box = new Box3();
 const _o = new Vector3();
 let xray = false;
@@ -90,8 +105,24 @@ export function getDivisionPlanes(mesh: Mesh): readonly Plane[] | undefined {
 }
 
 const N = look.noise;
+const CUT = cauteryConfig.dissect;
+/** T822: the cautery openings (effects.ts CutPool writes them), one array shared by every tissue program from load:
+ *  only values + the count change, never the program. ponytail: one shared buffer (overlapping dissectable layers
+ *  open together); per-layer buffers if layers must open independently. */
+export const cutUniforms: CutUniforms = {
+  uCuts: { value: new Float32Array(CUT.maxPoints * 4) },
+  uCutCount: { value: 0 },
+};
 const f = (x: number): string => x.toFixed(4);
 const vec3 = (v: readonly number[]): string => `vec3(${v.map(f).join(', ')})`;
+const BLOOD = look.blood;
+const BLOOD_LAYER = FAMILIES.indexOf('blood');
+const BLOOD_RGB = new Color(BLOOD.color).toArray(); // linear working space
+const CLOT_RGB = new Color(BLOOD.clot).toArray();
+/** T824: the procedural detail atlas, one texture bound to every tissue program from load (built on first use). */
+const detailUniforms: { uTissueDetail: { value: DataArrayTexture | null } } = {
+  uTissueDetail: { value: null },
+};
 
 const PARS = /* glsl */ `
 #include <lights_physical_pars_fragment>
@@ -103,7 +134,16 @@ uniform vec4 uTissueExtra;
 uniform vec4 uRingOrigin;
 uniform float uFocus;
 uniform vec3 uFocusColor;
+uniform vec4 uCuts[ ${CUT.maxPoints} ];
+uniform int uCutCount;
+uniform float uCutOn;
+uniform vec4 uTissueDetailA;
+uniform vec4 uTissueDetailB;
+uniform float uTissueBlood;
 varying vec3 vTissueWorld;
+varying vec3 vTissueRestPos;
+varying vec3 vTissueRestN;
+${TISSUE_DETAIL_PARS}
 void RE_Direct_Tissue( const in IncidentLight directLight, const in vec3 geometryPosition, const in vec3 geometryNormal, const in vec3 geometryViewDir, const in vec3 geometryClearcoatNormal, const in PhysicalMaterial material, inout ReflectedLight reflectedLight ) {
 	RE_Direct_Physical( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );
 	float ndl = dot( geometryNormal, directLight.direction );
@@ -124,8 +164,14 @@ const GRASP_PARS = /* glsl */ `
 uniform vec3 uGraspPoint;
 uniform vec3 uGraspOffset;
 uniform float uGraspRadius;
+uniform vec3 uRestScale;
 varying vec3 vTissueWorld;
-void main() {`;
+varying vec3 vTissueRestPos;
+varying vec3 vTissueRestN;
+void main() {
+	// T824: PRE-morph rest pose (metres, object axes) so the procedural detail stays glued to the tissue.
+	vTissueRestPos = position * uRestScale;
+	vTissueRestN = normal / uRestScale;`;
 const GRASP_VERTEX = /* glsl */ `
 	if ( dot( uGraspOffset, uGraspOffset ) > 0.0 ) {
 		float graspK = 1.0 - smoothstep( 0.0, uGraspRadius, distance( ( modelMatrix * vec4( transformed, 1.0 ) ).xyz, uGraspPoint ) );
@@ -155,6 +201,7 @@ const NORMAL_BEGIN = ShaderChunk.normal_fragment_begin.replace(
   /* glsl */ `
 	vec3 tissueFlat = normalize( cross( dFdx( vViewPosition ), dFdy( vViewPosition ) ) );
 	if ( uTissueExtra.w > 0.0 ) normal = normalize( mix( tissueFlat, normal, smoothstep( uTissueExtra.z, uTissueExtra.w, dot( normal, tissueFlat ) ) ) );
+	if ( uTissueDetailA.z > 0.0 ) normal = tissueBump( - vViewPosition, normal, tissueTd.xy, uTissueDetailA.z );
 ${TBN_ANCHOR}`,
 );
 const ENV = /* glsl */ `
@@ -194,16 +241,52 @@ const MAP = /* glsl */ `
 #endif
 	if ( uTissueExtra.y > 0.0 )
 		diffuseColor.rgb *= 1.0 - uTissueExtra.y * smoothstep( ${f(look.rings.groove[0])}, ${f(look.rings.groove[1])}, sin( distance( vTissueWorld, uRingOrigin.xyz ) * uRingOrigin.w ) );
+	// T824 procedural triplanar detail (sampled before the cut discard; uniform-gated, so derivatives stay valid).
+	vec4 tissueTd = vec4( 0.0, 0.0, 0.5, 0.0 );
+	float tissueWet = 0.0;
+	if ( uTissueDetailA.y > 0.0 ) {
+		tissueTd = tissueDetail( vTissueRestPos, normalize( vTissueRestN ), uTissueDetailA.y, int( uTissueDetailA.x ) );
+		diffuseColor.rgb *= 1.0 + uTissueDetailA.w * ( 2.0 * tissueTd.z - 1.0 );
+		diffuseColor.rgb = mix( diffuseColor.rgb, uTissueDetailB.rgb, uTissueDetailB.w * tissueTd.w );
+	}
+	if ( uTissueBlood > 0.0 ) {
+		vec4 tissueBl = tissueDetail( vTissueRestPos, normalize( vTissueRestN ), ${f(BLOOD.scale)}, ${BLOOD_LAYER} );
+		tissueWet = uTissueBlood * tissueBl.z;
+		diffuseColor.rgb = mix( diffuseColor.rgb, ${vec3(BLOOD_RGB)}, tissueWet );
+		diffuseColor.rgb = mix( diffuseColor.rgb, ${vec3(CLOT_RGB)}, uTissueBlood * tissueBl.w );
+		diffuseColor.a = mix( diffuseColor.a, 1.0, tissueWet ); // blood on a translucent veil is opaque
+	}
+	// T822 cautery openings: inside a sphere the layer is gone (what lies beneath shows); just outside it a thin
+	// browned edge, then a pale, opaque, slightly glossy coagulated rim.
+	float tissueCutRim = 0.0;
+	if ( uCutOn > 0.0 ) {
+		float cutBurn = 0.0;
+		for ( int i = 0; i < ${CUT.maxPoints}; i++ ) {
+			if ( i >= uCutCount ) break;
+			float cutD = distance( vTissueWorld, uCuts[ i ].xyz ) / uCuts[ i ].w;
+			if ( cutD < 1.0 ) discard;
+			tissueCutRim = max( tissueCutRim, 1.0 - smoothstep( 1.0, ${f(1 + CUT.rimWidth)}, cutD ) );
+			cutBurn = max( cutBurn, 1.0 - smoothstep( 1.0, ${f(1 + CUT.burnWidth)}, cutD ) );
+		}
+		diffuseColor.rgb = mix( mix( diffuseColor.rgb, ${vec3(CUT.rimRgb)}, tissueCutRim ), ${vec3(CUT.burnRgb)}, cutBurn );
+		diffuseColor.a = mix( diffuseColor.a, 1.0, tissueCutRim );
+	}
+`;
+const ROUGH = /* glsl */ `
+#include <roughnessmap_fragment>
+	roughnessFactor = mix( roughnessFactor, ${f(BLOOD.roughness)}, tissueWet );
+	roughnessFactor = mix( roughnessFactor, ${f(CUT.rimRoughness)}, tissueCutRim );
 `;
 
 function patch(shader: WebGLProgramParametersWithUniforms, u: TissueUniforms, own: MeshUniforms): void {
-  Object.assign(shader.uniforms, u, graspUniforms, sharedLook, own);
+  Object.assign(shader.uniforms, u, graspUniforms, sharedLook, cutUniforms, detailUniforms, own);
   shader.vertexShader = shader.vertexShader
     .replace('void main() {', GRASP_PARS)
     .replace('#include <project_vertex>', GRASP_VERTEX);
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <lights_physical_pars_fragment>', PARS)
     .replace('#include <map_fragment>', MAP)
+    .replace('#include <roughnessmap_fragment>', ROUGH)
     .replace('#include <normal_fragment_begin>', NORMAL_BEGIN)
     .replace('#include <emissivemap_fragment>', FOCUS)
     .replace('#include <lights_fragment_maps>', ENV);
@@ -213,12 +296,6 @@ const cacheKey = (): string => 'tissue-v1'; // one patch for all tissues → pro
 export function tissueOf(name: string): TissueClass {
   for (const [re, cls] of TISSUE_RULES) if (re.test(name)) return cls;
   return FALLBACK_TISSUE;
-}
-
-function hash(x: number, y: number, s: number): number {
-  let h = Math.imul(x, 374761393) + Math.imul(y, 668265263) + Math.imul(s, 1442695041);
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
 /** Tileable noise, built once: RGB = micro-normal from value-noise fBm, A = Worley F1 (cell units, clamped to 1). */
@@ -297,7 +374,7 @@ function makeMaterial(
   const baked = t.bakedMaps ?? true;
   const m = new MeshPhysicalMaterial({
     name: `${src.name}:${transparent ? 'transparent' : 'opaque'}`,
-    color: t.color,
+    color: paletteParams(cls, palette).color,
     map: baked ? src.map : null,
     normalMap: baked ? src.normalMap : null,
     normalScale: src.normalScale,
@@ -320,6 +397,21 @@ function makeMaterial(
   return m;
 }
 
+/** TissueParams.detail / blood → the T824 per-class uniforms (scale 0 / blood 0 = off, no fetches). */
+function detailOf(
+  t: TissueParams,
+): Pick<TissueUniforms, 'uTissueDetailA' | 'uTissueDetailB' | 'uTissueBlood'> {
+  const d = t.detail;
+  const c = new Color(d?.maskColor ?? '#000000');
+  return {
+    uTissueDetailA: {
+      value: new Vector4(d ? FAMILIES.indexOf(d.family) : 0, d?.scale ?? 0, d?.bump ?? 0, d?.albedo ?? 0),
+    },
+    uTissueDetailB: { value: new Vector4(c.r, c.g, c.b, d?.mask ?? 0) },
+    uTissueBlood: { value: t.blood ?? 0 },
+  };
+}
+
 /** TissueParams.normalFix → smoothstep edges (true = look.normalFix; off = 0, 0). */
 function normalFixEdges(n: TissueParams['normalFix']): [number, number] {
   if (!n) return [0, 0];
@@ -336,6 +428,18 @@ function apply(mesh: Mesh, v: Variants): void {
   v.transparent.opacity = v.baseOpacity * a;
   mesh.material = v.transparent;
 }
+
+/** T826 colour palette: writes material.color + the retint/rim uniforms of the compiled variants (no recompile). */
+export function setPalette(p: Palette): void {
+  palette = p;
+  for (const [cls, { u, mats }] of byClass) {
+    const c = paletteParams(cls, p);
+    for (const m of mats) m.color.set(c.color);
+    u.uTissueMap.value.x = c.retint;
+    u.uTissueRim.value.set(c.rim).multiplyScalar(TISSUES[cls].rimStrength);
+  }
+}
+export const getPalette = (): Palette => palette;
 
 export function setXray(on: boolean): void {
   xray = on;
@@ -370,7 +474,7 @@ export function setFocusHighlight(mesh: Mesh, k: number): void {
 export function applyMaterials(root: Object3D): Group {
   const proxies = new Group();
   const noise = buildNoiseTexture();
-  const uniforms = new Map<TissueClass, TissueUniforms>();
+  detailUniforms.uTissueDetail.value ??= buildTissueDetailTexture();
   const replaced = new Set<Material>();
   root.updateMatrixWorld(true);
   /** Ring origin of a mesh: bbox centre of its configured parent airway (rings ⟂ the branch leaving it). */
@@ -385,17 +489,21 @@ export function applyMaterials(root: Object3D): Group {
     const src = mesh.material as MeshStandardMaterial;
     const cls = tissueOf(mesh.name);
     const t: TissueParams = TISSUES[cls];
-    let u = uniforms.get(cls);
-    if (!u) {
-      u = {
-        uTissueMap: { value: new Vector4(t.retint, t.mapLuma, t.speckle, t.lobular) },
+    let entry = byClass.get(cls);
+    if (!entry) {
+      const c = paletteParams(cls, palette);
+      const u: TissueUniforms = {
+        uTissueMap: { value: new Vector4(c.retint, t.mapLuma, t.speckle, t.lobular) },
         uTissueWrap: { value: t.wrap },
         uTissueScatter: { value: new Color(t.scatter).multiplyScalar(t.scatterStrength) },
-        uTissueRim: { value: new Color(t.rim).multiplyScalar(t.rimStrength) },
+        uTissueRim: { value: new Color(c.rim).multiplyScalar(t.rimStrength) },
         uTissueExtra: { value: new Vector4(t.env ?? 1, t.rings ?? 0, ...normalFixEdges(t.normalFix)) },
+        ...detailOf(t),
       };
-      uniforms.set(cls, u);
+      entry = { u, mats: [] };
+      byClass.set(cls, entry);
     }
+    const u = entry.u;
     const baseOpacity = src.transparent ? (t.opacity ?? src.opacity) : 1;
     const division = Array.from({ length: config.clipping.divisionPlanes }, parked);
     const planes = [cutaway, ...division];
@@ -403,6 +511,8 @@ export function applyMaterials(root: Object3D): Group {
     const own: MeshUniforms = {
       uFocus: { value: 0 },
       uRingOrigin: { value: t.rings ? ringOrigin(mesh.name) : new Vector4() },
+      uCutOn: { value: DISSECTABLE.test(mesh.name) ? 1 : 0 },
+      uRestScale: { value: new Vector3().setFromMatrixScale(mesh.matrixWorld) },
     };
     const opaque = makeMaterial(src, cls, u, own, noise, blend, baseOpacity, planes);
     if (blend) opaque.depthWrite = src.depthWrite;
@@ -413,6 +523,7 @@ export function applyMaterials(root: Object3D): Group {
         m.polygonOffset = true;
         [m.polygonOffsetFactor, m.polygonOffsetUnits] = bias;
       }
+    entry.mats.push(opaque, transparent);
     variants.set(mesh, { opaque, transparent, baseOpacity, opacity: 1, fade: 1, division, own });
     mesh.material = opaque;
     replaced.add(src);
@@ -439,6 +550,7 @@ export function applyRealism(scene: Scene, renderer: WebGLRenderer, camera: Came
     },
     setCutaway: (normal, constant) => setCutawayPlane(n.set(...normal).normalize(), constant),
     parkCutaway,
+    setPalette,
   };
   return proxies;
 }

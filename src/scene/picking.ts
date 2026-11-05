@@ -1,8 +1,20 @@
 // BVH picking (CONTEXT §6.4, §6.10): trees built once at load (loading stage 2/3), hover throttled to ≤ 30 Hz,
 // full pick on click only. Visibility-aware; one Raycaster + one result object reused forever.
-import { BufferAttribute, BufferGeometry, Matrix3, Mesh, Raycaster, Vector2, Vector3 } from 'three';
+import {
+  Box3,
+  BufferAttribute,
+  BufferGeometry,
+  Matrix3,
+  Matrix4,
+  Mesh,
+  Raycaster,
+  Triangle,
+  Vector2,
+  Vector3,
+} from 'three';
 import type { Camera, Intersection, Object3D } from 'three';
 import { MeshBVH, acceleratedRaycast } from 'three-mesh-bvh';
+import type { HitPointInfo } from 'three-mesh-bvh';
 import { config } from '../core/config';
 
 /** Tunables: config.pick (cameras/helpers are skipped by the isMesh test). */
@@ -18,8 +30,14 @@ export interface PickHit {
 export interface Picker {
   /** Node name under the cursor; recomputed at most hoverHz times a second, cached in between. */
   hover(ndcX: number, ndcY: number, camera: Camera, now?: number): string | null;
-  /** Full pick (click). Returns the shared result object — copy what you keep. */
-  pick(ndcX: number, ndcY: number, camera: Camera): PickHit | null;
+  /** Full pick (click). Returns the shared result object — copy what you keep. `raw` ignores `skip`. */
+  pick(ndcX: number, ndcY: number, camera: Camera, raw?: boolean): PickHit | null;
+  /** T822: nearest visible surface to world `p` within `maxDist` m (energised-cautery contact). Shared result as
+   *  pick(); `distance` = gap from `p`. Honours `skip` (closest point in an opening → that layer is ignored)
+   *  unless `raw`. */
+  nearest(p: Vector3, maxDist: number, raw?: boolean): PickHit | null;
+  /** T822: hits it returns true for are looked through by hover / pick (dissected openings). */
+  skip: ((mesh: Mesh, point: Vector3) => boolean) | null;
   /** Re-bake current morph poses into the pick BVHs. Call after a state transition ends, never per frame. */
   refreshMorphs(meshes: readonly Object3D[]): void;
   readonly meshes: readonly Mesh[];
@@ -35,6 +53,11 @@ let patched = false;
 const _v = new Vector3();
 const _ndc = new Vector2();
 const _nm = new Matrix3();
+const _inv = new Matrix4();
+const _lp = new Vector3();
+const _wp = new Vector3();
+const _bb = new Box3();
+const _tri = new Triangle();
 
 /** Write mesh's current (morphed) local positions into attr. */
 function bake(mesh: Mesh, attr: BufferAttribute): void {
@@ -95,25 +118,30 @@ export function buildPickBVH(root: Object3D, onProgress?: (f: number) => void): 
   let lastHover = -Infinity;
   let hoverName: string | null = null;
 
-  function cast(x: number, y: number, camera: Camera): Intersection | null {
+  const near: HitPointInfo = { point: new Vector3(), distance: 0, faceIndex: 0 };
+
+  function cast(x: number, y: number, camera: Camera, raw = false): Intersection | null {
     raycaster.setFromCamera(_ndc.set(x, y), camera);
     for (const e of entries) if (visibleChain(e.mesh)) e.mesh.raycast(raycaster, hits);
     let best: Intersection | null = null;
-    for (const h of hits) if (!best || h.distance < best.distance) best = h;
+    const skip = raw ? null : picker.skip;
+    for (const h of hits)
+      if ((!best || h.distance < best.distance) && !skip?.(h.object as Mesh, h.point)) best = h;
     hits.length = 0;
     return best;
   }
 
-  return {
+  const picker: Picker = {
     meshes,
+    skip: null,
     hover(x, y, camera, now = performance.now()) {
       if (now - lastHover < hoverMs) return hoverName;
       lastHover = now;
       hoverName = cast(x, y, camera)?.object.name ?? null;
       return hoverName;
     },
-    pick(x, y, camera) {
-      const h = cast(x, y, camera);
+    pick(x, y, camera, raw) {
+      const h = cast(x, y, camera, raw);
       if (!h) return null;
       result.nodeName = h.object.name;
       result.point.copy(h.point);
@@ -121,6 +149,45 @@ export function buildPickBVH(root: Object3D, onProgress?: (f: number) => void): 
       if (h.face)
         result.normal.copy(h.face.normal).applyMatrix3(_nm.getNormalMatrix(h.object.matrixWorld)).normalize();
       else result.normal.set(0, 0, 0);
+      return result;
+    },
+    nearest(p, maxDist, raw) {
+      const skip = raw ? null : picker.skip;
+      // ponytail: BVH shapecast allocates its callback object per mesh tested; fine at the ≤ 30 Hz contact rate.
+      let best = maxDist;
+      let hit: Entry | null = null;
+      let face = 0;
+      for (const e of entries) {
+        if (!visibleChain(e.mesh)) continue;
+        const w = e.mesh.matrixWorld;
+        const s = w.getMaxScaleOnAxis(); // uniform scale: local distance × s = world distance
+        const lim = best / s;
+        _lp.copy(p).applyMatrix4(_inv.copy(w).invert());
+        if (e.bvh.getBoundingBox(_bb).distanceToPoint(_lp) > lim) continue;
+        const h = e.bvh.closestPointToPoint(_lp, near, 0, lim);
+        if (!h || h.distance > lim) continue;
+        // Same look-through as hover / pick: a closest point inside an opening rejects the layer (ponytail: its rim
+        // just outside the opening is missed too; per-triangle shapecast with skip if that ever matters).
+        _wp.copy(h.point).applyMatrix4(w);
+        if (skip?.(e.mesh, _wp)) continue;
+        best = h.distance * s;
+        hit = e;
+        face = h.faceIndex;
+        result.point.copy(_wp);
+      }
+      if (!hit) return null;
+      const g = hit.bvh.geometry;
+      const i = g.index;
+      const k = face * 3;
+      _tri.setFromAttributeAndIndices(
+        g.getAttribute('position'),
+        i ? i.getX(k) : k,
+        i ? i.getX(k + 1) : k + 1,
+        i ? i.getX(k + 2) : k + 2,
+      );
+      _tri.getNormal(result.normal).applyMatrix3(_nm.getNormalMatrix(hit.mesh.matrixWorld)).normalize();
+      result.nodeName = hit.mesh.name;
+      result.distance = best;
       return result;
     },
     refreshMorphs(list) {
@@ -132,4 +199,5 @@ export function buildPickBVH(root: Object3D, onProgress?: (f: number) => void): 
       }
     },
   };
+  return picker;
 }

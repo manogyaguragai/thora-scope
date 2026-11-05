@@ -10,7 +10,8 @@ import procedure from '../content/procedure_steps.json';
 import { labelFor } from '../content/labels';
 import { config } from '../core/config';
 import * as realMaterials from '../scene/materials';
-import { look } from '../scene/materials.config';
+import { PALETTES, look } from '../scene/materials.config';
+import type { Palette } from '../scene/materials.config';
 import { getMode, onModeChange } from '../sim/modes';
 import './panels.css';
 import './viewing.css';
@@ -189,6 +190,53 @@ function slider(
   return [h('div', { className: 'panel-field' }, h('label', { htmlFor: id }, label), input), input];
 }
 
+const isPalette = (v: string | null): v is Palette => PALETTES.includes(v as Palette);
+const PALETTE_LABELS: Readonly<Record<Palette, string>> = { realistic: 'Realistic', teaching: 'Teaching' };
+const PALETTE_HINT = 'Teaching colours: arteries blue, veins purple, bronchus ivory, nerves yellow';
+
+/** T826: `?palette=` override, else the stored choice, else the default. */
+function initialPalette(): Palette {
+  const q = new URLSearchParams(location.search).get(look.palette.param);
+  if (isPalette(q)) return q;
+  try {
+    const s = localStorage.getItem(look.palette.storageKey);
+    if (isPalette(s)) return s;
+  } catch {
+    /* storage blocked: default */
+  }
+  return look.palette.default;
+}
+
+/** "Colours: Realistic / Teaching" radio pair (native fieldset: arrow keys move between options). */
+function paletteControl(): HTMLElement {
+  const current = initialPalette();
+  realMaterials.setPalette(current);
+  const hintId = `layers-${uid++}`;
+  const name = `layers-${uid++}`;
+  const options = PALETTES.map((p) => {
+    const input = h('input', { type: 'radio', name, value: p, checked: p === current });
+    input.addEventListener('change', () => {
+      if (!input.checked) return;
+      realMaterials.setPalette(p);
+      try {
+        localStorage.setItem(look.palette.storageKey, p);
+      } catch {
+        /* storage blocked: the choice still applies this session */
+      }
+    });
+    return h('label', { className: 'panel-toggle' }, input, PALETTE_LABELS[p]);
+  });
+  const set = h(
+    'fieldset',
+    { className: 'viewing-palette' },
+    h('legend', {}, 'Colours'),
+    ...options,
+    h('p', { id: hintId, className: 'viewing-hint' }, PALETTE_HINT),
+  );
+  set.setAttribute('aria-describedby', hintId);
+  return set;
+}
+
 const OPACITY = { min: 0, max: 1, step: config.viewing.opacityStep, value: 1 };
 
 /** Mounts the layers panel into `host`; returns the controller (wiring uses isUserVisible) and a dispose. */
@@ -215,7 +263,7 @@ export function mountLayersPanel(
     focusInput.checked = modeDefault();
     layers.setHighlight(focusInput.checked);
   });
-  root.append(h('div', { className: 'panel-group' }, xray, focusToggle));
+  root.append(h('div', { className: 'panel-group' }, xray, focusToggle, paletteControl()));
 
   // Cut-away plane
   let enabled = false;

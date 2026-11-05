@@ -1,15 +1,19 @@
-import { BoxGeometry, Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Vector3 } from 'three';
+import { BoxGeometry, Color, Group, Mesh, MeshPhysicalMaterial, MeshStandardMaterial, Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import { config } from '../../src/core/config';
 import {
   applyMaterials,
   buildNoiseTexture,
   getDivisionPlanes,
+  getPalette,
   parkCutaway,
   setCutawayPlane,
+  setPalette,
   setXray,
   tissueOf,
 } from '../../src/scene/materials';
+import { PALETTES, REALISTIC, TISSUES, look, paletteParams } from '../../src/scene/materials.config';
+import type { TissueClass } from '../../src/scene/materials.config';
 
 describe('tissue classes (glTF node names, CONTEXT §7.2)', () => {
   it.each([
@@ -93,5 +97,44 @@ describe('clipping planes (fixed count from load, §6.4/§6.5)', () => {
     expect(cut).toMatchObject({ normal: { x: 1, y: 0, z: 0 }, constant: -0.1 });
     parkCutaway();
     expect(cut).toMatchObject({ constant: config.clipping.parkConstant });
+  });
+});
+
+describe('colour palettes (T826, ADR-013)', () => {
+  const HEX = /^#[0-9a-f]{6}$/i;
+  it('every tissue class resolves valid values in both palettes; realistic is the default', () => {
+    expect(look.palette.default).toBe('realistic');
+    for (const cls of Object.keys(TISSUES) as TissueClass[])
+      for (const p of PALETTES) {
+        const c = paletteParams(cls, p);
+        expect(c.color, `${cls} ${p}`).toMatch(HEX);
+        expect(c.rim, `${cls} ${p}`).toMatch(HEX);
+        expect(c.retint).toBeGreaterThanOrEqual(0);
+        expect(c.retint).toBeLessThanOrEqual(1);
+      }
+    // The teaching-coded hilar classes really differ.
+    for (const cls of ['artery', 'vein', 'nerve', 'pericardium'] as const)
+      expect(paletteParams(cls, 'realistic').color).not.toBe(paletteParams(cls, 'teaching').color);
+    expect(Object.keys(REALISTIC).every((k) => k in TISSUES)).toBe(true);
+  });
+
+  it('setPalette writes colour values only (material version unchanged → no recompile)', () => {
+    const root = new Group();
+    const a = new Mesh(new BoxGeometry(), new MeshStandardMaterial());
+    a.name = 'A5_medial';
+    root.add(a);
+    applyMaterials(root);
+    const m = a.material as MeshPhysicalMaterial;
+    const version = m.version;
+    expect(getPalette()).toBe('realistic');
+    expect(m.color.equals(new Color(REALISTIC.artery?.color))).toBe(true);
+    setPalette('teaching');
+    expect(m.color.equals(new Color(TISSUES.artery.color))).toBe(true);
+    setXray(true);
+    expect((a.material as MeshPhysicalMaterial).color.equals(new Color(TISSUES.artery.color))).toBe(true);
+    setXray(false);
+    setPalette('realistic');
+    expect(m.color.equals(new Color(REALISTIC.artery?.color))).toBe(true);
+    expect(m.version).toBe(version);
   });
 });

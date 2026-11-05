@@ -78,7 +78,9 @@ export function wireM5(ctx: M5Context): M5 {
   const grade = gain.value.clone(); // ungraded gain; reddening scales it per channel
   let engine: PracticeEngine | null = null;
   let comp: ComplicationController | null = null;
-  const input: ComplicationInput = { suction: false, pressure: false, retract: 0 };
+  const input: ComplicationInput = { suction: false, pressure: false, retract: 0, coagAt: null };
+  let coagulated = 0;
+  let refusedShown = false;
   let swaps0 = 0;
   let scopePort = '';
   let last = 0;
@@ -205,6 +207,7 @@ export function wireM5(ctx: M5Context): M5 {
     if (tool !== 'stapler' && tool !== 'cautery') return 'not stapler or cautery';
     const target = base(name);
     if (TARGET_BY_ID.get(target)?.tools[tool] !== undefined) return 'valid target'; // M4 handles it
+    if (tool === 'cautery' && point && comp.bleedNear(point)) return 'coagulate'; // T822: M4 places it there
     if (point) bleedAt.copy(point);
     else {
       const o = model.getObjectByName(name);
@@ -268,6 +271,8 @@ export function wireM5(ctx: M5Context): M5 {
     );
     inspectable = new Set(engine.actions.filter((a) => a.action === 'inspect').flatMap((a) => a.targets));
     m4.gate = gate;
+    m4.bleedNear = (p) => comp?.bleedNear(p) ?? false;
+    coagulated = 0;
     msg.textContent = '';
     vitalsEl.textContent = '';
     vitals = null;
@@ -278,6 +283,7 @@ export function wireM5(ctx: M5Context): M5 {
   function stop(): void {
     window.clearTimeout(debriefTimer);
     m4.gate = null;
+    m4.bleedNear = null;
     engine = null;
     comp = null;
     redden = 0;
@@ -331,8 +337,19 @@ export function wireM5(ctx: M5Context): M5 {
         on && (tool === 'grasper' || tool === 'sponge')
           ? Math.max(state.retract_posterior, state.retract_fissure)
           : 0;
+      input.coagAt = on && tool === 'cautery' && m4.contact ? m4.contactPoint : null;
       const torn = comp.update(dt / 1000, input);
       if (torn) apply(torn);
+      // T822: cautery seals small bleeds; on a major vessel injury it says what works instead (once per contact).
+      if (comp.coagulated !== coagulated) {
+        coagulated = comp.coagulated;
+        say(COMPLICATION_TEXT['complication.coagulated']);
+      }
+      // The major-vessel hint shows once per contact: re-armed only after the tip lifts off (and isn't refused).
+      const refused = comp.coagRefused;
+      const touching = input.coagAt !== null;
+      if (refused && !refusedShown) say(COMPLICATION_TEXT['complication.coagMajor']);
+      refusedShown = refused || (refusedShown && touching);
       if (comp.redden !== redden) {
         redden = comp.redden;
         gain.value.set(

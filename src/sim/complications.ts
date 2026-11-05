@@ -4,6 +4,7 @@
 // Clinical thresholds/rates are placeholders, pending clinician review.
 import { config } from '../core/config';
 import { DANGER_STRUCTURES, TARGET_BY_ID } from '../content/targets';
+import { cauteryConfig } from '../scene/cautery.config';
 import type { PointLike } from './portOccupancy';
 import type { ActionKind, PracticeTool } from './practiceActions';
 
@@ -29,6 +30,8 @@ export interface ComplicationInput {
   pressure: boolean;
   /** Current max(retract_posterior, retract_fissure). */
   retract: number;
+  /** T822: energised cautery touching tissue here (null = not); seals a minor bleed within coag.radiusM. */
+  coagAt?: PointLike | null;
 }
 
 /** `t` = injected clock (seconds). */
@@ -58,13 +61,22 @@ export type ComplicationRequest =
   | { readonly type: 'toast'; readonly key: ToastKey };
 
 export type ToastKey =
-  'complication.danger' | 'complication.bleed' | 'complication.tear' | 'complication.injury';
+  | 'complication.danger'
+  | 'complication.bleed'
+  | 'complication.tear'
+  | 'complication.injury'
+  | 'complication.coagulated'
+  | 'complication.coagMajor';
 export type VitalsKey = 'vitals.bleed.major' | 'vitals.bleed.minor';
 
 interface Bleed {
   active: boolean;
   severity: Severity;
   held: number;
+  /** T822: seconds of cautery contact (minor only). */
+  coag: number;
+  /** Bleed point (glTF coords); has = false when the episode had none. */
+  at: { x: number; y: number; z: number; has: boolean };
   slot: number;
   /** Pre-built so control logs without allocating in update(). */
   done: { type: 'bleed-controlled'; t: number; target: string; severity: Severity };
@@ -92,6 +104,10 @@ export class ComplicationController {
   /** Summed pool growth per second of active bleeds. */
   oozeRate = 0;
   vitalsKey: VitalsKey | null = null;
+  /** T822: episodes sealed by the cautery so far (the wiring toasts on change). */
+  coagulated = 0;
+  /** T822: this update the energised cautery touched a major bleed (it can't seal it). */
+  coagRefused = false;
   readonly log: ComplicationEvent[] = [];
   private readonly bleeds: Bleed[] = [];
   private head = 0;
@@ -109,6 +125,8 @@ export class ComplicationController {
         active: false,
         severity: 'minor',
         held: 0,
+        coag: 0,
+        at: { x: 0, y: 0, z: 0, has: false },
         slot: -1,
         done: { type: 'bleed-controlled', t: 0, target: '', severity: 'minor' },
       });
@@ -119,6 +137,12 @@ export class ComplicationController {
     let n = 0;
     for (const b of this.bleeds) if (b.active) n++;
     return n;
+  }
+
+  /** T822: an active bleed lies within coag.radiusM of `p` (cautery placement there is coagulation, not a strike). */
+  bleedNear(p: PointLike): boolean {
+    for (const b of this.bleeds) if (b.active && near(b, p)) return true;
+    return false;
   }
 
   bindSlot(bleed: number, slot: number): void {
@@ -175,17 +199,25 @@ export class ComplicationController {
     let major = false;
     let minor = false;
     const press = input.pressure && this.pool <= C.pressureMaxPool;
+    const coagAt = input.coagAt ?? null;
+    const K = cauteryConfig.coag;
+    this.coagRefused = false;
     for (const b of this.bleeds) {
       if (!b.active) continue;
       b.held = press ? b.held + dt : 0;
-      if (b.held >= C.pressureSec[b.severity]) {
+      const touched = coagAt !== null && near(b, coagAt);
+      if (touched && b.severity === 'major') this.coagRefused = true;
+      b.coag = touched && b.severity === 'minor' ? b.coag + dt : 0;
+      const sealed = b.coag >= K.sec;
+      if (sealed) this.coagulated++;
+      if (sealed || b.held >= C.pressureSec[b.severity]) {
         b.active = false;
         b.done.t = this.clock();
         this.push(b.done);
         this.onStop(b.slot);
         continue;
       }
-      rate += C.oozeRate[b.severity];
+      rate += C.oozeRate[b.severity] * (1 - b.coag / K.sec); // cautery contact slows a minor ooze
       if (b.severity === 'major') major = true;
       else minor = true;
     }
@@ -211,6 +243,9 @@ export class ComplicationController {
     b.active = true;
     b.severity = severity;
     b.held = 0;
+    b.coag = 0;
+    b.at.has = point !== null;
+    if (point) Object.assign(b.at, { x: point.x, y: point.y, z: point.z });
     b.slot = -1;
     b.done = { type: 'bleed-controlled', t: 0, target, severity };
     this.push({ type: 'bleed', t, target, severity, cause });
@@ -221,6 +256,11 @@ export class ComplicationController {
     this.log.push(e);
     if (this.log.length > COMPLICATIONS_CONFIG.maxLogEvents) this.log.shift();
   }
+}
+
+function near(b: Bleed, p: PointLike): boolean {
+  const r = cauteryConfig.coag.radiusM;
+  return b.at.has && (b.at.x - p.x) ** 2 + (b.at.y - p.y) ** 2 + (b.at.z - p.z) ** 2 <= r * r;
 }
 
 function pointOf(id: string): PointLike | null {

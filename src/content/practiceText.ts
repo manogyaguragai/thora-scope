@@ -10,6 +10,9 @@ export const COMPLICATION_TEXT: Readonly<Record<ToastKey | VitalsKey, string>> =
   'complication.tear':
     'Pulling too hard with the artery encircled tore a branch. Suction, then steady pressure.',
   'complication.injury': 'Tissue damaged: this instrument does not belong on that structure.',
+  'complication.coagulated': 'Bleeding controlled: the small bleeding point is sealed.',
+  'complication.coagMajor':
+    'Cautery cannot seal a major vessel injury. Press with the sponge stick, then clip or staple the vessel.',
   'vitals.bleed.major': 'Vitals: pressure dropping and pulse climbing (major bleeding).',
   'vitals.bleed.minor': 'Vitals: pulse slowly rising (ongoing minor bleeding).',
 };

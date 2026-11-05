@@ -1,6 +1,17 @@
 // Look config (CONTEXT §8): per-tissue material params, shared noise, scope headlight. All look numbers live here.
 // Colours are sRGB hex. Targets come from docs/REFERENCE_FRAMES.md "Sampled tissue colours" (mid-field values,
 // slightly darkened because the ref values are lit + graded); tuned by eye against the ref-frames.
+import type { Family } from './tissueTextures.config';
+
+/** T824 procedural triplanar detail (tissueTextures.ts atlas layer), sampled in rest-pose object space (metres). */
+export interface TissueDetail {
+  family: Family;
+  scale: number; // tiles per metre
+  bump: number; // relief as a fraction of the tile size (keep fat/lung subtle: cobblestones at ≳ 0.01)
+  albedo: number; // albedo modulation by the layer's B channel (± around 0.5)
+  mask: number; // tint toward maskColor by the layer's A channel (capillaries / anthracotic dots)
+  maskColor: string;
+}
 
 export interface TissueParams {
   /** Base albedo. With a baked map, retint ∈ [0,1] blends the map's hue toward this colour (map luminance kept as detail). */
@@ -24,7 +35,36 @@ export interface TissueParams {
   rings?: number; // cartilage-ring groove darkening (look.rings), default 0
   // Shade with the derivative normal where the rest-pose normal is wrong: true = look.normalFix edges, or own edges.
   normalFix?: boolean | readonly [number, number];
+  detail?: TissueDetail; // T824, default none (no extra texture fetches: uniform-gated)
+  blood?: number; // T824 blood staining (look.blood) strength, default 0
 }
+
+// T824 detail presets (scales from anatomy: vessel capillary net ≈ 3 mm cells, fat lobules ≈ 5 mm, lung secondary
+// lobules ≈ 1.3 cm, pleural grain ≈ 5 cm tiles).
+const vesselDetail = {
+  family: 'vessel',
+  scale: 50,
+  bump: 0.003,
+  albedo: 0.25,
+  mask: 0.55,
+  maskColor: '#5a0c1c',
+} as const satisfies TissueDetail;
+const pleuraDetail = {
+  family: 'pleura',
+  scale: 20,
+  bump: 0.002,
+  albedo: 0.25,
+  mask: 0.45,
+  maskColor: '#9a1c24',
+} as const satisfies TissueDetail;
+const lungDetail = {
+  family: 'lung',
+  scale: 12,
+  bump: 0.0015,
+  albedo: 0.15,
+  mask: 0.4,
+  maskColor: '#201418',
+} as const satisfies TissueDetail;
 
 const wet = {
   retint: 1,
@@ -43,14 +83,22 @@ const wet = {
 };
 const bronchus = {
   ...wet,
-  color: '#f2e4c4',
+  color: '#eed8b8', // T823
   bakedMaps: false,
   roughness: 0.55,
   clearcoat: 0.8,
-  clearcoatRoughness: 0.15,
-  microNormal: 0.25,
-  env: 0.3,
+  clearcoatRoughness: 0.08, // T823
+  microNormal: 0.6, // T823
+  env: 0.5, // T823
   normalFix: true,
+  detail: {
+    family: 'bronchus',
+    scale: 50,
+    bump: 0.003,
+    albedo: 0.25,
+    mask: 0,
+    maskColor: '#000000',
+  } as const,
 };
 const subsurface = { wrap: 0.5, scatter: '#ff3020', scatterStrength: 1.2 };
 
@@ -72,45 +120,51 @@ export const TISSUES = {
     lobular: 0.22,
     rim: '#ffd0e0',
     rimStrength: 0.1,
+    detail: lungDetail,
   },
-  ventilatedLung: { ...wet, ...subsurface, color: '#e0a098', roughness: 0.45 },
+  ventilatedLung: { ...wet, ...subsurface, color: '#e0a098', roughness: 0.45, detail: lungDetail },
   fat: {
     ...wet,
     ...subsurface,
-    color: '#f0c068',
-    retint: 0.6,
+    color: '#f2c896', // T823: paler (#f0c068 read flat orange-yellow)
+    retint: 0.8, // T823
     mapLuma: 0.4,
     roughness: 0.4,
     clearcoat: 1,
     clearcoatRoughness: 0.05,
     microNormal: 0.8,
-    lobular: 0.18, // T807: visible fat lobules
+    lobular: 0.3, // T807: visible fat lobules; T823 0.18 → 0.3
     scatter: '#ff7a20',
+    detail: { family: 'fat', scale: 45, bump: 0.004, albedo: 0.25, mask: 0.35, maskColor: '#b02818' },
+    blood: 0.2, // seen through the translucent pericardium, more reads as purple bruising
   },
-  // T807 clarity classes (teaching sim: readable > literal footage): PA blue-violet, PV darker plum (luminance
-  // contrast too), no baked maps on hilar structures (their dark streaky bakes read as grey chrome), low env.
+  // T807 clarity classes (the Teaching palette, ADR-012): PA blue-violet, PV darker plum (luminance contrast too), no
+  // baked maps on hilar structures (their dark streaky bakes read as grey chrome), low env. REALISTIC below (ADR-013).
   vein: {
     ...wet,
-    color: '#3a1846', // T807b: darkest of vein / pleura / lung
+    color: '#5a2c56', // T807b: darkest of vein / pleura / lung; T823 #3a1846 read as a hole, not a tube
     bakedMaps: false,
     clearcoat: 0.8,
-    clearcoatRoughness: 0.25,
+    clearcoatRoughness: 0.12, // T823: glossy tube highlights
     microNormal: 0.3,
     env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
     normalFix: true,
     rim: '#e0a0d0',
     rimStrength: 0.1,
+    detail: vesselDetail,
+    blood: 0.25, // T824: hilar vessels carry smears in the refs (03:52)
   },
   svc: {
     ...wet,
     color: '#76507e',
     bakedMaps: false,
     clearcoat: 0.8,
-    clearcoatRoughness: 0.25,
+    clearcoatRoughness: 0.12, // T823
     env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
     normalFix: true,
     rim: '#c0c8ff',
     rimStrength: 0.08,
+    detail: vesselDetail,
   },
   artery: {
     ...wet,
@@ -118,14 +172,16 @@ export const TISSUES = {
     bakedMaps: false,
     roughness: 0.5,
     clearcoat: 0.8,
-    clearcoatRoughness: 0.25,
+    clearcoatRoughness: 0.12, // T823
     microNormal: 0.3,
     env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
     normalFix: true,
     rim: '#c0d0ff',
     rimStrength: 0.12,
+    detail: vesselDetail,
+    blood: 0.25, // T824: hilar vessels carry smears in the refs (03:52)
   },
-  aorta: { ...wet, color: '#d8a090', roughness: 0.5 },
+  aorta: { ...wet, color: '#d8a090', roughness: 0.5, detail: vesselDetail },
   bronchus: { ...bronchus, rings: 0.45 },
   // T807c: no rings on the airway tree (its spherical-shell rings read as grey parallel bands on the step-7 stump).
   airwayTree: bronchus,
@@ -139,6 +195,7 @@ export const TISSUES = {
     env: 0.5,
     rimStrength: 0.15,
     normalFix: true,
+    detail: { ...pleuraDetail, scale: 60, mask: 0.3 }, // fibres + a small accompanying vessel
   },
   lymphNode: {
     ...wet,
@@ -149,18 +206,21 @@ export const TISSUES = {
     clearcoatRoughness: 0.15,
     env: 0.4,
     speckle: 0.7, // T807b: anthracotic node (vs the plain ivory bronchus)
+    blood: 0.3,
     lobular: 0.15,
     normalFix: true,
   },
   connective: {
     ...wet,
     ...subsurface,
-    color: '#e8ccb4',
+    color: '#e8b0a0', // T823
     retint: 0.6,
     mapLuma: 0.5,
     clearcoat: 1,
     clearcoatRoughness: 0.05,
-    opacity: 0.4, // T807: thin veil over the hilum (glTF 0.55) so the structures being dissected show through
+    opacity: 0.55, // T807: thin veil over the hilum so the structures being dissected show through; T823 0.4 → 0.55
+    detail: pleuraDetail,
+    blood: 1, // T824: the hilum is blood-stained throughout in the refs (03:52, 04:29)
   },
   pericardium: {
     ...wet,
@@ -171,6 +231,7 @@ export const TISSUES = {
     env: 0.4,
     rim: '#c8c0ff',
     rimStrength: 0.12,
+    detail: { ...pleuraDetail, mask: 0.25 },
   },
   heart: { ...wet, ...subsurface, color: '#8a3a3c', mapLuma: 0.1 },
   pleuraWall: {
@@ -184,6 +245,8 @@ export const TISSUES = {
     clearcoatRoughness: 0.07,
     rim: '#c8c0ff', // T807c: subtle lavender sheen at grazing angles
     rimStrength: 0.1,
+    detail: pleuraDetail, // fibrous grain + fine intercostal capillaries (§8)
+    blood: 0.15,
   },
   muscle: { ...wet, color: '#8a3a40', retint: 0.7, mapLuma: 0.07 },
   esophagus: { ...wet, color: '#b07068' },
@@ -217,6 +280,31 @@ export const TISSUES = {
 
 export type TissueClass = keyof typeof TISSUES;
 
+/** T826 colour palettes (ADR-013). TISSUES holds the Teaching values; REALISTIC overrides only what differs. Every
+ *  palette field is a uniform / material.color (setPalette never compiles). */
+export const PALETTES = ['realistic', 'teaching'] as const;
+export type Palette = (typeof PALETTES)[number];
+export type PaletteParams = Pick<TissueParams, 'color' | 'retint' | 'rim'>;
+// Footage-true targets (docs/REFERENCE_FRAMES.md sampled colours, darkened like TISSUES: the refs are lit + graded).
+export const REALISTIC: Partial<Record<TissueClass, Partial<PaletteParams>>> = {
+  collapsedLung: { color: '#aa7682' }, // dusky pink-grey (04:29 #BC7B84)
+  fat: { color: '#f0c880' }, // rich yellow (01:17 #F8C899)
+  vein: { color: '#4e2234', rim: '#e0a0b8' }, // dark plum-maroon (01:01 #64324A)
+  svc: { color: '#6e4a62', rim: '#e0c0d8' }, // preserved upper vein (05:21 #74455A)
+  artery: { color: '#c4a0a6', rim: '#f0d8e0' }, // pale grey-pink, faint blue cast (03:52 salmon under its blood film)
+  bronchus: { color: '#eed4c4' }, // pale ivory-pink cartilage (03:18 #FFE8BF)
+  airwayTree: { color: '#eed4c4' },
+  nerve: { color: '#f2ece0' }, // white-cream (01:01 #FFF1E0)
+  lymphNode: { color: '#5e5048' }, // grey-brown, anthracotic speckle
+  pericardium: { color: '#a07888', rim: '#f0d0e0' }, // glossy pale pink-lavender (01:01 #965C74)
+  pleuraWall: { color: '#9a7282', rim: '#f0d0e0' }, // violet-pink chest wall (04:29 #87536D)
+};
+export function paletteParams(cls: TissueClass, p: Palette): PaletteParams {
+  const t: TissueParams = TISSUES[cls];
+  const r = p === 'realistic' ? REALISTIC[cls] : undefined;
+  return { color: r?.color ?? t.color, retint: r?.retint ?? t.retint, rim: r?.rim ?? t.rim };
+}
+
 /** glTF node name → tissue class; first match wins (CONTEXT §7.2 names). */
 export const TISSUE_RULES: readonly [RegExp, TissueClass][] = [
   [/^lung_.*_right$/, 'collapsedLung'], // right lobes are collapsed for most of the procedure
@@ -241,6 +329,11 @@ export const TISSUE_RULES: readonly [RegExp, TissueClass][] = [
   [/^port_/, 'trocar'],
 ];
 export const FALLBACK_TISSUE: TissueClass = 'connective';
+
+/** T822: soft overlying layers the energised cautery opens (shader openings + coagulated rim); window variants too.
+ *  Anything else (lung, vessels, nerves …) only takes a subtle sear / char mark. */
+export const DISSECTABLE =
+  /^(hilar_connective_tissue|mediastinal_fat|inferior_pulmonary_ligament|parietal_pleura_wall)/;
 
 /**
  * T807: structures each procedure step is about (§7.2 node names). Drives the step-focus highlight and the
@@ -303,6 +396,8 @@ export const look = {
     tree_airway_base: [2, 1000],
     mediastinal_fat: [2, 1000], // T807c: pokes through the coincident pericardium as a yellow patch (step 2)
   } as Readonly<Record<string, readonly [number, number]>>,
+  // T826: Layers → Colours. `?palette=teaching|realistic` overrides the stored choice (tests).
+  palette: { default: 'realistic' as Palette, storageKey: 'thorascope.palette', param: 'palette' },
   /** X-ray: every mesh swaps to its transparent variant at this opacity. */
   xrayOpacity: 0.3,
   headlight: {
@@ -314,6 +409,8 @@ export const look = {
     penumbra: 0.6,
   },
   // outsideIntensity: hemisphere intensity in the outside view (no headlight reaches the body there).
-  ambient: { sky: '#ffe0e0', ground: '#401018', intensity: 0.04, outsideIntensity: 0.3 },
+  ambient: { sky: '#ffe0e0', ground: '#401018', intensity: 0.07, outsideIntensity: 0.3 }, // T823 0.04 → 0.07
+  // T824 blood staining: tissueTextures 'blood' layer (B = smear, A = clot core) × TissueParams.blood.
+  blood: { scale: 20, color: '#8a1014', clot: '#3a0608', roughness: 0.2 }, // smears are opaque on veils too
   env: { intensity: 0.4, sigma: 0.04 }, // PMREM RoomEnvironment: reflections only (T111: wet glints via micro-normal)
 } as const;

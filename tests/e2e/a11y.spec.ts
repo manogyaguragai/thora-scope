@@ -165,6 +165,7 @@ async function tabAudit(page: Page, scope: string): Promise<[string[], string[]]
       (el) =>
         el.tabIndex >= 0 &&
         !(el as HTMLButtonElement).disabled &&
+        !((el as HTMLInputElement).type === 'radio' && !(el as HTMLInputElement).checked) && // one tab stop per group
         !el.closest('[inert]') &&
         el.checkVisibility({ checkVisibilityCSS: true }),
     );
