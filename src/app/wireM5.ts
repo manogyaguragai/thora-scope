@@ -69,6 +69,7 @@ const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(s % 60).padS
 // Module temps (no per-frame allocation).
 const bleedAt = new Vector3();
 const tN = new Vector3();
+const tNdc = new Vector3();
 const box = new Box3();
 
 export function wireM5(ctx: M5Context): M5 {
@@ -152,6 +153,17 @@ export function wireM5(ctx: M5Context): M5 {
     // 'transient' (test breath), hide/show (dissection windows, bag) and specimens: M4's finish / dissect apply them.
   }
 
+  /** Decal orientation: the surface normal under `at` as seen from the scope (BVH re-pick, action time only),
+   *  turned toward the camera; facing the camera when the point isn't the visible surface. */
+  function surfaceNormal(at: Vector3, out: Vector3): Vector3 {
+    out.subVectors(camera.position, at).normalize();
+    tNdc.copy(at).project(camera);
+    const hit = m3.picker.pick(tNdc.x, tNdc.y, camera);
+    const tol = config.effects.decal.normalPickTolM;
+    if (!hit || hit.normal.lengthSq() === 0 || hit.point.distanceToSquared(at) > tol * tol) return out;
+    return hit.normal.dot(out) < 0 ? out.copy(hit.normal).negate() : out.copy(hit.normal);
+  }
+
   function apply(reqs: readonly ComplicationRequest[]): void {
     for (const r of reqs) {
       if (r.type === 'toast') {
@@ -159,7 +171,9 @@ export function wireM5(ctx: M5Context): M5 {
         continue;
       }
       if (r.point) bleedAt.set(r.point.x, r.point.y, r.point.z);
-      const slot = fx.blood.spawn(bleedAt, tN.subVectors(camera.position, bleedAt).normalize());
+      // T807c: radius ∝ camera distance, so a close scope doesn't get a frame-filling blob.
+      const radius = config.effects.decal.radiusPerCameraM * camera.position.distanceTo(bleedAt);
+      const slot = fx.blood.spawn(bleedAt, surfaceNormal(bleedAt, tN), radius);
       comp?.bindSlot(r.bleed, slot);
     }
   }

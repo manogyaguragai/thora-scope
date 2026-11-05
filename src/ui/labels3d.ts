@@ -44,7 +44,8 @@ export interface Declutter {
   y: Float64Array; // in: anchor centre; out: placed (possibly nudged) centre
   w: Float64Array; // tag sizes, px
   h: Float64Array;
-  placed: Float64Array; // scratch, ≥ 4·k: cx, cy, half-w, half-h of each placed tag
+  placed: Float64Array; // scratch, ≥ 4·(fixed + k): cx, cy, half-w, half-h of each placed tag
+  fixed: number; // rects pre-placed at the start of `placed` (UI panels tags must avoid)
   gap: number; // px kept between tags
   nudges: number; // rows tried above and below the anchor before a tag is skipped
   maxY: number; // tags stay above this (the dock)
@@ -56,17 +57,29 @@ function fit(d: Declutter, i: number, count: number): boolean {
   const hh = (d.h[i] ?? 0) / 2 + d.gap / 2;
   const x = d.x[i] ?? 0;
   const y0 = d.y[i] ?? 0;
-  for (let t = 0; t <= 2 * d.nudges; t++) {
-    const y = y0 + (t % 2 ? -1 : 1) * Math.ceil(t / 2) * 2 * hh;
+  // Rows 0, −1, +1, … ±nudges around the anchor, then just above / below each fixed UI rect (caption, top bar).
+  for (let t = 0; t <= 2 * (d.nudges + d.fixed); t++) {
+    const f = 4 * ((t - 2 * d.nudges - 1) >> 1); // fixed rect for t > 2·nudges
+    const y =
+      t <= 2 * d.nudges
+        ? y0 + (t % 2 ? -1 : 1) * Math.ceil(t / 2) * 2 * hh
+        : (d.placed[f + 1] ?? 0) + (t % 2 ? -1 : 1) * ((d.placed[f + 3] ?? 0) + hh);
     if (y - hh < 0 || y + hh > d.maxY) continue;
+    // Only the rect over the anchor itself pushes the tag to its edge.
+    if (
+      t > 2 * d.nudges &&
+      (Math.abs(x - (d.placed[f] ?? 0)) >= hw + (d.placed[f + 2] ?? 0) ||
+        Math.abs(y0 - (d.placed[f + 1] ?? 0)) >= hh + (d.placed[f + 3] ?? 0))
+    )
+      continue;
     let free = true;
-    for (let j = 0; j < count * 4 && free; j += 4)
+    for (let j = 0; j < (d.fixed + count) * 4 && free; j += 4)
       free =
         Math.abs(x - (d.placed[j] ?? 0)) >= hw + (d.placed[j + 2] ?? 0) ||
         Math.abs(y - (d.placed[j + 1] ?? 0)) >= hh + (d.placed[j + 3] ?? 0);
     if (!free) continue;
     d.y[i] = y;
-    const j = count * 4;
+    const j = (d.fixed + count) * 4;
     d.placed[j] = x;
     d.placed[j + 1] = y;
     d.placed[j + 2] = hw;
@@ -78,7 +91,8 @@ function fit(d: Declutter, i: number, count: number): boolean {
 
 /**
  * Marks up to `k` of the lowest finite scores in `chosen` (1 = show), greedily in score order; ties keep the lower
- * index. With `d`, a tag that overlaps an already-placed one is nudged a row up/down or skipped. O(n²), no allocation.
+ * index. With `d`, a tag that overlaps an already-placed one is nudged a row up/down, or (anchor under a fixed UI
+ * rect) moved just above/below that rect, or skipped. O(n²), no allocation.
  * Score = squared distance from the view centre, plus a constant larger than any distance for non-focus labels.
  */
 export function pickNearest(scores: Float64Array, k: number, chosen: Uint8Array, d?: Declutter): void {
@@ -204,7 +218,8 @@ export function createLabels3D(
     y: new Float64Array(n),
     w: new Float64Array(n),
     h: new Float64Array(n),
-    placed: new Float64Array(4 * V.labelMaxCount),
+    placed: new Float64Array(4 * (V.labelAvoidMax + V.labelMaxCount)),
+    fixed: 0,
     gap: V.labelGapPx,
     nudges: V.labelNudges,
     maxY: 0,
@@ -225,6 +240,19 @@ export function createLabels3D(
     w = host.clientWidth;
     h = host.clientHeight;
     maxY = layer.clientHeight || h;
+    // Visible UI panels over the image (top bar, guided caption) → fixed declutter rects, in layer coordinates.
+    const origin = layer.getBoundingClientRect();
+    let k = 0;
+    host.querySelectorAll(V.labelAvoid).forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (!r.width || !r.height || k >= V.labelAvoidMax) return; // hidden (display: none)
+      const j = 4 * k++;
+      dc.placed[j] = r.left + r.width / 2 - origin.left;
+      dc.placed[j + 1] = r.top + r.height / 2 - origin.top;
+      dc.placed[j + 2] = r.width / 2;
+      dc.placed[j + 3] = r.height / 2;
+    });
+    dc.fixed = k;
   };
 
   const dismiss = (): void => {
@@ -243,6 +271,7 @@ export function createLabels3D(
         dc.h[i] = t.el.offsetHeight;
         t.el.hidden = !t.shown;
       });
+    measure(); // the caption may have moved / changed size since the last resize
     last = -Infinity; // show on the next frame
   };
   window.addEventListener('resize', measure);

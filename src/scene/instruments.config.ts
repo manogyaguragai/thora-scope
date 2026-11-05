@@ -8,10 +8,13 @@ export const instrumentLook = {
   shaft: { color: '#141416', roughness: 0.62, metalness: 0 }, // matte black insulated shaft
   // Satin steel (needs env for reflections). 01:25 / 02:04 / 02:36: clamp, ring-clamp, peanut, retractor and stapler
   // shafts are all steel, so the clamp-style stems use it too (only the clip applier keeps the black shaft).
-  steel: { color: '#d6d4d0', roughness: 0.18, metalness: 1, envMapIntensity: 1.6 },
+  // T806: roughness 0.18 → 0.28 widens the headlight glint into the frames' long line highlight; envMapIntensity
+  // 1.6 → 5 for the dim warm cavity env (lights.ts) that replaced the bright RoomEnvironment.
+  // T807c: 0.2 / 8 + metalness 0.85 (headlit grey diffuse): the shafts read maroon (cavity env) with no glints.
+  steel: { color: '#d6d4d0', roughness: 0.2, metalness: 0.85, envMapIntensity: 8 },
   cauteryShaft: { color: '#e8e6e0', roughness: 0.4, metalness: 0 }, // 02:36: white cautery pencil
   accent: { roughness: 0.45, metalness: 0, glowColor: '#ff8a3c' }, // cartridge insert / cautery tip
-  gauze: { color: '#eeeae0', roughness: 0.95, metalness: 0 },
+  gauze: { color: '#e6ded0', roughness: 1, metalness: 0 }, // T806: dull cotton off-white (0:58), not a glossy egg
   // 04:29: the leader reads cream/tan and only slightly see-through.
   silicone: { color: '#dccfa6', roughness: 0.35, metalness: 0, opacity: 0.82 },
   /**
@@ -26,7 +29,7 @@ export const instrumentLook = {
 export const instrumentGeom = {
   radialSegments: 12,
   shaft: { radius: 0.0025, length: 0.33 }, // 5 mm instruments
-  hinge: { radius: 0.0028, length: 0.006 },
+  hinge: { radius: 0.0025, length: 0.006 }, // T807c: flush with the shaft (its 0.3 mm cap lit as a white ring)
   /** Jawed tools: jaw length, width, thickness; open = total opening angle between the jaws. */
   ringClamp: {
     jawLength: 0.03,

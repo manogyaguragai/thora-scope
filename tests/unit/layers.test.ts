@@ -187,6 +187,7 @@ describe('label budget + group names', () => {
       w: f(40, 40, 40, 40),
       h: f(10, 10, 10, 10),
       placed: new Float64Array(16),
+      fixed: 0,
       gap: 2,
       nudges: 1,
       maxY: 200,
@@ -195,6 +196,31 @@ describe('label budget + group names', () => {
     pickNearest(f(0, 1, 2, 3), 4, chosen, d);
     expect([...chosen]).toEqual([1, 1, 1, 0]);
     expect([...d.y.subarray(0, 3)]).toEqual([50, 38, 62]);
+  });
+  it('pickNearest keeps tags off fixed UI rects (top bar / caption)', () => {
+    const f = (...v: number[]): Float64Array => new Float64Array(v);
+    // A 60×12 panel centred on both anchors: the first tag moves up a row, the second down a row.
+    const d = {
+      x: f(100, 100),
+      y: f(50, 50),
+      w: f(40, 40),
+      h: f(10, 10),
+      placed: f(100, 50, 30, 6, 0, 0, 0, 0, 0, 0, 0, 0),
+      fixed: 1,
+      gap: 2,
+      nudges: 1,
+      maxY: 200,
+    };
+    const chosen = new Uint8Array(2);
+    pickNearest(f(0, 1), 2, chosen, d);
+    expect([...chosen]).toEqual([1, 1]);
+    expect([...d.y]).toEqual([38, 62]);
+    // A taller panel (±20 px): no row fits, so the tags go just above / below it.
+    d.y.set([50, 50]);
+    d.placed.set([100, 50, 30, 20]);
+    pickNearest(f(0, 1), 2, chosen, d);
+    expect([...chosen]).toEqual([1, 1]);
+    expect([...d.y]).toEqual([24, 76]);
   });
   it('groupLabel maps ids to readable names', () => {
     expect(groupLabel('Hilar_vessels_airway')).toBe('Hilar vessels & airway');

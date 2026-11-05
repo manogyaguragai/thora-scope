@@ -9,15 +9,14 @@ import { hideShell } from './pixels';
 test.use({ viewport: { width: 1280, height: 720 } });
 
 const GRID = { x: 64, y: 40, extent: 0.85 }; // NDC samples per axis, ±extent (inside the 5:4 mask)
-// Fraction of grid rays that must land on the step's focus structures. Step 7: cam_7 frames the re-inflated RLL and
-// the bronchial stump sits mostly behind it (a camera re-aim is out of T807's scope).
+// Fraction of grid rays that must land on the step's focus structures (T807b: steps 4 and 7 use poseFix re-aims).
 const MIN_FOCUS_HITS: Readonly<Record<number, number>> = {
   2: 0.03,
   3: 0.03,
   4: 0.03,
   5: 0.03,
   6: 0.03,
-  7: 0.01,
+  7: 0.1,
 };
 // Translucent veils (connective tissue, opacity 0.4) are seen through: rays skip them, so a pixel is
 // attributed to the structure behind the veil.

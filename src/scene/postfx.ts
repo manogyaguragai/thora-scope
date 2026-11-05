@@ -1,7 +1,7 @@
 // Single combined post-FX pass (§6.10, §8 Optics): scene → HDR target → one full-screen pass to the canvas.
 // ponytail: FullScreenQuad + one HDR target instead of EffectComposer (its ping-pong pair would be a second unused
 // full-res half-float target for a two-pass chain). Swap in EffectComposer if a real pass chain ever appears.
-import { HalfFloatType, ShaderMaterial, Vector2, Vector3, WebGLRenderTarget } from 'three';
+import { HalfFloatType, ShaderMaterial, Vector2, Vector3, Vector4, WebGLRenderTarget } from 'three';
 import type { Camera, IUniform, Scene, Texture, WebGLRenderer } from 'three';
 import { FullScreenQuad } from 'three/examples/jsm/postprocessing/Pass.js';
 import { config } from '../core/config';
@@ -46,6 +46,11 @@ function makeUniforms(scene: Texture, preset: QualityPreset) {
     uGamma: { value: new Vector3(...C.gamma) },
     uGain: { value: new Vector3(...C.gain) },
     uSaturation: { value: C.saturation },
+    uTexel: { value: new Vector2() }, // one scene-target texel in uv (edge AA taps)
+    uAA: {
+      value: new Vector4(C.edgeAA.amount, C.edgeAA.threshold, C.edgeAA.relThreshold, C.edgeAA.spanTexels),
+    },
+    uGlint: { value: new Vector3(C.glint.lo, C.glint.hi, C.glint.amount) },
   };
 }
 
@@ -60,9 +65,9 @@ const quadMaterial = (uniforms: Record<string, IUniform>, fragmentShader: string
   });
 
 export function createPostFx(renderer: WebGLRenderer, preset: QualityPreset): PostFx {
-  // halfRes: the scene renders into a smaller HDR target; the combined pass upsamples it (bilinear) to the canvas.
+  // sceneScale < 1: the scene renders into a smaller HDR target; the combined pass upsamples it (bilinear + edge AA).
   // Scale is fixed at load (the preset's); the target only resizes when the drawing buffer does (resize/pixel ratio).
-  const scale = preset.postFx.halfRes ? C.halfResScale : 1;
+  const scale = preset.postFx.sceneScale;
   const sceneSizeOf = (v: Vector2): Vector2 =>
     sceneSize.set(Math.max(1, Math.round(v.x * scale)), Math.max(1, Math.round(v.y * scale)));
   renderer.getDrawingBufferSize(size);
@@ -74,6 +79,7 @@ export function createPostFx(renderer: WebGLRenderer, preset: QualityPreset): Po
   setWarmupTarget(target);
 
   const uniforms = makeUniforms(target.texture, preset);
+  uniforms.uTexel.value.set(1 / sceneSize.x, 1 / sceneSize.y);
   const quad = new FullScreenQuad(quadMaterial(uniforms, postFrag));
 
   // Auto-exposure: tiny log-luminance meter, read back asynchronously ≤ AE.hz; exposure eases toward the target.
@@ -131,6 +137,7 @@ export function createPostFx(renderer: WebGLRenderer, preset: QualityPreset): Po
       if (!size.equals(uniforms.uRes.value)) {
         sceneSizeOf(size);
         target.setSize(sceneSize.x, sceneSize.y);
+        uniforms.uTexel.value.set(1 / sceneSize.x, 1 / sceneSize.y);
         uniforms.uRes.value.copy(size); // output (canvas) pixels: mask, vignette and grain stay full-res
       }
       renderer.setRenderTarget(target);

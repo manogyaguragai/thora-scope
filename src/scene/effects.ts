@@ -192,6 +192,7 @@ export class BloodPool {
   private readonly age: Float32Array; // < 0 = unused
   private readonly bleeding: Uint8Array;
   private readonly oozeAcc: Float32Array;
+  private readonly radius: Float32Array; // final radius per slot (m)
   private head = 0;
 
   constructor(
@@ -205,6 +206,7 @@ export class BloodPool {
     this.age = new Float32Array(capacity).fill(-1);
     this.bleeding = new Uint8Array(capacity);
     this.oozeAcc = new Float32Array(capacity);
+    this.radius = new Float32Array(capacity);
     const mat = new MeshPhysicalMaterial({
       color: D.color,
       roughness: D.roughness,
@@ -219,8 +221,9 @@ export class BloodPool {
     for (let i = 0; i < capacity; i++) this.mesh.setMatrixAt(i, _zero);
   }
 
-  /** Start a bleed at a surface point (world/effects-group space) with its unit normal. Returns the slot. */
-  spawn(point: Vector3, normal: Vector3): number {
+  /** Start a bleed at a surface point (world/effects-group space) with its unit normal and final radius (m,
+   *  capped at decal.maxRadius). Returns the slot. */
+  spawn(point: Vector3, normal: Vector3, radius: number = EFFECTS_CONFIG.decal.maxRadius): number {
     const i = this.head;
     this.head = (i + 1) % this.capacity;
     _n.copy(normal).normalize();
@@ -231,6 +234,7 @@ export class BloodPool {
     this.age[i] = 0;
     this.bleeding[i] = 1;
     this.oozeAcc[i] = 0;
+    this.radius[i] = Math.min(radius, EFFECTS_CONFIG.decal.maxRadius);
     return i;
   }
 
@@ -262,7 +266,7 @@ export class BloodPool {
       if (a < D.growSec) {
         const t = Math.min(D.growSec, a + dt);
         this.age[i] = t;
-        const r = D.maxRadius * Math.sqrt(t / D.growSec); // area grows ~linearly
+        const r = (this.radius[i] ?? 0) * Math.sqrt(t / D.growSec); // area grows ~linearly
         _p.fromArray(this.pos, i * 3);
         _q.fromArray(this.quat, i * 4);
         _m.compose(_p, _q, _s.set(r, r, r));

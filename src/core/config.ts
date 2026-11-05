@@ -15,21 +15,21 @@ export const config = {
       low: {
         maxPixelRatio: 1,
         antialias: false,
-        postFx: { distortion: true, chromaticAberration: false, grain: false, halfRes: true },
+        postFx: { distortion: true, chromaticAberration: false, grain: false, sceneScale: 0.5 },
         particleCap: 64, // per pool (smoke, blood, bubbles)
         textureDownscale: true,
       },
       medium: {
         maxPixelRatio: 1.25,
         antialias: true,
-        postFx: { distortion: true, chromaticAberration: true, grain: true, halfRes: true },
+        postFx: { distortion: true, chromaticAberration: true, grain: true, sceneScale: 0.75 },
         particleCap: 256,
         textureDownscale: false,
       },
       high: {
         maxPixelRatio: 1.5, // §6.10: adaptive resolution never exceeds min(dpr, 1.5)
         antialias: true,
-        postFx: { distortion: true, chromaticAberration: true, grain: true, halfRes: false },
+        postFx: { distortion: true, chromaticAberration: true, grain: true, sceneScale: 1 },
         particleCap: 512,
         textureDownscale: false,
       },
@@ -64,6 +64,20 @@ export const config = {
         position: [-0.0859, 0.0492, 0.0278],
         target: [-0.0391, 0.0319, 0.0269],
       },
+      // T807b: cam_4 looked down the length of B5, which hid LN_11R/12R; ≈ 2 cm in front of the RML bronchus, in
+      // the opened fissure, LN_12R and B_RML_common are in view (LN_11R is buried in the RLL from any anterior pose).
+      {
+        camera: 'cam_4_bronchus_nodes',
+        // T807c: 2.5 mm closer (B5 + the PA beside it in view); any pull-back puts the RML in front (pose sweep)
+        position: [-0.0305, 0.0215, 0.0155],
+        target: [-0.029, 0.022, 0.003],
+      },
+      // T807b: cam_7 framed the re-inflated RLL (stump ≈ 2% of the view); look at the bronchial stump from in front.
+      {
+        camera: 'cam_7_reinflation',
+        position: [-0.0435, 0.0349, 0.0466], // T807c: 8 mm further back (stump next to the vein stump)
+        target: [-0.022, 0.019, -0.002],
+      },
     ],
     // Far-field meshes no step camera can see (behind the mediastinum or outside the parietal pleura):
     // hidden in scope view only, to cut draw calls (§6.10 per-step visibility set). Outside view shows them.
@@ -84,12 +98,17 @@ export const config = {
       'sternum',
       'pa_left',
       ...Array.from({ length: 12 }, (_, i) => `rib_L${i + 1}`),
+      // T807c: the right ribs float bare in front of the dark cavity (steps 1/6); the opaque pleura is the chest wall
+      ...Array.from({ length: 12 }, (_, i) => `rib_R${i + 1}`),
+      'costal_cartilages', // pokes through the pleura (step 3 streaky band) and floats like the ribs (steps 1/6)
     ],
     // T807: per-step scope-only occluders: in front of the step's STEP_FOCUS targets (pick-ray grid from the step
     // pose, tests/e2e/closeup.spec.ts) and not used by that step's actions. Outside view still shows them.
     stepHidden: {
       2: ['heart_rest', 'left_atrium_provisional', 'inferior_vena_cava'], // bulge through the pericardium over the SPV
-      3: ['A4_lateral', 'A5_medial'], // arteries cross in front of V4/V5 at the cam_3 pose
+      // arteries cross in front of V4/V5 at the cam_3 pose; V_RML_accessory_1's flattened tube z-fights with itself
+      // (diagonal stripes, ASSET_ISSUES); the phrenic nerve read as an unexplained cream tube (T807c)
+      3: ['A4_lateral', 'A5_medial', 'V_RML_accessory_1', 'phrenic_nerve_right'], // T807c: + the step-2 nerve
       4: ['A5_medial', 'tree_airway_base'], // in front of B5; the airway tree's cut-out shows as large grey sheets
       // over the stump; the PA tree pokes through the re-inflated RLL surface as blue blotches
       7: ['mediastinal_fat_window', 'hilar_connective_tissue_window', 'tree_pulm_artery_base'],
@@ -134,6 +153,8 @@ export const config = {
     labelMaxCount: 12, // toggle-all name tags shown at once: step focus first, then nearest the view centre
     labelGapPx: 2, // declutter: min gap between tags
     labelNudges: 1, // declutter: rows tried above/below an overlapping tag before it is skipped
+    labelAvoid: '.shell-top, .guided-caption', // T806: tags never land under these (rects measured on resize/toggle)
+    labelAvoidMax: 4, // at most this many labelAvoid rects
     focusLabelModes: ['guided'] as readonly string[], // T807: L shows only the step-focus structures' tags here
   },
   perf: {
@@ -147,6 +168,13 @@ export const config = {
     probeHoldMs: 1200, // perf:probe script: cautery hold (smoke + lens fog) in the M4 phase
     probeAimM: 0.045, // probe / e2e placeTool: lens this far short of the placed tip, scope aimed at it …
     probeAimDeg: 25, // … viewing at least this far off the tool shaft (tip seen from the side, not end-on)
+    // T806: when that view is blocked (lens inside / behind tissue), search for a clear line of sight to the tip:
+    probeAimDistsM: [0.045, 0.035, 0.06, 0.025] as readonly number[], // lens distances tried, in order
+    probeAimDegs: [25, 40, 55, 70] as readonly number[], // angles off the shaft tried
+    probeAimAzimuths: 12, // directions around the shaft per angle (from the scope port's side outward)
+    probeAimClearM: 0.004, // a hit closer than this to the tip counts as the tip itself
+    probeReachTries: 48, // placeTool: surface vertices tested for a straight, clear path from the tool's port …
+    probeReachTopFrac: 0.5, // … spread over this port-facing fraction of the vertices (ranked by angle to the axis)
     // Adaptive resolution + preset auto-downgrade (§6.10). Units: ms, fps, pixel ratio.
     adaptive: {
       minRatio: 0.6, // §6.10 floor
@@ -184,7 +212,18 @@ export const config = {
   // Single combined post-FX pass (§6.10, §8 Optics, ADR-003). Values tuned against docs/REFERENCE_FRAMES.md "Optics".
   postfx: {
     msaaSamples: 4, // HDR scene target samples when the preset has antialias
-    halfResScale: 0.5, // HDR scene target size vs. the drawing buffer when the preset has postFx.halfRes
+    // HDR scene target size vs. the drawing buffer = the preset's postFx.sceneScale (T806: medium 0.5 → 0.75).
+    // Cheap edge AA in the combined pass (FXAA-style: 4 luma taps → 2 taps along the edge), all presets, both views.
+    edgeAA: {
+      amount: 1, // blend toward the along-edge average at full contrast
+      threshold: 0.03, // local luma range (tone-compressed) below this = not an edge
+      relThreshold: 0.15, // … or below this fraction of the local max
+      spanTexels: 1.0, // along-edge tap distance, scene texels
+    },
+    // Wet-glint shoulder (T806): HDR min channel (after exposure, before ACES) in [lo, hi] fades toward white. White
+    // speculars lift all channels, saturated pink diffuse doesn't, so peaks read as the frames' small white glints
+    // without lifting the mids (step 1/3/5 near-white 0.13/0.86/0.24 % → 0.14/2.0/0.78 %; refs 0.1–3.4 %).
+    glint: { lo: 0.5, hi: 1.5, amount: 0.9 },
     exposure: 1, // base exposure (× auto-exposure)
     barrelK1: 0.15, // frames: k1 ≈ 0.12–0.18
     barrelK2: 0.03,
@@ -200,10 +239,10 @@ export const config = {
     fogRadius: 0.006, // lens-fog blur tap offset (uv); amount (uFog) driven by M5
     fogColor: [1, 0.86, 0.84] as const, // milky orange-pink veil (06:46)
     // Warm red-magenta grade (frames: mean sRGB ≈ 184/117/125, high saturation, maroon shadows).
-    lift: [0.02, 0, 0.02] as const, // T111: frames' shadows are maroon-violet, not crimson
-    gamma: [1.02, 0.95, 0.97] as const,
+    lift: [0.01, 0, 0.012] as const, // T111: maroon-violet shadows; T807c: halved (steel shafts read maroon)
+    gamma: [1.0, 0.91, 0.96] as const, // T806: less green → the frames' saturated red-magenta
     gain: [1.0, 0.96, 1.02] as const,
-    saturation: 0.9, // frames' mean HSV S ≈ 0.34–0.42 (T801: 0.9 + key 0.22 → step 1 S 0.35)
+    saturation: 1.1, // frames' mean HSV S ≈ 0.39–0.48 in the 5:4 crop (T806: 0.9 read pastel)
     autoExposure: {
       hz: 4, // meter renders + async read-backs per second
       size: 16, // meter target is size × size
@@ -214,6 +253,16 @@ export const config = {
       max: 4,
       adaptMs: 400, // easing time constant
     },
+  },
+  // Reflection environment (T806, src/scene/lights.ts): a warm cavity built once at load via PMREM instead of the
+  // neutral RoomEnvironment (its white boxes mirrored as grey/silver bands on steel and wet tissue).
+  cavityEnv: {
+    surround: '#5d2f3d', // REFERENCE_FRAMES "Dark cavity background" (01:25)
+    surroundIntensity: 3,
+    spot: '#fff4ea', // warm lamp patch toward the ports (+Y = patient's right, up; §7.1), seen in steel
+    spotIntensity: 12,
+    spotRadius: 0.3, // sphere radius at distance 1
+    spotDir: [0, 1, 0.35] as const,
   },
   // Physiology + morph controller (§6.1 Physiology lab, §7.3). HR/RR defaults come from procedure_steps.json.
   physiology: {
@@ -314,14 +363,16 @@ export const config = {
     },
     decal: {
       capScale: 1 / 8, // low 8, medium 32, high 64 (one instanced draw)
-      color: 0x9a1410, // fresh blood red (ref 01:25 / 02:44); darker hexes read near-black after sRGB→linear
-      roughness: 0.15,
+      color: 0xc4241a, // fresh blood red (ref 01:25 / 02:44); T807c: 0x9a1410 read as a dark blob
+      roughness: 0.08, // glossy fresh blood
       clearcoat: 1,
       clearcoatRoughness: 0.08,
       segments: 20,
       maxRadius: 0.03, // m
+      radiusPerCameraM: 0.12, // T807c: final radius ≤ this × camera distance (≈ 1/6 of the view height at 70°)
       growSec: 4, // time to reach maxRadius
       normalOffset: 0.0004, // m, lift off the surface
+      normalPickTolM: 0.01, // T806: bleed point re-picked from the camera; a hit this close lends its surface normal
     },
     fog: {
       riseRate: 4, // per second toward the pulse target

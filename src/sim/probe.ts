@@ -2,8 +2,8 @@
 // the fulcrum scope rig (pivot + zoom + optic), outside view, one-lung ventilation, the RML clamp test and the
 // X-ray / opacity / cut-away variant swaps.
 // Lazy chunk (dynamic import from main.ts): never in the initial bundle, never runs outside the probe.
-import { FloatType, HalfFloatType, Matrix4, Quaternion, Texture, Vector3 } from 'three';
-import type { Material, Mesh, Scene } from 'three';
+import { FloatType, HalfFloatType, Matrix4, Quaternion, Raycaster, Texture, Vector3 } from 'three';
+import type { Intersection, Material, Mesh, Object3D, Scene } from 'three';
 import type { Port } from './ports';
 import { config } from '../core/config';
 import { SUB_IDS, TARGET_BY_ID } from '../content/targets';
@@ -99,43 +99,134 @@ const waitMs = async (ms: number): Promise<void> => {
   while (performance.now() < end) await nextFrame();
 };
 
-/** Surface vertex of node `name` (world) closest in angle to `port`'s axis: a reachable grasp / action point. */
-function nearAxisPoint(scene: Scene, name: string, port: Port, out: Vector3): Vector3 | null {
-  let best = -2;
-  const v = new Vector3();
-  const d = new Vector3();
-  scene.getObjectByName(name)?.traverse((o) => {
-    const pos = (o as Mesh).isMesh ? (o as Mesh).geometry.getAttribute('position') : undefined;
-    if (!pos) return;
-    for (let i = 0; i < pos.count; i++) {
-      v.fromBufferAttribute(pos, i).applyMatrix4(o.matrixWorld);
-      const c = d.subVectors(v, port.pleura).normalize().dot(port.axis);
-      if (c > best) {
-        best = c;
-        out.copy(v);
-      }
-    }
-  });
-  return best > -2 ? out : null;
+const _ray = new Raycaster();
+_ray.firstHitOnly = true;
+const _hits: Intersection[] = [];
+
+/** Any visible pick mesh hit on the segment from `from` along unit `dir` up to `far`. */
+function blocked(meshes: readonly Mesh[], from: Vector3, dir: Vector3, far: number): boolean {
+  _ray.set(from, dir);
+  _ray.far = far;
+  for (const m of meshes) {
+    let vis = true;
+    for (let o: Object3D | null = m; o && vis; o = o.parent) vis = o.visible;
+    if (!vis) continue;
+    m.raycast(_ray, _hits);
+    const hit = _hits.length > 0;
+    _hits.length = 0;
+    if (hit) return true;
+  }
+  return false;
 }
 
-/** Aim the scope (same port, upright) at the placed tip `at`: lens config.perf.probeAimM short of it, viewing at
- *  least probeAimDeg off the tool shaft (toolPleura → at) so the tip and distal shaft are seen from the side, not
- *  end-on from inside the shaft when the scope shares the tool's port. */
+const _dir = new Vector3();
+const _from = new Vector3();
+/** Clear straight line `eye` → surface point `tip`: nothing in between (front faces seen from either end, so an eye
+ *  inside / behind a mesh fails too); hits within config.perf.probeAimClearM of the tip count as the tip itself. */
+function lineClear(meshes: readonly Mesh[], eye: Vector3, tip: Vector3): boolean {
+  const c = config.perf.probeAimClearM;
+  const dist = _dir.subVectors(tip, eye).length();
+  if (dist <= 2 * c) return true;
+  _dir.divideScalar(dist);
+  if (blocked(meshes, _from.copy(eye), _dir, dist - c)) return false;
+  return !blocked(meshes, _from.copy(tip).addScaledVector(_dir, -c), _dir.negate(), dist - 2 * c);
+}
+
+/** Surface vertex of node `name` (world, current morph pose) a tool through `port` reaches in a straight line,
+ *  nearest in angle to the port axis (T806: the plain nearest-angle vertex was often buried in the hilum, hiding the
+ *  tip in its screenshot). Tests config.perf.probeReachTries vertices spread over the port-facing ranks; falls back
+ *  to the nearest-angle vertex. */
+function nearAxisPoint(
+  scene: Scene,
+  meshes: readonly Mesh[],
+  name: string,
+  port: Port,
+  out: Vector3,
+): Vector3 | null {
+  const v = new Vector3();
+  const d = new Vector3();
+  const cands: { mesh: Mesh; i: number; c: number }[] = [];
+  scene.getObjectByName(name)?.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    for (let i = 0; i < mesh.geometry.getAttribute('position').count; i++) {
+      mesh.getVertexPosition(i, v).applyMatrix4(mesh.matrixWorld);
+      cands.push({ mesh, i, c: d.subVectors(v, port.pleura).normalize().dot(port.axis) });
+    }
+  });
+  if (!cands.length) return null;
+  cands.sort((a, b) => b.c - a.c);
+  const P = config.perf;
+  const at = (q: (typeof cands)[number]): Vector3 =>
+    q.mesh.getVertexPosition(q.i, out).applyMatrix4(q.mesh.matrixWorld);
+  const stride = Math.max(1, Math.floor((cands.length * P.probeReachTopFrac) / P.probeReachTries));
+  const eye = new Vector3().copy(port.pleura).addScaledVector(port.axis, P.probeAimClearM); // just inside the wall
+  for (let k = 0; k < P.probeReachTries && k * stride < cands.length; k++)
+    if (lineClear(meshes, eye, at(cands[k * stride] as (typeof cands)[number]))) return out;
+  return at(cands[0] as (typeof cands)[number]);
+}
+
+/** Aim the scope (same port, upright) at the placed tip `at`. First choice: lens config.perf.probeAimM short of it,
+ *  at least probeAimDeg off the tool shaft (toolPleura → at), on the scope port's side, so the tip and distal shaft
+ *  are seen from the side, not end-on. If tissue blocks that line of sight, the lens would sit inside a mesh, or the
+ *  rig can't hold the pose, search probeAimDistsM × probeAimDegs × probeAimAzimuths for one that works (T806). */
 function aimScope(sim: Window['__sim'], at: Vector3, toolPleura: Vector3): void {
   const m3 = sim.m3;
   if (!m3) return;
   const P = config.perf;
   const shaft = new Vector3().subVectors(at, toolPleura).normalize();
-  const view = new Vector3().subVectors(at, m3.scope.port.pleura).normalize();
-  const minRad = (P.probeAimDeg * Math.PI) / 180;
-  if (view.angleTo(shaft) < minRad) {
-    // Swing the view toward the ceiling (+Y, §7.1): the cavity above the tip is clear of the collapsed lung.
-    const side = new Vector3(0, 1, 0).addScaledVector(shaft, -shaft.y);
-    if (side.lengthSq() < 1e-8) side.set(1, 0, 0);
-    view.copy(shaft).multiplyScalar(Math.cos(minRad)).addScaledVector(side.normalize(), Math.sin(minRad));
+  // Basis around the shaft: u = the scope port's side (else the ceiling, +Y §7.1), w = shaft × u.
+  const u = new Vector3().subVectors(at, m3.scope.port.pleura).normalize();
+  u.addScaledVector(shaft, -u.dot(shaft));
+  if (u.lengthSq() < 1e-8) u.set(0, 1, 0).addScaledVector(shaft, -shaft.y);
+  if (u.lengthSq() < 1e-8) u.set(1, 0, 0);
+  u.normalize();
+  const w = new Vector3().crossVectors(shaft, u);
+  const view = new Vector3();
+  const eye = new Vector3();
+  const pleura = m3.scope.port.pleura;
+  const R = config.scopeRig;
+  const maxOptic = (R.opticMaxDeg * Math.PI) / 180;
+  // Lens `dist` short of the tip along `view`: a pose the rig keeps as is (depth range, optic ≤ max off the shaft
+  // pleura → lens) with a clear line to the tip.
+  const clear = (dist: number): boolean => {
+    eye.copy(at).addScaledVector(view, -dist);
+    const depth = eye.distanceTo(pleura);
+    if (depth < R.depthM.min || depth > R.depthM.max) return false;
+    if (eye.clone().sub(pleura).angleTo(view) > maxOptic) return false;
+    return lineClear(m3.picker.meshes, eye, at);
+  };
+  const dirAt = (deg: number, k: number): Vector3 => {
+    const a = (deg * Math.PI) / 180;
+    // k = 0, 1, 2, … → azimuth 0, +step, −step, +2·step, … (nearest the scope port's side first)
+    const phi = ((k % 2 ? 1 : -1) * Math.ceil(k / 2) * 2 * Math.PI) / P.probeAimAzimuths;
+    return view
+      .copy(shaft)
+      .multiplyScalar(Math.cos(a))
+      .addScaledVector(u, Math.sin(a) * Math.cos(phi))
+      .addScaledVector(w, Math.sin(a) * Math.sin(phi));
+  };
+  /** First clear (distance, direction) in search order, written to `view`; null when none is clear. */
+  const search = (): number | null => {
+    for (const d of P.probeAimDistsM)
+      for (const deg of P.probeAimDegs)
+        for (let k = 0; k < P.probeAimAzimuths; k++) {
+          dirAt(deg, k);
+          if (clear(d)) return d;
+        }
+    return null;
+  };
+  // Default (pre-T806) view: from the scope port, swung to probeAimDeg off the shaft when closer than that.
+  const def = new Vector3().subVectors(at, m3.scope.port.pleura).normalize();
+  if (def.angleTo(shaft) < (P.probeAimDeg * Math.PI) / 180) def.copy(dirAt(P.probeAimDeg, 0));
+  view.copy(def);
+  let dist: number | null = P.probeAimM;
+  if (!clear(dist)) dist = search();
+  if (dist === null) {
+    view.copy(def); // nothing clear: the default view
+    dist = P.probeAimM;
   }
-  const position = at.clone().addScaledVector(view, -P.probeAimM);
+  const position = at.clone().addScaledVector(view, -dist);
   const m = new Matrix4().lookAt(position, at, new Vector3(0, 1, 0)); // camera convention: looks down −Z
   const quaternion = new Quaternion().setFromRotationMatrix(m);
   m3.scope.snapTo({ position, quaternion, fov: m3.scope.fovDeg }, m3.scope.port.id);
@@ -170,7 +261,7 @@ export async function placeTool(
     const p = m3.scope.ports.find((q) => q.id === m4.occupancy.activePort);
     if (p && (!port || p.id === port)) {
       // Surface point facing the port first (the tip and shaft stay out of the tissue, in view), then the centroid.
-      const surf = nearAxisPoint(scene, target, p, near);
+      const surf = nearAxisPoint(scene, m3.picker.meshes, target, p, near);
       r = surf ? m4.snapTo(target, (at = surf)) : 'no-target';
       if (r !== 'ok') r = m4.snapTo(target, (at = centroid));
       if (r === 'ok' || port) break;

@@ -40,18 +40,31 @@ const wet = {
   speckle: 0,
   lobular: 0,
 };
+const bronchus = {
+  ...wet,
+  color: '#f2e4c4',
+  bakedMaps: false,
+  roughness: 0.55,
+  clearcoat: 0.8,
+  clearcoatRoughness: 0.15,
+  microNormal: 0.25,
+  env: 0.3,
+  normalFix: true,
+};
 const subsurface = { wrap: 0.5, scatter: '#ff3020', scatterStrength: 1.2 };
 
 export const TISSUES = {
   collapsedLung: {
     ...wet,
     ...subsurface,
-    color: '#b06c7a',
+    color: '#b09098', // T807b: greyer + lighter than the plum vein / pleura (3-way luma gap at the step-3 pose)
     mapLuma: 0.25,
     roughness: 0.4,
     microNormal: 0.8, // T111: breaks the env reflection into wet glints (frames: many small sharp highlights)
+    scatterStrength: 0.6, // T807b: less red back-scatter → greyer than the plum vein / pleura
+    normalFix: true, // T807b: collapsed lobes kept rest-pose normals → dark maroon blotches at the step-3 pose
     env: 0.3, // T807: grazing lobe surfaces mirrored the env room as silver bands close up
-    speckle: 0.85,
+    speckle: 0.35, // T807b: fine anthracotic flecks (0.85 read as polka dots close up)
     lobular: 0.22,
     rim: '#ffd0e0',
     rimStrength: 0.1,
@@ -74,7 +87,7 @@ export const TISSUES = {
   // contrast too), no baked maps on hilar structures (their dark streaky bakes read as grey chrome), low env.
   vein: {
     ...wet,
-    color: '#5a1e44',
+    color: '#3a1846', // T807b: darkest of vein / pleura / lung
     bakedMaps: false,
     clearcoat: 0.8,
     clearcoatRoughness: 0.25,
@@ -109,18 +122,9 @@ export const TISSUES = {
     rimStrength: 0.12,
   },
   aorta: { ...wet, color: '#d8a090', roughness: 0.5 },
-  bronchus: {
-    ...wet,
-    color: '#f2e4c4',
-    bakedMaps: false,
-    roughness: 0.55,
-    clearcoat: 0.8,
-    clearcoatRoughness: 0.15,
-    microNormal: 0.25,
-    env: 0.3,
-    rings: 0.45,
-    normalFix: true,
-  },
+  bronchus: { ...bronchus, rings: 0.45 },
+  // T807c: no rings on the airway tree (its spherical-shell rings read as grey parallel bands on the step-7 stump).
+  airwayTree: bronchus,
   nerve: {
     ...wet,
     color: '#f6eebc',
@@ -140,7 +144,7 @@ export const TISSUES = {
     clearcoat: 0.7,
     clearcoatRoughness: 0.15,
     env: 0.4,
-    speckle: 0.5,
+    speckle: 0.7, // T807b: anthracotic node (vs the plain ivory bronchus)
     lobular: 0.15,
     normalFix: true,
   },
@@ -167,13 +171,15 @@ export const TISSUES = {
   heart: { ...wet, ...subsurface, color: '#8a3a3c', mapLuma: 0.1 },
   pleuraWall: {
     ...wet,
-    color: '#80506a',
+    color: '#946084', // T807c: glossy lavender pleura (05:21); still lighter than the plum vein, darker than the lung
     retint: 1,
     bakedMaps: false, // T111: its baked maps have patchy islands (crimson/grey blotches); plain violet matches 04:29
     mapLuma: 0.5,
     opacity: 1, // T111: opaque variant; at 0.75 the crimson muscle showed through as blotches
     clearcoat: 1,
     clearcoatRoughness: 0.07,
+    rim: '#c8c0ff', // T807c: subtle lavender sheen at grazing angles
+    rimStrength: 0.1,
   },
   muscle: { ...wet, color: '#8a3a40', retint: 0.7, mapLuma: 0.07 },
   esophagus: { ...wet, color: '#b07068' },
@@ -216,6 +222,7 @@ export const TISSUE_RULES: readonly [RegExp, TissueClass][] = [
   [/^(V\d|V_|tree_pulm_vein|azygos|inferior_vena|brachiocephalic_vein)/, 'vein'],
   [/^(aorta|brachiocephalic_trunk)$/, 'aorta'],
   [/^(A\d|A_|tree_pulm_artery|pa_left|arteries_)/, 'artery'],
+  [/^tree_airway_base$/, 'airwayTree'],
   [/^(B\d|B_|tree_airway)/, 'bronchus'],
   [/_nerve_/, 'nerve'],
   [/^LN_/, 'lymphNode'],
@@ -237,12 +244,12 @@ export const FALLBACK_TISSUE: TissueClass = 'connective';
  */
 export const STEP_FOCUS: Readonly<Record<number, readonly string[]>> = {
   1: ['lung_middle_lobe_right'],
-  2: ['phrenic_nerve_right', 'tree_pulm_vein_base', 'V_RML_common'],
-  3: ['V_RML_common', 'V4_lateral', 'V5_medial', 'V_RML_accessory_1', 'V_RML_accessory_2'],
+  2: ['tree_pulm_vein_base', 'V_RML_common'], // the phrenic nerve is outside the cam_2 view
+  3: ['V_RML_common', 'V4_lateral', 'V5_medial', 'V_RML_accessory_2'], // accessory_1: scope-hidden (stripes)
   4: ['B_RML_common', 'B4_lateral', 'B5_medial', 'LN_11R', 'LN_12R'],
   5: ['A_RML_common', 'A4_lateral', 'A5_medial', 'A_RML_accessory_1', 'A_RML_accessory_2', 'A_RML_extra_1'],
   6: ['lung_middle_lobe_right'],
-  7: ['tree_airway_base', 'LN_4R', 'LN_7'],
+  7: ['tree_airway_base'], // the stump; LN_4R / LN_7 are behind the re-inflated lobes from the cam_7 fix pose
 };
 
 export const look = {
@@ -255,9 +262,9 @@ export const look = {
     heightAmp: 3, // finite-difference gain → normal steepness
     worleyCells: 12, // feature points per tile edge
     microTiling: 16, // texture repeats per UV unit (liquid film); lung UV unit ≈ 0.3 m (T111 measured)
-    speckleTiling: 0.45, // × microTiling → ≈ 3.5 mm cells on the lung (was 0.35 mm: mip-averaged away)
+    speckleTiling: 0.9, // × microTiling → ≈ 1.7 mm cells on the lung (T807b: 0.45 → 3.5 mm read as polka dots)
     lobularTiling: 0.225, // × microTiling → ≈ 8 mm lobules
-    speckleEdge: [0.16, 0.08] as const, // smoothstep(a, b, F1): dot radius in cells (soft → hard), ≈ 0.5 mm
+    speckleEdge: [0.08, 0.04] as const, // smoothstep(a, b, F1): dot radius in cells (soft → hard), ≈ 0.1 mm
     speckleFloor: 0.25, // dot strength inside lobules (1 at borders)
     lobularEdge: [0.45, 0.8] as const, // smoothstep(a, b, F1): darkening toward cell borders
   },
@@ -269,28 +276,28 @@ export const look = {
   rings: {
     defaultOrigin: 'tree_airway_base',
     origins: { B4_lateral: 'B_RML_common', B5_medial: 'B_RML_common' } as Readonly<Record<string, string>>,
-    spacingM: 0.0015, // the step-4 pose sits mm from B4/B5 (segmental cartilage pitch ≈ 1–2 mm)
-    groove: [0.35, 0.9] as const, // smoothstep on sin(phase): dark groove ≈ a quarter of each period
+    spacingM: 0.003, // T807c: 1.5 mm read as grey stripes on the step-7 stump
+    groove: [0.5, 0.95] as const, // smoothstep on sin(phase): dark groove ≈ a sixth of each period (T807c: a quarter)
   },
   // T807 step-focus highlight (uniform-driven emissive rim on the step's STEP_FOCUS meshes; fades with the step).
   focus: {
     // A complementary tint (e.g. UI teal on plum) greys the vessel out, so the focus glows in its own colour
     // (self-illumination × albedo) plus a thin warm-white fresnel rim.
     color: '#fff2dc', // rim colour
-    strength: 0.3, // rim emissive radiance at grazing angles
-    self: 0.5, // emissive = albedo × self (keeps the structure's hue, lifts it above its neighbours)
-    rimPower: 3,
+    strength: 0.65, // rim emissive radiance at grazing angles
+    self: 0.8, // emissive = albedo × self (keeps the structure's hue, lifts it above its neighbours)
+    rimPower: 2, // T807c: wider rim so the outline stands out from the pink lung
     modes: ['guided'] as readonly string[], // Layers checkbox default on in these modes, off elsewhere (practice, quiz)
   },
   // T807: smoothstep(a, b, dot(vertex normal, derivative normal)): below a the shading uses the derivative normal.
   normalFix: [0.2, 0.5] as const,
-  // T807: polygon offset (factor, units) per node: pushes it behind coincident neighbours so the collapsed lobes
-  // stop z-fighting along the fissures (dark streaks close up). GL state only, no program change.
+  // T807: polygon offset (factor, units) per node: pushes it behind coincident neighbours (z-fighting streaks close
+  // up). GL state only, no program change. T807b: the RML entry went (its slope factor stair-stepped the lobe edges).
   depthBias: {
-    lung_middle_lobe_right: [2, 1000],
     tree_pulm_artery_base: [2, 1000], // the base trees lose to the coincident RML branch meshes
     tree_pulm_vein_base: [2, 1000],
     tree_airway_base: [2, 1000],
+    mediastinal_fat: [2, 1000], // T807c: pokes through the coincident pericardium as a yellow patch (step 2)
   } as Readonly<Record<string, readonly [number, number]>>,
   /** X-ray: every mesh swaps to its transparent variant at this opacity. */
   xrayOpacity: 0.3,

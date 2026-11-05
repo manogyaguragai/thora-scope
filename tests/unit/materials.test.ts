@@ -26,7 +26,7 @@ describe('tissue classes (glTF node names, CONTEXT §7.2)', () => {
     ['tree_pulm_artery_base', 'artery'],
     ['aorta', 'aorta'],
     ['B_RML_common', 'bronchus'],
-    ['tree_airway_base', 'bronchus'],
+    ['tree_airway_base', 'airwayTree'],
     ['phrenic_nerve_right', 'nerve'],
     ['LN_11R', 'lymphNode'],
     ['pericardium', 'pericardium'],

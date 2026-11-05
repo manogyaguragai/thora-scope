@@ -1176,3 +1176,153 @@ SwiftShader entries are software GL: their times are meaningless.
 - practice run 2: 51 s · programs 32 → 32 · 67 calls / 486029 tris peak (complication 66 / 469367) · p95 16.8 ms · 6 long (max 100 ms) · heap 9.7 → 11.2 MB (15.5 %)
 - practice run 3: 51 s · programs 32 → 32 · 67 calls / 486029 tris peak (complication 66 / 469367) · p95 16.8 ms · 6 long (max 83 ms) · heap 9.7 → 11.3 MB (15.6 %)
 - practice heap: run 1 → 3 end 0 % (gate, budget < 10 %); per run 17.3 / 15.5 / 15.6 % (informational, incl. lazy debrief chunk); reload per run, see qa/perf.json heapMethod
+
+### 2026-11-05T04:58:03.485Z PASS (headless real GPU (ANGLE/Vulkan), preset medium, 1280×720, script: orbit + window.__sim.probeScript (guided steps 1–7, rig, outside, OLV, clamp, X-ray, M4) + 3 practice runs (PA01→PA32 + 1 complication))
+- FCP 156 ms · ready 2869 ms · transfer 11.4 MB
+- programs 32 → 32 · textures 88 (≈ 73.1 MB)
+- ready: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- orbit: 92 draw calls, 740729 tris, p95 16.8 ms, 0 long
+- scope-step1: 60 draw calls, 478513 tris, p95 16.7 ms, 0 long
+- scope-step2: 40 draw calls, 415460 tris, p95 33.3 ms, 0 long
+- scope-step3: 57 draw calls, 456982 tris, p95 16.7 ms, 0 long
+- scope-step4: 46 draw calls, 380696 tris, p95 16.7 ms, 0 long
+- scope-step5: 45 draw calls, 412374 tris, p95 33.3 ms, 0 long
+- scope-step6: 45 draw calls, 414750 tris, p95 16.7 ms, 0 long
+- scope-step7: 39 draw calls, 280740 tris, p95 16.7 ms, 0 long
+- scope-rig: 32 draw calls, 262768 tris, p95 16.7 ms, 0 long
+- outside: 93 draw calls, 740730 tris, p95 16.7 ms, 0 long
+- olv: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- clamp: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- xray: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- opacity-cutaway: 92 draw calls, 740729 tris, p95 83.3 ms, 3 long
+- m4-scope: 58 draw calls, 456983 tris, p95 83.3 ms, 2 long
+- m4-tools: 129 draw calls, 937165 tris, p95 16.7 ms, 0 long
+- m4-cautery: 59 draw calls, 457788 tris, p95 16.8 ms, 0 long
+- m4-staple: 134 draw calls, 936917 tris, p95 16.8 ms, 0 long
+- m4-outside-hands: 100 draw calls, 733370 tris, p95 16.7 ms, 0 long
+- heap 9.5 → 10.5 MB
+- long frames 5 (max 100 ms), fps 56.3, frame p95 16.8 ms — NOT representative (headless, test-driven)
+- practice run 1: 51 s · programs 32 → 32 · 68 calls / 486029 tris peak (complication 65 / 469366) · p95 16.8 ms · 4 long (max 83 ms) · heap 9.6 → 11.3 MB (17.2 %)
+- practice run 2: 51 s · programs 32 → 32 · 67 calls / 486030 tris peak (complication 66 / 469367) · p95 16.7 ms · 5 long (max 83 ms) · heap 9.7 → 11.3 MB (15.5 %)
+- practice run 3: 51 s · programs 32 → 32 · 68 calls / 486029 tris peak (complication 66 / 469367) · p95 16.8 ms · 4 long (max 83 ms) · heap 9.7 → 11.3 MB (15.5 %)
+- practice heap: run 1 → 3 end 0 % (gate, budget < 10 %); per run 17.2 / 15.5 / 15.5 % (informational, incl. lazy debrief chunk); reload per run, see qa/perf.json heapMethod
+
+### 2026-11-05T05:31:46.503Z PASS (headless real GPU (ANGLE/Vulkan), preset medium, 1280×720, script: orbit + window.__sim.probeScript (guided steps 1–7, rig, outside, OLV, clamp, X-ray, M4) + 3 practice runs (PA01→PA32 + 1 complication))
+- FCP 124 ms · ready 2757 ms · transfer 11.4 MB
+- programs 32 → 32 · textures 88 (≈ 73.1 MB)
+- ready: 92 draw calls, 740729 tris, p95 16.8 ms, 0 long
+- orbit: 93 draw calls, 740730 tris, p95 33.3 ms, 2 long
+- scope-step1: 60 draw calls, 478513 tris, p95 33.3 ms, 0 long
+- scope-step2: 40 draw calls, 415460 tris, p95 33.4 ms, 0 long
+- scope-step3: 56 draw calls, 450982 tris, p95 16.7 ms, 0 long
+- scope-step4: 48 draw calls, 396290 tris, p95 16.7 ms, 0 long
+- scope-step5: 46 draw calls, 412375 tris, p95 16.7 ms, 0 long
+- scope-step6: 45 draw calls, 414750 tris, p95 16.7 ms, 0 long
+- scope-step7: 41 draw calls, 293865 tris, p95 16.8 ms, 0 long
+- scope-rig: 30 draw calls, 251860 tris, p95 16.7 ms, 0 long
+- outside: 93 draw calls, 740730 tris, p95 16.7 ms, 0 long
+- olv: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- clamp: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- xray: 92 draw calls, 740729 tris, p95 16.8 ms, 1 long
+- opacity-cutaway: 92 draw calls, 740729 tris, p95 66.6 ms, 2 long
+- m4-scope: 57 draw calls, 450983 tris, p95 50 ms, 1 long
+- m4-tools: 127 draw calls, 925165 tris, p95 16.7 ms, 0 long
+- m4-cautery: 125 draw calls, 925466 tris, p95 33.4 ms, 1 long
+- m4-staple: 131 draw calls, 916917 tris, p95 33.4 ms, 0 long
+- m4-outside-hands: 100 draw calls, 733370 tris, p95 33.2 ms, 0 long
+- heap 9.5 → 10.5 MB
+- long frames 7 (max 350 ms), fps 50, frame p95 33.3 ms — NOT representative (headless, test-driven)
+- practice run 1: 51 s · programs 32 → 32 · 66 calls / 486029 tris peak (complication 65 / 469366) · p95 33.3 ms · 16 long (max 117 ms) · heap 9.6 → 11.4 MB (18.9 %)
+- practice run 2: 51 s · programs 32 → 32 · 66 calls / 486029 tris peak (complication 65 / 469366) · p95 33.3 ms · 14 long (max 117 ms) · heap 9.8 → 11.4 MB (17.2 %)
+- practice run 3: 51 s · programs 32 → 32 · 66 calls / 486029 tris peak (complication 65 / 469366) · p95 16.8 ms · 9 long (max 100 ms) · heap 9.7 → 11.4 MB (17.2 %)
+- practice heap: run 1 → 3 end 0 % (gate, budget < 10 %); per run 18.9 / 17.2 / 17.2 % (informational, incl. lazy debrief chunk); reload per run, see qa/perf.json heapMethod
+
+### 2026-11-05T05:41:01.265Z PASS (headless real GPU (ANGLE/Vulkan), preset medium, 1280×720, script: orbit + window.__sim.probeScript (guided steps 1–7, rig, outside, OLV, clamp, X-ray, M4) + 3 practice runs (PA01→PA32 + 1 complication))
+- FCP 132 ms · ready 2544 ms · transfer 11.4 MB
+- programs 32 → 32 · textures 88 (≈ 73.1 MB)
+- ready: 92 draw calls, 740729 tris, p95 16.8 ms, 1 long
+- orbit: 93 draw calls, 740730 tris, p95 33.4 ms, 1 long
+- scope-step1: 60 draw calls, 478513 tris, p95 33.4 ms, 0 long
+- scope-step2: 40 draw calls, 415460 tris, p95 16.7 ms, 0 long
+- scope-step3: 55 draw calls, 442984 tris, p95 16.8 ms, 0 long
+- scope-step4: 47 draw calls, 396289 tris, p95 33.3 ms, 0 long
+- scope-step5: 45 draw calls, 412374 tris, p95 16.7 ms, 0 long
+- scope-step6: 44 draw calls, 414749 tris, p95 16.7 ms, 0 long
+- scope-step7: 40 draw calls, 293864 tris, p95 16.7 ms, 0 long
+- scope-rig: 29 draw calls, 251859 tris, p95 16.7 ms, 0 long
+- outside: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- olv: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- clamp: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- xray: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- opacity-cutaway: 92 draw calls, 740729 tris, p95 66.8 ms, 2 long
+- m4-scope: 92 draw calls, 740729 tris, p95 83.3 ms, 3 long
+- m4-tools: 125 draw calls, 909169 tris, p95 16.8 ms, 0 long
+- m4-cautery: 123 draw calls, 909470 tris, p95 16.7 ms, 0 long
+- m4-staple: 129 draw calls, 900921 tris, p95 16.8 ms, 0 long
+- m4-outside-hands: 100 draw calls, 733370 tris, p95 33.4 ms, 0 long
+- heap 9.5 → 10.5 MB
+- long frames 7 (max 150 ms), fps 54.6, frame p95 33.4 ms — NOT representative (headless, test-driven)
+- practice run 1: 51 s · programs 32 → 32 · 66 calls / 486030 tris peak (complication 65 / 469366) · p95 16.8 ms · 13 long (max 183 ms) · heap 9.6 → 11.4 MB (19 %)
+- practice run 2: 51 s · programs 32 → 32 · 66 calls / 486029 tris peak (complication 65 / 469366) · p95 16.8 ms · 13 long (max 100 ms) · heap 9.7 → 11.4 MB (17.1 %)
+- practice run 3: 51 s · programs 32 → 32 · 66 calls / 486029 tris peak (complication 65 / 469366) · p95 33.3 ms · 13 long (max 100 ms) · heap 9.7 → 11.4 MB (17.1 %)
+- practice heap: run 1 → 3 end 0 % (gate, budget < 10 %); per run 19 / 17.1 / 17.1 % (informational, incl. lazy debrief chunk); reload per run, see qa/perf.json heapMethod
+
+### 2026-11-05T05:48:32.884Z PASS (headless real GPU (ANGLE/Vulkan), preset medium, 1280×720, script: orbit + window.__sim.probeScript (guided steps 1–7, rig, outside, OLV, clamp, X-ray, M4) + 3 practice runs (PA01→PA32 + 1 complication))
+- FCP 104 ms · ready 2586 ms · transfer 11.4 MB
+- programs 32 → 32 · textures 88 (≈ 73.1 MB)
+- ready: 92 draw calls, 740729 tris, p95 16.7 ms, 1 long
+- orbit: 92 draw calls, 740729 tris, p95 33.4 ms, 1 long
+- scope-step1: 60 draw calls, 478513 tris, p95 33.3 ms, 0 long
+- scope-step2: 40 draw calls, 415460 tris, p95 33.4 ms, 0 long
+- scope-step3: 55 draw calls, 442984 tris, p95 16.7 ms, 0 long
+- scope-step4: 47 draw calls, 396289 tris, p95 16.7 ms, 0 long
+- scope-step5: 45 draw calls, 412374 tris, p95 16.7 ms, 0 long
+- scope-step6: 44 draw calls, 414749 tris, p95 16.7 ms, 0 long
+- scope-step7: 40 draw calls, 293864 tris, p95 16.7 ms, 0 long
+- scope-rig: 29 draw calls, 251859 tris, p95 16.7 ms, 0 long
+- outside: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- olv: 93 draw calls, 740730 tris, p95 16.7 ms, 0 long
+- clamp: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- xray: 93 draw calls, 740730 tris, p95 33.3 ms, 1 long
+- opacity-cutaway: 92 draw calls, 740729 tris, p95 66.7 ms, 3 long
+- m4-scope: 117 draw calls, 906897 tris, p95 116.7 ms, 3 long
+- m4-tools: 125 draw calls, 909169 tris, p95 16.7 ms, 0 long
+- m4-cautery: 123 draw calls, 909470 tris, p95 33.3 ms, 0 long
+- m4-staple: 61 draw calls, 440369 tris, p95 33.2 ms, 0 long
+- m4-outside-hands: 100 draw calls, 733370 tris, p95 16.7 ms, 0 long
+- heap 9.5 → 10.5 MB
+- long frames 9 (max 417 ms), fps 58.1, frame p95 33.4 ms — NOT representative (headless, test-driven)
+- practice run 1: 51 s · programs 32 → 32 · 65 calls / 486029 tris peak (complication 65 / 469366) · p95 16.8 ms · 20 long (max 450 ms) · heap 9.6 → 11.4 MB (18.9 %)
+- practice run 2: 51 s · programs 32 → 32 · 66 calls / 486030 tris peak (complication 65 / 469366) · p95 16.8 ms · 11 long (max 100 ms) · heap 9.7 → 11.4 MB (17.2 %)
+- practice run 3: 51 s · programs 32 → 32 · 66 calls / 486030 tris peak (complication 66 / 469367) · p95 33.3 ms · 13 long (max 117 ms) · heap 9.7 → 11.4 MB (17.1 %)
+- practice heap: run 1 → 3 end 0 % (gate, budget < 10 %); per run 18.9 / 17.2 / 17.1 % (informational, incl. lazy debrief chunk); reload per run, see qa/perf.json heapMethod
+
+### 2026-11-05T06:15:54.882Z PASS (headless real GPU (ANGLE/Vulkan), preset medium, 1280×720, script: orbit + window.__sim.probeScript (guided steps 1–7, rig, outside, OLV, clamp, X-ray, M4) + 3 practice runs (PA01→PA32 + 1 complication))
+- FCP 104 ms · ready 2625 ms · transfer 11.4 MB
+- programs 32 → 32 · textures 88 (≈ 73.1 MB)
+- ready: 92 draw calls, 740729 tris, p95 16.8 ms, 1 long
+- orbit: 92 draw calls, 740729 tris, p95 33.4 ms, 2 long
+- scope-step1: 50 draw calls, 440516 tris, p95 16.7 ms, 0 long
+- scope-step2: 33 draw calls, 389462 tris, p95 16.7 ms, 0 long
+- scope-step3: 45 draw calls, 411849 tris, p95 16.7 ms, 0 long
+- scope-step4: 37 draw calls, 361291 tris, p95 33.3 ms, 0 long
+- scope-step5: 36 draw calls, 380376 tris, p95 16.7 ms, 0 long
+- scope-step6: 33 draw calls, 376751 tris, p95 16.7 ms, 0 long
+- scope-step7: 30 draw calls, 263866 tris, p95 16.7 ms, 0 long
+- scope-rig: 20 draw calls, 219861 tris, p95 16.7 ms, 0 long
+- outside: 92 draw calls, 740729 tris, p95 16.8 ms, 0 long
+- olv: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- clamp: 92 draw calls, 740729 tris, p95 16.7 ms, 0 long
+- xray: 92 draw calls, 740729 tris, p95 16.7 ms, 1 long
+- opacity-cutaway: 92 draw calls, 740729 tris, p95 50 ms, 1 long
+- m4-scope: 93 draw calls, 838625 tris, p95 50.1 ms, 2 long
+- m4-tools: 101 draw calls, 840897 tris, p95 16.8 ms, 0 long
+- m4-cautery: 100 draw calls, 844198 tris, p95 16.7 ms, 0 long
+- m4-staple: 107 draw calls, 841089 tris, p95 33.3 ms, 0 long
+- m4-outside-hands: 100 draw calls, 733370 tris, p95 16.7 ms, 0 long
+- heap 9.5 → 10.5 MB
+- long frames 7 (max 233 ms), fps 58.1, frame p95 33.3 ms — NOT representative (headless, test-driven)
+- practice run 1: 51 s · programs 32 → 32 · 55 calls / 451031 tris peak (complication 54 / 431368) · p95 33.3 ms · 13 long (max 100 ms) · heap 9.6 → 11.4 MB (18.9 %)
+- practice run 2: 51 s · programs 32 → 32 · 55 calls / 451032 tris peak (complication 55 / 431369) · p95 33.3 ms · 19 long (max 317 ms) · heap 9.7 → 11.4 MB (17.2 %)
+- practice run 3: 51 s · programs 32 → 32 · 54 calls / 451031 tris peak (complication 55 / 431369) · p95 16.8 ms · 11 long (max 267 ms) · heap 9.7 → 11.4 MB (17.3 %)
+- practice heap: run 1 → 3 end 0 % (gate, budget < 10 %); per run 18.9 / 17.2 / 17.3 % (informational, incl. lazy debrief chunk); reload per run, see qa/perf.json heapMethod

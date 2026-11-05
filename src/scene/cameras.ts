@@ -98,8 +98,8 @@ export function createCameraRig(
     const pose = worldPose(c as PerspectiveCamera, makePose());
     const fix = S.poseFix.find((f) => f.camera === c.name);
     if (fix) {
-      pose.position.set(...fix.position);
-      look.lookAt(pose.position, new Vector3(...fix.target), c.up);
+      pose.position.fromArray(fix.position);
+      look.lookAt(pose.position, new Vector3().fromArray(fix.target), c.up);
       pose.quaternion.setFromRotationMatrix(look);
     }
     scopePoses.set(c.name, pose);
