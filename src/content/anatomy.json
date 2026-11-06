@@ -23,6 +23,12 @@
       "poses": [[], ["collapse_RUL", "collapse_RML", "collapse_RLL", "retract_hilum"]]
     }
   },
+  "textureTransfer": {
+    "$comment": "T854 build-time (scripts/optimize-assets.mjs): model mesh ← base mesh UVs (closest point, rest pose) + its colour/roughness maps. Delete an entry, or ship textures in the model, to skip.",
+    "lung_upper_lobe_right": "lung_upper_lobe_right",
+    "lung_middle_lobe_right": "lung_middle_lobe_right",
+    "lung_lower_lobe_right": "lung_lower_lobe_right"
+  },
   "removedFromBase": [
     "tree_pulm_artery_base",
     "pa_left",

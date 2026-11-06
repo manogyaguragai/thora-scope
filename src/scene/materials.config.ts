@@ -139,7 +139,9 @@ export const TISSUES = {
     ...wet,
     ...subsurface,
     color: '#b09098', // T807b: greyer + lighter than the plum vein / pleura (3-way luma gap at the step-3 pose)
-    mapLuma: 0.25,
+    // T854: v3 lobe colour/roughness maps transferred onto the v8 lobes at build time (anatomy.json textureTransfer);
+    // measured by scripts/optimize-assets.mjs (0.362 all three lobes), so the palette colour stays the mean.
+    mapLuma: 0.36,
     roughness: 0.4,
     microNormal: 0.8, // T111: breaks the env reflection into wet glints (frames: many small sharp highlights)
     scatterStrength: 0.6, // T807b: less red back-scatter → greyer than the plum vein / pleura
