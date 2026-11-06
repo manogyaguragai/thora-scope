@@ -29,10 +29,11 @@ export const instrumentLook = {
   // 04:29: the leader reads cream/tan and only slightly see-through.
   silicone: { color: '#dccfa6', roughness: 0.35, metalness: 0, opacity: 0.82 },
   /**
-   * Cartridge colour per stapler sub-option (vascular curved-tip · vascular + leader · bronchial · parenchyma).
-   * Real-world colour↔staple-height mapping differs by manufacturer — PENDING CLINICIAN REVIEW (docs/ASSET_ISSUES.md).
+   * Reload colour per stapler sub-option (vascular curved-tip · vascular + leader · bronchial · parenchyma). T841:
+   * blue for vessels / bronchus, tan-white for parenchyma (user's reference photos). Real-world colour↔staple-height
+   * mapping differs by manufacturer — PENDING CLINICIAN REVIEW (docs/ASSET_ISSUES.md).
    */
-  cartridge: ['#e6e4de', '#e6e4de', '#2c2a30', '#6c4a8e'],
+  cartridge: ['#2f6fc4', '#2f6fc4', '#2f6fc4', '#ddd0b0'],
   cauteryTip: '#8d8f92',
   cauteryGlow: 1.6, // emissive intensity while the cautery is active
   /** T821: neutral grey reflection env for every instrument material (lights.ts; same shape as config.cavityEnv):
@@ -142,11 +143,14 @@ export const instrumentGeom = {
     /** Ring forceps (sponge / peanut, all steel): scissor shanks out to ±X rings. */
     scissor: { length: 0.12, spread: 0.03, ring: 0.012, tube: 0.0024, rod: 0.0025 },
     pencil: { radius: 0.0055, length: 0.12, buttons: [0.025, 0.04], button: 0.0018 },
-    /** Stapler pistol: body + grip + trigger outlines in the (−Y, −Z) plane, `thick` across X. */
+    /** Powered stapler pistol (white, T841): fluted rotation knob, body, grip + trigger outlines in the (−Y, −Z)
+     *  plane, `thick` across X, a dark fire button on the grip. */
     pistol: {
-      bodyRadius: 0.013,
-      bodyLength: 0.1,
-      thick: 0.024,
+      bodyRadius: 0.016,
+      bodyLength: 0.095,
+      thick: 0.026,
+      knob: { radius: 0.012, length: 0.016, flutes: 8 },
+      button: 0.004,
       grip: [
         [0, -0.02],
         [0, -0.07],
@@ -207,36 +211,49 @@ export const instrumentGeom = {
     sheath: 0.0008, // sheath radius (the step down from the collar nose)
     sheathLength: 0.003,
   },
-  /** Jaws bend 90° toward +Y at the tip; the shaft sits `bendLength` below the tip. Tapered, serrated (Maryland). */
+  /** T841 right-angle vascular / bronchial clamp: two fine nested jaws run `reach` along the shaft from the hinge,
+   *  bend 90° (radius `bendRadius`) toward +Y and run on `bendLength` to the tip, which sits at the origin. They open
+   *  in the bend plane (about X at the hinge), so the bent tips hook behind a vessel and close across it. */
   rightAngle: {
-    jawLength: 0.022,
-    bendLength: 0.011,
-    jawWidth: 0.0018,
-    jawThick: 0.0022,
-    bendRadius: 0.006,
-    taper: 0.45, // tip radius × base radius
-    serrations: 14,
-    serrationDepth: 0.18, // × local radius, inner face only
-    open: 45 * deg,
+    reach: 0.012,
+    bendRadius: 0.005,
+    bendLength: 0.009, // straight bent part after the curve
+    jawWidth: 0.0017, // across X
+    jawThick: 0.0013, // each jaw, in the bend plane
+    taper: 0.4, // tip radius × base radius
+    serrations: 16,
+    serrationDepth: 0.16, // × local radius, inner face only
+    segments: 40,
+    open: 40 * deg,
   },
+  /** T841 powered vascular stapler (user's reference photos): long round brushed-steel shaft, dark ridged
+   *  articulation knuckle, long jaws = steel anvil with a curved tapered tip over a channel holding a coloured reload
+   *  (staple-pocket deck, printed depth marks), white pistol handle. */
   stapler: {
     shaftRadius: 0.006, // 12 mm
-    shaftLength: 0.33,
-    jointLength: 0.012,
-    articulation: 20 * deg, // head articulation about the joint, fixed at build: the jaws angle across the target
+    shaftLength: 0.3,
+    jointLength: 0.016, // articulation knuckle
+    knuckleRidges: 4,
+    articulation: 0, // rest articulation; jawPose (staple.ts) articulates the head across an engaged structure
+    maxArticulation: 45 * deg,
     headLength: 0.05,
-    jawWidth: 0.0095,
+    jawWidth: 0.0085,
     cartridgeThick: 0.0055,
-    anvilThick: 0.004,
+    channelThick: 0.0012, // steel channel under the reload
+    anvilThick: 0.0035,
     insertInset: 0.0015, // cartridge insert is this much narrower than the jaw on each side
     knifeSlot: 0.0008, // gap down the middle of the cartridge insert
     corner: 0.0012, // jaw cross-section corner radius
     anvilWidth: 0.88, // × jawWidth: the anvil is a little narrower than the cartridge
     jawGap: 0.0005, // visible gap between insert and anvil when closed
     nose: 0.004, // rounded cartridge nose length
-    curvedTipLength: 0.009,
-    curvedTipAngle: 35 * deg,
+    curvedTipLength: 0.011,
+    curvedTipAngle: 40 * deg,
     open: 22 * deg,
+    /** Printed depth marks on both reload sides: every `pitch` from the hinge, long ticks every `longEvery`. */
+    marks: { pitch: 0.005, longEvery: 2, width: 0.00035, short: 0.0012, long: 0.0024, lift: 0.00005 },
+    /** Knife (rides the sled heel → tip while firing): thin steel blade between the staple rows. */
+    knife: { thick: 0.0003, height: 0.0028, length: 0.003 },
     leader: { radius: 0.0016, tubularSegments: 24, radialSegments: 8 },
     /** Silicone leader centre-line, local to the anvil tip (+Z forward), a gentle preset curve. */
     leaderCurve: [
@@ -246,12 +263,14 @@ export const instrumentGeom = {
       [0, 0.03, 0.065],
     ] as readonly (readonly [number, number, number])[],
   },
+  /** Clip applier: slim tapered jaws with a groove each holding one leg of a loaded titanium clip (shown while loaded). */
   clip: {
-    jawLength: 0.012,
+    jawLength: 0.014,
     jawWidth: 0.0026,
-    jawThick: 0.0014,
+    jawThick: 0.0012,
+    groove: 0.0004, // groove depth along each jaw's inner face, where the clip leg sits
     open: 30 * deg,
-    clipLength: 0.008,
+    clipLength: 0.009,
     clipWidth: 0.0012,
     clipThick: 0.0005,
   },
@@ -267,4 +286,22 @@ export const instrumentGeom = {
 } as const;
 
 /** Rates for the control layer's animations (jaw open/close, cautery glow ramp), per second of 0..1 travel. */
-export const instrumentAnim = { jawPerSecond: 4, glowPerSecond: 8 } as const;
+export const instrumentAnim = {
+  jawPerSecond: 4,
+  glowPerSecond: 8,
+  /** T841 stapler fire (fractions of config.staple.fireMs): compression pause, staples form heel → tip, knife. */
+  staplerFire: { compress: 0.2, form: 0.65 },
+  /** T841 jaws engaged on a structure (staple.ts jawPose / closedJawFor). */
+  engage: {
+    clearance: 1.2, // stapler: anvil gap at full opening ≥ this × the structure's diameter where it sits
+    staplerSpan: [0.25, 0.8] as const, // … between these fractions of the jaw length from the hinge
+    compress: 0.4, // closed jaws squeeze the structure to this × its diameter
+    clampHold: 0.55, // clamp: the structure sits this far (× bent part) down from the tip …
+    clampHoldR: 1.3, // … and at least this × its radius
+    clipHold: 0.5, // clip: at this fraction of the clip leg from its tip
+    clipGapM: 0.004, // the two clips sit ± half this from the cut
+    divideDelayMs: 250, // after the second clip, the vessel divides between the clips
+    fallbackRadiusM: 0.003, // structure radius without a stump split
+    iterations: 3, // pose refinement (the shaft re-aims through the port after each tip move)
+  },
+} as const;

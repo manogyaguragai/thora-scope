@@ -1,9 +1,10 @@
 // Port occupancy, stapler approach angle and the retraction swap (CONTEXT §6.4, ADR-004, VIDEO_STEP_MAP (b)/(d)).
-// Pure logic: no scene objects, no allocations after construction. Each port holds at most one scope, one active
-// tool and up to retractionConfig.maxHeld held retractions (T820); capacity caps how many of those may share it.
+// Pure logic: no scene objects. A port's positions (interactionConfig.capacity: the access incision takes two, the
+// 1 cm ports one) are shared by the scope, the tool in the hand and instruments left in it (T820 holds, T840 any
+// placed instrument), within the inventory caps (interactionConfig.inventory).
 import { TARGET_BY_ID, type ToolId } from '../content/targets';
 import { config } from '../core/config';
-import { retractionConfig } from './retraction.config';
+import { interactionConfig as I, invKind } from './interaction.config';
 
 export const PORT_CONFIG = config.ports; // values in src/core/config.ts
 
@@ -31,9 +32,11 @@ export type FireCheck =
 
 const RAD2DEG = 180 / Math.PI;
 
-/** A retraction held in its port while the hand changes tool. */
+/** An instrument left in its port (holding / retracting / clamped / resting on `target`) while the hand changes tool. */
 export interface Hold {
   tool: ToolId;
+  /** Sub-option id (inventory kind: ring forceps vs lung grasper). */
+  sub: string | null;
   port: string;
   target: string;
 }
@@ -42,7 +45,8 @@ export class PortOccupancy {
   scopePort: string | null = null;
   activeTool: ToolId | null = null;
   activePort: string | null = null;
-  /** Held retractions, oldest first (≤ maxHeld). */
+  activeSub: string | null = null;
+  /** Instruments left in ports, oldest first. */
   readonly holds: Hold[] = [];
   /** Held retraction moved to a different port (debrief: "retraction swaps"). */
   swaps = 0;
@@ -51,10 +55,7 @@ export class PortOccupancy {
 
   private readonly ports: ReadonlyMap<string, PortLike>;
 
-  constructor(
-    ports: readonly PortLike[],
-    readonly maxHeld = retractionConfig.maxHeld,
-  ) {
+  constructor(ports: readonly PortLike[]) {
     this.ports = new Map(ports.map((p) => [p.id, p]));
   }
 
@@ -75,13 +76,21 @@ export class PortOccupancy {
     return n;
   }
 
-  /** Would hold(target) need a free hold slot it can't get? */
-  holdFull(target: string): boolean {
-    return this.holds.length >= this.maxHeld && !this.holds.some((h) => h.target === target);
+  capacity(port: string): number {
+    return I.capacity[port] ?? I.defaultCapacity;
   }
 
-  capacity(port: string): number {
-    return PORT_CONFIG.capacity[port] ?? PORT_CONFIG.defaultCapacity;
+  /** Instruments of inventory kind `kind` in the chest (hand + left). */
+  inUse(kind: string): number {
+    let n = this.activeTool !== null && invKind(this.activeTool, this.activeSub) === kind ? 1 : 0;
+    for (const h of this.holds) if (invKind(h.tool, h.sub) === kind) n++;
+    return n;
+  }
+
+  /** May another `tool` (+ sub) go in? (inventory cap) */
+  canTake(tool: ToolId, sub: string | null = null): boolean {
+    const kind = invKind(tool, sub);
+    return this.inUse(kind) < (I.inventory[kind] ?? 1);
   }
 
   used(port: string): number {
@@ -90,6 +99,15 @@ export class PortOccupancy {
 
   hasRoom(port: string): boolean {
     return this.used(port) < this.capacity(port);
+  }
+
+  /** T850 "Insert via": may the hand's instrument enter through `port`? ('' = yes; its own port always may).
+   *  `allowed` = the step's ports (practice; empty = any). */
+  insertRefusal(port: string, allowed: readonly string[] = []): '' | 'unknown' | 'not-allowed' | 'full' {
+    if (!this.ports.has(port)) return 'unknown';
+    if (this.activePort === port) return '';
+    if (allowed.length > 0 && !allowed.includes(port)) return 'not-allowed';
+    return this.hasRoom(port) ? '' : 'full';
   }
 
   /** P: move the scope. Fails if the port is unknown or full. */
@@ -101,10 +119,11 @@ export class PortOccupancy {
   }
 
   /** Pass a tool in through a port (replaces the current active tool). */
-  insert(tool: ToolId, port: string): boolean {
+  insert(tool: ToolId, port: string, sub: string | null = null): boolean {
     if (this.activePort !== port && (!this.ports.has(port) || !this.hasRoom(port))) return false;
     this.activeTool = tool;
     this.activePort = port;
+    this.activeSub = sub;
     return true;
   }
 
@@ -112,23 +131,43 @@ export class PortOccupancy {
   withdraw(): void {
     this.activeTool = null;
     this.activePort = null;
+    this.activeSub = null;
   }
 
-  /** G: the active tool's retraction on `target` stays while the hand changes tool. Re-holding an already held
-   *  target replaces that hold (a port change counts as a retraction swap); a new target takes a free hold slot.
-   *  Returns false if no tool is in or all hold slots are taken. Event-time only. */
+  /** Take the left instrument `holds[i]` back into the hand, in its port (the hand must be empty). */
+  pickUp(i: number): Hold | null {
+    const h = this.holds[i];
+    if (!h || this.activeTool !== null) return null;
+    this.holds.splice(i, 1);
+    this.activeTool = h.tool;
+    this.activePort = h.port;
+    this.activeSub = h.sub;
+    return h;
+  }
+
+  /** Withdraw the most recent instrument left in `port`. */
+  releasePort(port: string): Hold | null {
+    for (let i = this.holds.length - 1; i >= 0; i--)
+      if (this.holds[i]?.port === port) return this.holds.splice(i, 1)[0] ?? null;
+    return null;
+  }
+
+  /** G / tool switch: the active tool stays in its port on `target` while the hand changes tool. The same tool kind
+   *  re-holding an already held target replaces that hold (a port change counts as a retraction swap). Returns false
+   *  if no tool is in. Event-time only. */
   hold(target: string): boolean {
-    if (this.activePort === null || this.activeTool === null || this.holdFull(target)) return false;
-    const i = this.holds.findIndex((h) => h.target === target);
+    const tool = this.activeTool;
+    if (this.activePort === null || tool === null) return false;
+    const kind = invKind(tool, this.activeSub);
+    const i = this.holds.findIndex((h) => h.target === target && invKind(h.tool, h.sub) === kind);
     const prev = i >= 0 ? this.holds.splice(i, 1)[0] : undefined;
     if (prev && prev.port !== this.activePort) {
       this.swaps++;
       this.lastSwapFrom = prev.port;
       this.lastSwapTo = this.activePort;
     }
-    this.holds.push({ tool: this.activeTool, port: this.activePort, target });
-    this.activeTool = null;
-    this.activePort = null;
+    this.holds.push({ tool, sub: this.activeSub, port: this.activePort, target });
+    this.withdraw();
     return true;
   }
 

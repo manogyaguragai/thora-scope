@@ -10,6 +10,7 @@ import {
   Vector3,
 } from 'three';
 import { describe, expect, test } from 'vitest';
+import { config } from '../../src/core/config';
 import { buildPickBVH } from '../../src/scene/picking';
 
 function camera(): PerspectiveCamera {
@@ -112,5 +113,19 @@ describe('nearest surface (T822 cautery contact gating)', () => {
     expect(picker.nearest(p, 0.05)).toBeNull();
     expect(picker.nearest(p, 0.05, true)?.nodeName).toBe('near'); // raw: mid-stroke the hook rides the layer
     expect(picker.nearest(p.set(-0.1, 0.2, 0.52), 0.05)?.nodeName).toBe('near');
+  });
+
+  test('T843: config.pick.skipNames are never picked but still block ray(); ray honours near/far', () => {
+    const { scene, near } = boxes();
+    near.name = config.pick.skipNames[0] ?? 'mediastinal_fat_ct';
+    const picker = buildPickBVH(scene);
+    expect(picker.pick(0, 0, camera())?.nodeName).toBe('far'); // looks through the CT fat
+    const o = new Vector3(0, 0, 10);
+    const d = new Vector3(0, 0, -1);
+    expect(picker.ray(o, d, 0, 20)?.nodeName).toBe(near.name);
+    expect(picker.ray(o, d, 0, 20)?.distance).toBeCloseTo(9.5);
+    expect(picker.ray(o, d, 9.6, 20)?.nodeName).toBe('far'); // hits closer than near are ignored
+    expect(picker.ray(o, d, 0, 9)).toBeNull();
+    expect(picker.pick(0, 0, camera())?.nodeName).toBe('far'); // ray() leaves the pick raycaster unbounded
   });
 });

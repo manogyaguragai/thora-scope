@@ -1,5 +1,6 @@
 {
-  "version": "v3",
+  "$comment": "Step table (docs/MODEL_INTEGRATION.md). Hilum hidden sets are derived from src/content/anatomy.json (divideStep / clearStep / dissectStep / removedAfterStep / hidden) in src/sim/steps.ts; `hidden` here lists extra non-manifest nodes only. aimAtHilum: the step's scope view is aimed from `port` at the reference camera's hilar target (src/scene/cameras.ts). Missing state keys tween to 0. Aimed steps may name a camera the glb lacks (cam_5_RML_bronchus): aimStepPoses adds it.",
+  "version": "v3+anatomy.json",
   "fps": 24,
   "heart_rate_bpm": 75,
   "resp_rate_per_min": 15,
@@ -7,16 +8,13 @@
     "collapse_RUL": "deflate_RUL",
     "collapse_RML": "deflate_RML",
     "collapse_RLL": "deflate_RLL",
-    "mediastinal_shift": "max(deflate_RUL,deflate_RML,deflate_RLL)",
-    "retract_posterior": "retract_posterior",
+    "retract_hilum": "retract_hilum",
+    "retract_RML_lateral": "retract_RML_lateral",
     "retract_fissure": "retract_fissure",
     "heartbeat": "heartbeat (0 diastole..1 systole)",
     "breath_left": "breath (0 expiration..1 inspiration)"
   },
-  "default_hidden": [
-    "hilar_connective_tissue_window",
-    "mediastinal_fat_window"
-  ],
+  "default_hidden": [],
   "physiology_timeline": [
     {
       "frame": 1,
@@ -42,7 +40,7 @@
   "steps": [
     {
       "step": 1,
-      "label": "Step 1 - Inspect the pleural cavity and confirm the right lung is deflated",
+      "label": "Step 1 - Inspect the pleural cavity (one-lung ventilation: right lung down)",
       "start_frame": 721,
       "camera": "cam_1_inspection",
       "lens_mm": 18.0,
@@ -53,38 +51,35 @@
         "deflate_RUL": 1.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 1.0,
-        "retract_posterior": 0.0,
+        "retract_hilum": 0.0,
+        "retract_RML_lateral": 0.0,
         "retract_fissure": 0.0
       },
-      "hidden": [
-        "hilar_connective_tissue_window",
-        "mediastinal_fat_window"
-      ]
+      "hidden": []
     },
     {
       "step": 2,
-      "label": "Step 2 - Retract the lung posteriorly: anterior hilum, phrenic nerve, superior pulmonary vein",
+      "label": "Step 2 - Expose the hilum: retract the lung, open the mediastinal pleura (phrenic nerve protected)",
       "start_frame": 811,
       "camera": "cam_2_anterior_hilum",
       "lens_mm": 20.0,
       "sensor_width_mm": 36,
-      "port": "port_camera_8ICS",
+      "port": "port_utility_5ICS",
       "scope_angle_deg": 29.4,
       "state": {
         "deflate_RUL": 1.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 1.0,
-        "retract_posterior": 1.0,
+        "retract_hilum": 1.0,
+        "retract_RML_lateral": 0.0,
         "retract_fissure": 0.0
       },
-      "hidden": [
-        "hilar_connective_tissue_window",
-        "mediastinal_fat_window"
-      ]
+      "hidden": [],
+      "aimAtHilum": true
     },
     {
       "step": 3,
-      "label": "Step 3 - Middle lobe vein (V4/V5): isolate it and confirm the upper lobe vein is preserved",
+      "label": "Step 3 - Middle lobe vein (V4/V5): dissect, make the passage, staple",
       "start_frame": 901,
       "camera": "cam_3_RML_vein_zoom",
       "lens_mm": 28.0,
@@ -95,18 +90,17 @@
         "deflate_RUL": 1.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 1.0,
-        "retract_posterior": 1.0,
+        "retract_hilum": 1.0,
+        "retract_RML_lateral": 0.0,
         "retract_fissure": 0.0
       },
-      "hidden": [
-        "hilar_connective_tissue",
-        "mediastinal_fat"
-      ]
+      "hidden": [],
+      "aimAtHilum": true
     },
     {
       "step": 4,
-      "label": "Step 4 - Vein divided: clear nodes 11R/12R and expose the middle lobe bronchus",
-      "start_frame": 991,
+      "label": "Step 4 - Lymph nodes 11R/12R: grasp and remove, cauterise the node bed",
+      "start_frame": 946,
       "camera": "cam_4_bronchus_nodes",
       "lens_mm": 26.0,
       "sensor_width_mm": 36,
@@ -116,22 +110,36 @@
         "deflate_RUL": 1.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 1.0,
-        "retract_posterior": 1.0,
+        "retract_hilum": 1.0,
+        "retract_RML_lateral": 0.0,
         "retract_fissure": 0.0
       },
-      "hidden": [
-        "V4_lateral",
-        "V5_medial",
-        "V_RML_accessory_1",
-        "V_RML_accessory_2",
-        "V_RML_common",
-        "hilar_connective_tissue",
-        "mediastinal_fat"
-      ]
+      "hidden": [],
+      "aimAtHilum": true
     },
     {
       "step": 5,
-      "label": "Step 5 - Bronchus divided: the 1-2 middle lobe arteries (A4/A5) lie just above it",
+      "label": "Step 5 - Middle lobe bronchus: clamp, test ventilation, staple",
+      "start_frame": 991,
+      "camera": "cam_5_RML_bronchus",
+      "lens_mm": 26.0,
+      "sensor_width_mm": 36,
+      "port": "port_utility_5ICS",
+      "scope_angle_deg": 44.3,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_hilum": 1.0,
+        "retract_RML_lateral": 1.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": [],
+      "aimAtHilum": true
+    },
+    {
+      "step": 6,
+      "label": "Step 6 - Middle lobe arteries (A4/A5): passage, staple",
       "start_frame": 1081,
       "camera": "cam_5_RML_arteries",
       "lens_mm": 28.0,
@@ -142,27 +150,16 @@
         "deflate_RUL": 1.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 1.0,
-        "retract_posterior": 1.0,
-        "retract_fissure": 0.0
+        "retract_hilum": 0.0,
+        "retract_RML_lateral": 0.0,
+        "retract_fissure": 1.0
       },
-      "hidden": [
-        "B4_lateral",
-        "B5_medial",
-        "B_RML_common",
-        "LN_11R",
-        "LN_12R",
-        "V4_lateral",
-        "V5_medial",
-        "V_RML_accessory_1",
-        "V_RML_accessory_2",
-        "V_RML_common",
-        "hilar_connective_tissue",
-        "mediastinal_fat"
-      ]
+      "hidden": [],
+      "aimAtHilum": true
     },
     {
-      "step": 6,
-      "label": "Step 6 - Complete the horizontal and oblique fissures (RUL up, RLL down, RML lifted)",
+      "step": 7,
+      "label": "Step 7 - Complete the horizontal and oblique fissures",
       "start_frame": 1171,
       "camera": "cam_6_fissures",
       "lens_mm": 20.0,
@@ -173,33 +170,34 @@
         "deflate_RUL": 1.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 1.0,
-        "retract_posterior": 0.0,
+        "retract_hilum": 0.0,
+        "retract_RML_lateral": 0.0,
         "retract_fissure": 1.0
       },
-      "hidden": [
-        "A4_lateral",
-        "A5_medial",
-        "A_RML_accessory_1",
-        "A_RML_accessory_2",
-        "A_RML_common",
-        "A_RML_extra_1",
-        "B4_lateral",
-        "B5_medial",
-        "B_RML_common",
-        "LN_11R",
-        "LN_12R",
-        "V4_lateral",
-        "V5_medial",
-        "V_RML_accessory_1",
-        "V_RML_accessory_2",
-        "V_RML_common",
-        "hilar_connective_tissue",
-        "mediastinal_fat"
-      ]
+      "hidden": []
     },
     {
-      "step": 7,
-      "label": "Step 7 - Lobe removed: re-inflate RUL and RLL, check the bronchial stump",
+      "step": 8,
+      "label": "Step 8 - Bag the middle lobe and remove it through the access incision",
+      "start_frame": 1216,
+      "camera": "cam_6_fissures",
+      "lens_mm": 20.0,
+      "sensor_width_mm": 36,
+      "port": "port_camera_8ICS",
+      "scope_angle_deg": 30.6,
+      "state": {
+        "deflate_RUL": 1.0,
+        "deflate_RML": 1.0,
+        "deflate_RLL": 1.0,
+        "retract_hilum": 0.0,
+        "retract_RML_lateral": 1.0,
+        "retract_fissure": 0.0
+      },
+      "hidden": []
+    },
+    {
+      "step": 9,
+      "label": "Step 9 - Irrigate, leak test under saline, then suction",
       "start_frame": 1261,
       "camera": "cam_7_reinflation",
       "lens_mm": 18.0,
@@ -210,30 +208,11 @@
         "deflate_RUL": 0.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 0.0,
-        "retract_posterior": 0.0,
+        "retract_hilum": 1.0,
+        "retract_RML_lateral": 0.0,
         "retract_fissure": 0.0
       },
-      "hidden": [
-        "A4_lateral",
-        "A5_medial",
-        "A_RML_accessory_1",
-        "A_RML_accessory_2",
-        "A_RML_common",
-        "A_RML_extra_1",
-        "B4_lateral",
-        "B5_medial",
-        "B_RML_common",
-        "LN_11R",
-        "LN_12R",
-        "V4_lateral",
-        "V5_medial",
-        "V_RML_accessory_1",
-        "V_RML_accessory_2",
-        "V_RML_common",
-        "hilar_connective_tissue",
-        "lung_middle_lobe_right",
-        "mediastinal_fat"
-      ]
+      "hidden": []
     }
   ],
   "layer_groups": {
@@ -278,9 +257,9 @@
       "subcutaneous_fat"
     ],
     "Hilar_vessels_airway": [
-      "tree_airway_base",
-      "tree_pulm_artery_base",
-      "tree_pulm_vein_base"
+      "bronchial_tree",
+      "pulmonary_artery_tree",
+      "pulmonary_vein_tree"
     ],
     "Lobes": [
       "lung_lower_lobe_left",
@@ -304,7 +283,6 @@
       "brachiocephalic_vein_right",
       "esophagus",
       "heart_rest",
-      "inferior_pulmonary_ligament",
       "inferior_vena_cava",
       "pericardium",
       "phrenic_nerve_right",
@@ -317,34 +295,24 @@
       "port_utility_5ICS"
     ],
     "Pulmonary_arteries": [
-      "arteries_left_intrapulm",
-      "pa_left"
-    ],
-    "Pulmonary_veins_LA": [
-      "left_atrium_provisional"
+      "arteries_left_intrapulm"
     ],
     "RML_hilum": [
-      "A4_lateral",
-      "A5_medial",
-      "A_RML_accessory_1",
-      "A_RML_accessory_2",
-      "A_RML_common",
-      "A_RML_extra_1",
-      "B4_lateral",
-      "B5_medial",
-      "B_RML_common",
-      "V4_lateral",
-      "V5_medial",
-      "V_RML_accessory_1",
-      "V_RML_accessory_2",
-      "V_RML_common"
+      "middle_lobe_artery",
+      "middle_lobe_artery_A4",
+      "middle_lobe_artery_A5",
+      "middle_lobe_bronchus",
+      "middle_lobe_bronchus_B4",
+      "middle_lobe_bronchus_B5",
+      "middle_lobe_vein",
+      "middle_lobe_vein_V4",
+      "middle_lobe_vein_V5"
     ],
     "Soft_tissue": [
       "diaphragm",
       "hilar_connective_tissue",
-      "hilar_connective_tissue_window",
       "mediastinal_fat",
-      "mediastinal_fat_window"
+      "mediastinal_pleura_hilum"
     ]
   }
 }

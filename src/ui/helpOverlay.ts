@@ -44,7 +44,7 @@ export const MOUSE_BINDINGS: readonly HelpRow[] = [
   { keys: ['Left-click'], label: 'Hands: label a structure' },
   { keys: ['Port chip'], label: 'Any tool: move the scope to that port (Enter / Space when focused)' },
   { keys: ['Left-click'], label: 'Tool: snap the tip to a structure' },
-  { keys: ['Right-drag'], label: 'Tool: steer the tip (mirrored about the port)' },
+  { keys: ['Right-click'], label: 'Tool: park it where it is (select it again to move it)' },
   { keys: ['Wheel'], label: 'Tool: insert / withdraw depth' },
   { keys: ['Left-click', 'hold'], label: 'Tool: close jaws / fire / activate' },
 ];

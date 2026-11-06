@@ -11,6 +11,13 @@ import type { Port } from './ports';
 export const SCOPE_RIG_CONFIG = config.scopeRig;
 
 export type RigConfig = typeof SCOPE_RIG_CONFIG;
+/** The rig settings aimPose reads (callers may override depth for their own aims). */
+export interface AimConfig {
+  opticDefaultDeg: number;
+  fovDeg: number;
+  aimDepthFrac: number;
+  depthM: { default: number };
+}
 
 const Y_UP = new Vector3(0, 1, 0);
 const X_HEAD = new Vector3(1, 0, 0);
@@ -38,6 +45,38 @@ function portFrame(port: Port, outU: Vector3, outR: Vector3): void {
   outR.crossVectors(a, outU);
 }
 
+/**
+ * Lens pose in port `port` looking at `target` through the default oblique optic: the shaft is tilted off the
+ * fulcrum→target line (away from the port's head-ward axis) so the target lies exactly on the oblique view axis,
+ * the lens sits at most aimDepthFrac of the way in, image up from `up` (default world up). False (out untouched) when target ≈ fulcrum.
+ * Allocation-free.
+ */
+export function aimPose(
+  port: Port,
+  target: Vector3,
+  out: Pose,
+  cfg: AimConfig = SCOPE_RIG_CONFIG,
+  up: Vector3 = Y_UP,
+): boolean {
+  const d = tA.subVectors(target, port.pleura);
+  const dist = d.length();
+  if (dist < 1e-6) return false;
+  d.divideScalar(dist);
+  portFrame(port, tU, tR);
+  tB.copy(tU).addScaledVector(d, -tU.dot(d));
+  if (tB.lengthSq() < 1e-12) tB.copy(tR);
+  // Tilt α so the lens (depth in along the tilted shaft) sees the target exactly opticDefaultDeg off the shaft:
+  // triangle fulcrum–lens–target, law of sines: sin(θ − α) = depth·sin θ / dist.
+  const th = MathUtils.degToRad(cfg.opticDefaultDeg);
+  const depth = Math.min(cfg.depthM.default, dist * cfg.aimDepthFrac);
+  const al = th - Math.asin(MathUtils.clamp((depth * Math.sin(th)) / dist, -1, 1));
+  tS.copy(d).multiplyScalar(Math.cos(al)).addScaledVector(tB.normalize(), -Math.sin(al));
+  out.position.copy(port.pleura).addScaledVector(tS, depth);
+  out.quaternion.setFromRotationMatrix(tM.lookAt(out.position, target, up));
+  out.fov = cfg.fovDeg;
+  return true;
+}
+
 export class ScopeRig {
   readonly ports: readonly Port[];
   port!: Port;
@@ -53,6 +92,9 @@ export class ScopeRig {
   zoom = 1;
   /** Unzoomed vertical fov, degrees. */
   fovDeg = 0;
+  /** T843 collision: deepest lens depth (m past the pleura) along unit shaft `dir` from `origin` (the port's pleura
+   *  point), Infinity = free. Called on insert / pivot only; must not keep or mutate its arguments. */
+  limit: ((origin: Vector3, dir: Vector3) => number) | null = null;
   private readonly aimPose: Pose = { position: new Vector3(), quaternion: new Quaternion(), fov: 0 };
 
   constructor(
@@ -84,12 +126,44 @@ export class ScopeRig {
   /** Swing the shaft tip (≈ the view) toward image right / up by these angles, radians (arrow keys, drag). */
   pivot(rightRad: number, upRad: number): void {
     this.frame();
+    const yaw = this.yaw;
+    const pitch = this.pitch;
+    const a = this.port.axis;
+    const cos0 = tS.dot(a);
+    const lim0 = this.limit ? this.limit(this.port.pleura, tS) : Infinity;
     tS.addScaledVector(tRight, rightRad).addScaledVector(tUp, upRad).normalize();
     this.setShaft(tS);
+    // T843: reject a swing out through the chest wall, or into tissue that even the shallowest lens would touch (no
+    // worse than before: a pose that already starts there may still move back out). T847a: otherwise a swing toward
+    // tissue slides the lens back to the collision limit instead of sticking.
+    this.shaftFrame();
+    const cos1 = tS.dot(a);
+    const out = cos1 < Math.cos(MathUtils.degToRad(this.cfg.pivotConeDeg)) && cos1 < cos0;
+    const lim1 = out || !this.limit ? Infinity : this.limit(this.port.pleura, tS);
+    if (out || (lim1 <= this.cfg.depthM.min && lim1 < lim0)) {
+      this.yaw = yaw;
+      this.pitch = pitch;
+    } else if (lim1 < this.depth) this.depth = Math.max(this.cfg.depthM.min, lim1);
   }
 
+  /** Insert (+) / withdraw (−). T843: insertion stops at the collision limit (never pulls the lens back). */
   insert(deltaM: number): void {
-    this.depth = MathUtils.clamp(this.depth + deltaM, this.cfg.depthM.min, this.cfg.depthM.max);
+    let d = MathUtils.clamp(this.depth + deltaM, this.cfg.depthM.min, this.cfg.depthM.max);
+    if (deltaM > 0 && this.limit) {
+      this.shaftFrame();
+      d = Math.max(this.depth, Math.min(d, this.limit(this.port.pleura, tS)));
+    }
+    this.depth = d;
+  }
+
+  /** T843: pull the lens back to the collision limit (tissue moved onto it, e.g. re-inflation); true if moved. */
+  settle(): boolean {
+    if (!this.limit) return false;
+    this.shaftFrame();
+    const d = Math.max(this.cfg.depthM.min, this.limit(this.port.pleura, tS));
+    if (d >= this.depth) return false;
+    this.depth = d;
+    return true;
   }
 
   /** Light-post rotation: swings the oblique view around the shaft; lens and shaft stay put. */
@@ -120,27 +194,12 @@ export class ScopeRig {
 
   /**
    * Port-switch default view: move to port `id` and look at `target` through the default oblique optic, level.
-   * The shaft is tilted off the fulcrum→target line by the optic angle (away from the light post), then snapTo
-   * solves the exact optic / light post. Allocation-free.
+   * Pose from aimPose, then snapTo solves the exact optic / light post. Allocation-free.
    */
   aimFrom(id: string, target: Vector3): void {
     const port = this.findPort(id);
-    const d = tA.subVectors(target, port.pleura);
-    const dist = d.length();
-    if (dist < 1e-6) return this.switchPort(id);
-    d.divideScalar(dist);
-    portFrame(port, tU, tR);
-    tB.copy(tU).addScaledVector(d, -tU.dot(d));
-    if (tB.lengthSq() < 1e-12) tB.copy(tR);
-    const al = MathUtils.degToRad(this.cfg.opticDefaultDeg);
-    tS.copy(d).multiplyScalar(Math.cos(al)).addScaledVector(tB.normalize(), -Math.sin(al));
-    const p = this.aimPose;
-    p.position
-      .copy(port.pleura)
-      .addScaledVector(tS, Math.min(this.cfg.depthM.default, dist * this.cfg.aimDepthFrac));
-    p.quaternion.setFromRotationMatrix(tM.lookAt(p.position, target, Y_UP));
-    p.fov = this.cfg.fovDeg;
-    this.snapTo(p, id);
+    if (!aimPose(port, target, this.aimPose, this.cfg)) return this.switchPort(id);
+    this.snapTo(this.aimPose, id);
     this.horizonLock = true;
   }
 

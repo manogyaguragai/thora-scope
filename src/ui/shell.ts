@@ -17,6 +17,8 @@ export interface Shell {
   modeButtons: Record<ShellMode, HTMLButtonElement>;
   /** Inside (scope) / Outside (theatre) view switch (T816); wired + aria-pressed in M3. */
   viewButtons: Record<ShellView, HTMLButtonElement>;
+  /** T843 ventilation switch (One-lung / Two-lung); wired + aria-pressed in M3. */
+  ventButtons: Record<ShellVent, HTMLButtonElement>;
   /** `?` button; the help overlay is wired in M3. */
   help: HTMLButtonElement;
   rail: HTMLElement;
@@ -34,6 +36,12 @@ export const SHELL_VIEWS = [
   { view: 'outside', label: 'Outside (theatre)' },
 ] as const;
 export type ShellView = (typeof SHELL_VIEWS)[number]['view'];
+
+export const SHELL_VENTS = [
+  { vent: 'one', text: 'One-lung', label: 'One-lung ventilation' },
+  { vent: 'two', text: 'Two-lung', label: 'Two-lung ventilation' },
+] as const;
+export type ShellVent = (typeof SHELL_VENTS)[number]['vent'];
 
 let uid = 0;
 
@@ -96,11 +104,29 @@ export function mountShell(host: HTMLElement, onModeSelect: (mode: ShellMode) =>
     viewButtons[view] = b;
     views.append(b);
   }
+  const vents = el('nav', 'shell-modes shell-vents');
+  vents.setAttribute('aria-label', 'Ventilation');
+  const ventTitle = el('span', 'shell-vents-title');
+  ventTitle.textContent = 'Ventilation';
+  ventTitle.setAttribute('aria-hidden', 'true');
+  vents.append(ventTitle);
+  const ventButtons = {} as Record<ShellVent, HTMLButtonElement>;
+  for (const { vent, text, label } of SHELL_VENTS) {
+    const b = el('button', 'shell-mode');
+    b.type = 'button';
+    b.dataset.vent = vent;
+    b.textContent = text;
+    b.setAttribute('aria-label', label);
+    b.title = label;
+    b.setAttribute('aria-pressed', 'false');
+    ventButtons[vent] = b;
+    vents.append(b);
+  }
   const help = el('button', 'shell-help');
   help.type = 'button';
   help.textContent = '?';
   help.setAttribute('aria-label', 'Keyboard shortcuts');
-  top.append(name, nav, views, help);
+  top.append(name, nav, views, vents, help);
 
   const [railPanel, rail] = collapsible('rail', 'Steps');
   const [inspectorPanel, inspector] = collapsible('inspector', 'Inspector');
@@ -122,5 +148,17 @@ export function mountShell(host: HTMLElement, onModeSelect: (mode: ShellMode) =>
   };
   setMode('guided');
 
-  return { root, modeButtons, viewButtons, help, rail, inspector, caption, hotbar, ports, setMode };
+  return {
+    root,
+    modeButtons,
+    viewButtons,
+    ventButtons,
+    help,
+    rail,
+    inspector,
+    caption,
+    hotbar,
+    ports,
+    setMode,
+  };
 }

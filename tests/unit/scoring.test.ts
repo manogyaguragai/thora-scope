@@ -60,7 +60,7 @@ describe('scoreRun', () => {
   });
 
   it('wrong-order run counts errors and loses points', () => {
-    const attempt = fireAt('B_RML_common');
+    const attempt = fireAt('middle_lobe_bronchus');
     const log = [
       ...doneLog(),
       err('wrong-order', attempt),
@@ -77,12 +77,12 @@ describe('scoreRun', () => {
   });
 
   it('incomplete run without the bronchus test scores order by weight', () => {
-    const b = run({ log: doneLog(['PA18', 'PA32']) });
+    const b = run({ log: doneLog(['PA15', 'PA26']) });
     const w = (ids: string[]) => REQUIRED.filter((a) => ids.includes(a.id)).reduce((s, a) => s + a.weight, 0);
     const all = REQUIRED.reduce((s, a) => s + a.weight, 0);
     expect(b.finished).toBe(false);
     expect(b.bronchusTested).toBe(false);
-    expect(item(b, 'order')?.score).toBeCloseTo((all - w(['PA18', 'PA32'])) / all);
+    expect(item(b, 'order')?.score).toBeCloseTo((all - w(['PA15', 'PA26'])) / all);
   });
 
   it('stapling the upper lobe vein fails vein preservation', () => {

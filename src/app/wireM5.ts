@@ -12,8 +12,10 @@ import {
   COMPLICATION_KIND,
   COMPLICATION_TEXT,
   PRACTICE_ERROR_TEXT,
+  PRACTICE_STEP_TEXT,
   PRACTICE_UI,
 } from '../content/practiceText';
+import { GUIDED_STEPS } from '../content/steps';
 import { SUB_IDS, TARGET_BY_ID } from '../content/targets';
 import type { ViewMode } from '../scene/cameras';
 import { ComplicationController } from '../sim/complications';
@@ -61,9 +63,7 @@ export interface M5 {
 
 const P = config.practice;
 const HOLD = 'debrief';
-const UNDERSIDE = 'stump_above_stapler_confirmed'; // PA26 flag: M4's second fissure fire needs it (finish.ts)
-const WINDOW = config.dissect.windowSuffix;
-const base = (name: string): string => (name.endsWith(WINDOW) ? name.slice(0, -WINDOW.length) : name);
+const UNDERSIDE = 'stump_above_stapler_confirmed'; // underside-check flag: M4's final fissure fire needs it (finish.ts)
 const mmss = (s: number): string => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 // Module temps (no per-frame allocation).
@@ -88,6 +88,7 @@ export function wireM5(ctx: M5Context): M5 {
   let vitals: VitalsKey | null = null;
   let shownSec = -1;
   let debriefTimer = 0;
+  let suctionWas = false;
 
   // Practice bar.
   const bar = document.createElement('div');
@@ -100,6 +101,8 @@ export function wireM5(ctx: M5Context): M5 {
   const msg = document.createElement('p');
   msg.className = 'practice-msg';
   msg.setAttribute('aria-live', 'polite');
+  const stepEl = document.createElement('p'); // T844: the step's instruction (what, which instrument, where)
+  stepEl.className = 'practice-step';
   const vitalsEl = document.createElement('p');
   vitalsEl.className = 'practice-vitals';
   const row = document.createElement('div');
@@ -116,7 +119,7 @@ export function wireM5(ctx: M5Context): M5 {
     button('Hint', () => hint()),
     button('End run', () => void m5.endRun()),
   );
-  bar.append(status, msg, vitalsEl, row);
+  bar.append(status, stepEl, msg, vitalsEl, row);
   shell.ports.prepend(bar); // bottom-left, above the port chips: keeps the scope centre (the bleed) clear
 
   const say = (text: string): void => {
@@ -124,7 +127,17 @@ export function wireM5(ctx: M5Context): M5 {
     m4.toast(text);
   };
   const showStatus = (): void => {
-    if (engine) status.textContent = `Practice · step ${engine.step} · ${mmss(shownSec)}`;
+    if (!engine) return;
+    const title = GUIDED_STEPS.find((s) => s.step === engine?.step)?.title ?? '';
+    status.textContent = `Practice · step ${engine.step}/${GUIDED_STEPS.length} ${title} · ${mmss(shownSec)}`;
+  };
+  const showStep = (): void => {
+    stepEl.textContent = engine ? (PRACTICE_STEP_TEXT[engine.step] ?? '') : '';
+  };
+  /** Feed a wiring-observed action (cautery seal, suction) only while the plan asks for it: never an error. */
+  const observe = (kind: ActionKind, tool: 'cautery' | 'sucker', subOption: string | null): void => {
+    if (engine && !engine.finished && engine.available().some((a) => a.action === kind))
+      engine.attempt({ tool, subOption, target: null, port: m4.occupancy.activePort, kind });
   };
 
   function hint(): void {
@@ -140,10 +153,12 @@ export function wireM5(ctx: M5Context): M5 {
       if (r.state)
         for (const [k, v] of Object.entries(r.state)) tweenTo(state, k as TweenKey, v, P.resultTweenMs);
       for (const f of r.flags ?? []) m4.flags.add(f);
-      // PA26 (Hands inspect of the stump from below) is the underside check the final fissure fire needs.
+      // Hands inspect of the stump from below is the underside check the final fissure fire needs.
       if (r.flags?.includes(UNDERSIDE)) m4.finish.undersideConfirmed = true;
-    } else if (e.type === 'step') showStatus();
-    else if (e.type === 'error') say(PRACTICE_ERROR_TEXT[e.error]);
+    } else if (e.type === 'step') {
+      showStatus();
+      showStep();
+    } else if (e.type === 'error') say(PRACTICE_ERROR_TEXT[e.error]);
     else if (e.type === 'finish') {
       say(PRACTICE_UI.done);
       debriefTimer = window.setTimeout(() => void m5.endRun(), P.debriefDelayMs);
@@ -177,7 +192,9 @@ export function wireM5(ctx: M5Context): M5 {
   }
 
   // ── Gate: every M4 action in practice mode ──
-  const gate = (a: PracticeAttempt): boolean => {
+  const gate = (attempt: PracticeAttempt): boolean => {
+    // T842 "Irrigate the field" (button / W) reports whatever sucker setting is in hand: irrigating is irrigation.
+    const a = attempt.kind === 'irrigate' ? { ...attempt, subOption: 'irrigation' } : attempt;
     if (!engine || !comp || engine.finished) return true; // run over: free actions
     // Sponge stick on a bleed = pressure (update reads control.active), not a retraction attempt.
     if (a.tool === 'sponge' && comp.activeBleeds > 0) return false;
@@ -187,11 +204,15 @@ export function wireM5(ctx: M5Context): M5 {
   };
 
   let inspectable: ReadonlySet<string> = new Set();
+  let scopeMoves = false;
   function inspect(name: string): string {
     if (!engine || engine.finished) return 'no run';
-    const target = base(name);
+    const target = name;
     // Labels on anything else stay free: only structures the plan asks you to look at are scored.
     if (!inspectable.has(target)) return 'not inspectable';
+    // T844: once looked at (or not asked for yet), naming a structure again is free, not an error.
+    if (!engine.available().some((a) => a.action === 'inspect' && a.targets.includes(target)))
+      return 'not asked now';
     return engine.attempt({ tool: 'hands', subOption: null, target, port: m3.scope.port.id, kind: 'inspect' })
       .type;
   }
@@ -205,7 +226,7 @@ export function wireM5(ctx: M5Context): M5 {
     const tool = m4.tool;
     if (!engine || !comp || engine.finished) return 'no run';
     if (tool !== 'stapler' && tool !== 'cautery') return 'not stapler or cautery';
-    const target = base(name);
+    const target = name;
     if (TARGET_BY_ID.get(target)?.tools[tool] !== undefined) return 'valid target'; // M4 handles it
     if (tool === 'cautery' && point && comp.bleedNear(point)) return 'coagulate'; // T822: M4 places it there
     if (point) bleedAt.copy(point);
@@ -235,12 +256,13 @@ export function wireM5(ctx: M5Context): M5 {
 
   const records = (): ComplicationRecord[] =>
     (comp?.log ?? []).flatMap((e): ComplicationRecord[] => {
+      if (e.type === 'bleed' && e.cause === 'node-bed') return []; // expected ooze, not a complication
       if (e.type === 'bleed') {
         const kind = e.cause === 'over-traction' ? COMPLICATION_KIND.tear : COMPLICATION_KIND.bleed;
         return [{ kind, severity: e.severity, t: e.t, structure: e.target }];
       }
       if (e.type === 'danger-hit')
-        return [{ kind: COMPLICATION_KIND.danger, severity: 'major', t: e.t, structure: e.target }];
+        return [{ kind: COMPLICATION_KIND.danger, severity: e.severity, t: e.t, structure: e.target }];
       if (e.type === 'injury')
         return [{ kind: COMPLICATION_KIND.injury, severity: 'minor', t: e.t, structure: e.target }];
       return [];
@@ -270,13 +292,17 @@ export function wireM5(ctx: M5Context): M5 {
       (slot) => slot >= 0 && fx.blood.stop(slot),
     );
     inspectable = new Set(engine.actions.filter((a) => a.action === 'inspect').flatMap((a) => a.targets));
+    // A table without scope moves leaves the scope free (moving it for a better view is not an error).
+    scopeMoves = engine.actions.some((a) => a.action === 'move-scope');
     m4.gate = gate;
     m4.bleedNear = (p) => comp?.bleedNear(p) ?? false;
     coagulated = 0;
     msg.textContent = '';
     vitalsEl.textContent = '';
     vitals = null;
+    suctionWas = false;
     showStatus();
+    showStep();
     bar.hidden = false;
   }
 
@@ -290,6 +316,12 @@ export function wireM5(ctx: M5Context): M5 {
     gain.value.copy(grade);
     bar.hidden = true;
   }
+
+  // T844: the node-bed ooze (T840 hook; T842 m4.startOoze draws it) is tracked here so the cautery seal counts as
+  // the step-4 action. No decal from here: the M4 ooze is the visual.
+  m4.onNodeRemoved.push((name, point) => {
+    if (engine && comp && !engine.finished) comp.startOoze(name, point.clone());
+  });
 
   onModeChange((m) => (m === 'practice' ? start() : stop()));
   window.addEventListener('resize', requestRender); // setSize clears a held canvas (debrief backdrop)
@@ -326,7 +358,7 @@ export function wireM5(ctx: M5Context): M5 {
       const port = m3.scope.port.id;
       if (port !== scopePort) {
         scopePort = port;
-        if (!engine.finished)
+        if (!engine.finished && scopeMoves)
           engine.attempt({ tool: 'hands', subOption: null, target: null, port, kind: 'move-scope' });
       }
       const tool = m4.tool;
@@ -335,15 +367,18 @@ export function wireM5(ctx: M5Context): M5 {
       input.pressure = on && tool === 'sponge' && m4.control.tipPos.distanceTo(bleedAt) <= P.pressureRadiusM;
       input.retract =
         on && (tool === 'grasper' || tool === 'sponge')
-          ? Math.max(state.retract_posterior, state.retract_fissure)
+          ? Math.max(state.retract_hilum, state.retract_RML_lateral, state.retract_fissure)
           : 0;
       input.coagAt = on && tool === 'cautery' && m4.contact ? m4.contactPoint : null;
+      if (input.suction && !suctionWas) observe('suction', 'sucker', 'suction');
+      suctionWas = input.suction;
       const torn = comp.update(dt / 1000, input);
       if (torn) apply(torn);
       // T822: cautery seals small bleeds; on a major vessel injury it says what works instead (once per contact).
       if (comp.coagulated !== coagulated) {
         coagulated = comp.coagulated;
         say(COMPLICATION_TEXT['complication.coagulated']);
+        observe('coagulate', 'cautery', null);
       }
       // The major-vessel hint shows once per contact: re-armed only after the tip lifts off (and isn't refused).
       const refused = comp.coagRefused;

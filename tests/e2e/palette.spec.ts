@@ -12,11 +12,18 @@ const MIN_DELTA = 20; // summed |Δrgb| (0–765) between palettes at the artery
 
 async function arteryPixel(page: Page): Promise<{ x: number; y: number } | null> {
   return page.evaluate((g) => {
+    // T846b: picker.ray (unlike pickAt) also stops at the never-picked CT fat that covers parts of the v8 arteries.
+    const cam = window.__sim.rig?.camera;
+    const m3 = window.__sim.m3;
+    if (!cam || !m3) return null;
+    const dir = cam.position.clone();
     for (let j = 0; j < g; j++)
       for (let i = 0; i < g; i++) {
         const x = -0.5 + i / (g - 1);
         const y = 0.5 - j / (g - 1);
-        if (/^(A\d|A_)/.test(window.__sim.m3?.pickAt(x, y) ?? '')) return { x, y };
+        dir.set(x, y, 0.5).unproject(cam).sub(cam.position).normalize();
+        if (/arter(y|ies)/.test(m3.picker.ray(cam.position, dir, cam.near, cam.far)?.nodeName ?? ''))
+          return { x, y };
       }
     return null;
   }, GRID);
@@ -46,7 +53,7 @@ test('colour palette toggle: recolours without compiling, persists', async ({ pa
     );
   };
 
-  await page.goto('/?view=scope&step=5');
+  await page.goto('/?view=scope&step=6'); // T844: arteries step (v8 artery names, T846b)
   await ready();
   const at = await arteryPixel(page);
   expect(at, 'an artery under the central pick grid').not.toBeNull();

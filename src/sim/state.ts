@@ -1,13 +1,18 @@
 // Single app state (CONTEXT §7.3) + fixed-capacity tweens (one slot per tweenable key, reused forever).
-import procedure from '../content/procedure_steps.json';
+import procedure from '../content/procedure_steps.json' with { type: 'json' };
 import { config } from '../core/config';
 
+// One key per manifest morph (src/content/anatomy.json `morphs`, mapped in src/scene/morphs.ts): deflate_<lobe> →
+// collapse_<lobe>, retract_* → the same-name morph. retract_posterior = legacy grasper key (old model), feeds
+// retract_hilum until the grasper code moves to it (T832/T833).
 export const TWEEN_KEYS = [
   'deflate_RUL',
   'deflate_RML',
   'deflate_RLL',
-  'retract_posterior',
+  'retract_hilum',
+  'retract_RML_lateral',
   'retract_fissure',
+  'retract_posterior',
 ] as const;
 export type TweenKey = (typeof TWEEN_KEYS)[number];
 export type Lobe = 'RUL' | 'RML' | 'RLL';
@@ -49,8 +54,10 @@ export function createState(): AppState {
     deflate_RUL: 0,
     deflate_RML: 0,
     deflate_RLL: 0,
-    retract_posterior: 0,
+    retract_hilum: 0,
+    retract_RML_lateral: 0,
     retract_fissure: 0,
+    retract_posterior: 0,
     heartbeat: 0,
     breath: 0,
     heartbeatOn: true,
@@ -69,8 +76,10 @@ export function createState(): AppState {
       deflate_RUL: slot(),
       deflate_RML: slot(),
       deflate_RLL: slot(),
-      retract_posterior: slot(),
+      retract_hilum: slot(),
+      retract_RML_lateral: slot(),
       retract_fissure: slot(),
+      retract_posterior: slot(),
     },
   };
 }

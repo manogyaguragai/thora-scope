@@ -10,6 +10,8 @@ test.use({ viewport: { width: 1280, height: 720 } }); // desktop layout: scope i
 const HOLD_MS = 1200;
 const SWEEP_STEPS = 12;
 const SCOPE_IN_M = 0; // scope pushed in for the sweep screenshots
+const CONTACT_CLEAR_M = 0.006; // free space: nothing this close to the tip (> cautery.config contact.distM)
+const WITHDRAW_STEP_M = 0.005; // wheel-back increment while looking for free space
 
 async function boot(page: Page, url: string): Promise<{ errors: string[]; programs: () => Promise<number> }> {
   const errors: string[] = [];
@@ -58,7 +60,21 @@ test('cautery in free space: energy on, but no smoke, char, haze or dissection',
   expect(await page.evaluate(() => window.__sim.placeTool?.('cautery', 'hilar_connective_tissue'))).toBe(
     'ok',
   );
-  await page.evaluate(() => window.__sim.m4?.control.insert(-0.025)); // wheel back: tip off the tissue
+  // Wheel back until no surface is within contact range of the tip (on v8 the shaft from the access incision crosses
+  // the CT mediastinal fat, so a fixed withdrawal can land the tip on tissue).
+  const free = await page.evaluate(
+    ({ distM, stepM }) => {
+      const { m3, m4 } = window.__sim;
+      if (!m3 || !m4) return false;
+      for (let i = 0; i < 40; i++) {
+        if (!m3.picker.nearest(m4.control.tipPos, distM)) return true;
+        m4.control.insert(-stepM);
+      }
+      return false;
+    },
+    { distM: CONTACT_CLEAR_M, stepM: WITHDRAW_STEP_M },
+  );
+  expect(free).toBe(true);
   expect(await page.evaluate(() => window.__sim.m4?.press(true))).toBe('ok');
   await page.waitForTimeout(HOLD_MS);
   await frames(page);
@@ -104,11 +120,11 @@ const findRun = (page: Page, prefix: string) =>
 
 const toPx = ([x, y]: [number, number]) => ({ x: ((x + 1) / 2) * 1280, y: ((1 - y) / 2) * 720 });
 
-test('cautery contact sweep opens the hilar tissue: openings, smoke, ECG interference; picks see through', async ({
+test('cautery contact sweep opens the hilar pleura (v7 sheet): openings, smoke, ECG interference; picks see through', async ({
   page,
 }) => {
   test.setTimeout(240_000);
-  const { errors, programs } = await boot(page, '/?view=scope&step=3');
+  const { errors, programs } = await boot(page, '/?view=scope&step=2');
   const before = await programs();
   await page.addStyleTag({ content: '.shell, #action-toast { visibility: hidden !important; }' });
   await page.evaluate((m) => {
@@ -116,7 +132,7 @@ test('cautery contact sweep opens the hilar tissue: openings, smoke, ECG interfe
     window.__sim.m3?.syncScope();
   }, SCOPE_IN_M);
   await frames(page, 3);
-  const run = await findRun(page, 'hilar_connective_tissue');
+  const run = await findRun(page, 'mediastinal_pleura_hilum');
   expect(run).not.toBeNull();
   if (!run) return;
   const a = toPx(run.from);
@@ -187,7 +203,7 @@ test('cautery contact sweep opens the hilar tissue: openings, smoke, ECG interfe
     return rig ? (m3?.picker.pick(x, y, rig.camera)?.nodeName ?? null) : null;
   }, mid);
   expect(through).not.toBeNull();
-  expect(through).not.toMatch(/^hilar_connective_tissue/);
+  expect(through).not.toMatch(/^mediastinal_pleura_hilum/);
   await page.waitForFunction(() => window.__vitals?.interference === false, null, { timeout: 500 });
   expect(await programs()).toBe(before);
   expect(errors).toEqual([]);
@@ -207,7 +223,13 @@ test('practice: energised contact on a minor bleed seals it ("Bleeding controlle
     const c = window.__sim.m5?.complications;
     const p = window.__sim.m4?.control.tipPos;
     if (!c || !p) return -1;
-    c.onAction({ tool: 'clamp', subOption: null, target: 'A4_lateral', kind: 'encircle', point: p.clone() });
+    c.onAction({
+      tool: 'clamp',
+      subOption: null,
+      target: 'middle_lobe_artery_A4',
+      kind: 'encircle',
+      point: p.clone(),
+    });
     c.update(0.01, { suction: false, pressure: false, retract: 1 });
     return c.activeBleeds;
   });

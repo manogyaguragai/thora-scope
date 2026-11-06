@@ -20,6 +20,10 @@ const UTIL = 'port_utility_5ICS';
 const RUL = 'lung_upper_lobe_right';
 const RML = 'lung_middle_lobe_right';
 const HILAR = 'hilar_connective_tissue';
+const PLEURA = 'mediastinal_pleura_hilum';
+const VEIN = 'middle_lobe_vein';
+const BR = 'middle_lobe_bronchus';
+const ART = 'middle_lobe_artery';
 const INSTR = new Set(['grasper', 'sponge', 'peanut', 'cautery', 'clamp', 'stapler', 'clip', 'sucker']);
 
 interface Move extends PracticeAttempt {
@@ -28,6 +32,8 @@ interface Move extends PracticeAttempt {
   readonly hold?: boolean;
   /** Esc before the attempt. */
   readonly withdraw?: boolean;
+  /** Shift+G on this held target before the attempt. */
+  readonly release?: string;
 }
 const m = (
   id: string,
@@ -36,42 +42,45 @@ const m = (
   target: string | null,
   port: string | null,
   kind: PracticeAttempt['kind'],
-  extra: { hold?: boolean; withdraw?: boolean } = {},
+  extra: { hold?: boolean; withdraw?: boolean; release?: string } = {},
 ): Move => ({ id, tool, subOption, target, port, kind, ...extra });
 
-// The video sequence (VIDEO_STEP_MAP (d)); optional PA30/PA31 skipped.
+// T844: the 9-step sequence (same steps as Guided, docs/FEEDBACK_v7_LIVE.md); optional PA27/PA28 skipped.
 const SCRIPT: readonly Move[] = [
+  m('PA01', 'hands', null, RUL, CAM, 'inspect'),
   m('PA01', 'hands', null, RML, CAM, 'inspect'),
-  m('PA02', 'hands', null, null, ANT, 'move-scope'),
-  m('PA03', 'grasper', 'retractor', RUL, CAM, 'retract', { hold: true }),
-  m('PA04', 'peanut', null, 'mediastinal_fat', UTIL, 'dissect'),
-  m('PA05', 'peanut', null, 'phrenic_nerve_right', UTIL, 'dissect'),
-  m('PA06', 'peanut', null, HILAR, UTIL, 'dissect'),
-  m('PA07', 'hands', null, 'V_RML_common', ANT, 'inspect'),
-  m('PA07', 'hands', null, 'tree_pulm_vein_base', ANT, 'inspect'),
-  m('PA08', 'clamp', null, 'V_RML_common', UTIL, 'encircle'),
-  m('PA09', 'grasper', 'retractor', RUL, UTIL, 'retract', { hold: true }),
-  m('PA10', 'stapler', 'vascular-curved', 'V_RML_common', CAM, 'fire'),
-  m('PA11', 'grasper', 'retractor', RUL, CAM, 'retract', { withdraw: true, hold: true }),
-  m('PA12', 'peanut', null, HILAR, UTIL, 'dissect'),
-  m('PA13', 'cautery', null, HILAR, UTIL, 'dissect'),
-  m('PA14', 'grasper', 'ring', 'LN_11R', UTIL, 'remove-node'),
-  m('PA15', 'grasper', 'ring', 'LN_12R', UTIL, 'remove-node'),
-  m('PA16', 'clamp', null, 'B_RML_common', UTIL, 'encircle'),
-  m('PA17', 'stapler', 'bronchial', 'B_RML_common', UTIL, 'close'),
-  m('PA18', 'ventilate', null, 'B_RML_common', null, 'ventilate'),
-  m('PA19', 'stapler', 'bronchial', 'B_RML_common', UTIL, 'fire'),
-  m('PA20', 'grasper', 'retractor', RUL, UTIL, 'retract', { hold: true }),
-  m('PA21', 'clamp', null, 'A_RML_common', UTIL, 'encircle'),
-  m('PA22', 'stapler', 'vascular-leader', 'A_RML_common', CAM, 'fire'),
-  m('PA23', 'hands', null, null, CAM, 'move-scope', { withdraw: true }),
-  m('PA24', 'grasper', 'retractor', RML, UTIL, 'retract', { hold: true }),
-  m('PA25', 'stapler', 'parenchyma', RML, ANT, 'fire'),
-  m('PA26', 'hands', null, 'tree_airway_base', CAM, 'inspect'),
-  m('PA27', 'stapler', 'parenchyma', RML, ANT, 'fire'),
-  m('PA28', 'bag', null, RML, UTIL, 'bag'),
-  m('PA29', 'hands', null, null, ANT, 'move-scope', { withdraw: true }),
-  m('PA32', 'sucker', 'irrigation', 'tree_airway_base', UTIL, 'irrigate'),
+  m('PA01', 'hands', null, 'lung_lower_lobe_right', CAM, 'inspect'),
+  m('PA02', 'grasper', 'retractor', RUL, ANT, 'retract', { hold: true }),
+  m('PA03', 'peanut', null, 'phrenic_nerve_right', UTIL, 'dissect'),
+  m('PA04', 'cautery', null, PLEURA, UTIL, 'dissect'),
+  m('PA05', 'cautery', null, HILAR, UTIL, 'dissect'),
+  m('PA06', 'hands', null, VEIN, CAM, 'inspect'),
+  m('PA06', 'hands', null, 'pulmonary_vein_tree', CAM, 'inspect'),
+  m('PA07', 'peanut', null, VEIN, UTIL, 'encircle'),
+  m('PA08', 'grasper', 'retractor', RUL, UTIL, 'retract', { hold: true }), // swap: frees the posterior port
+  m('PA09', 'stapler', 'vascular-curved', VEIN, ANT, 'fire'),
+  m('PA10', 'grasper', 'ring', 'LN_11R', UTIL, 'remove-node'),
+  m('PA10', 'grasper', 'ring', 'LN_12R', UTIL, 'remove-node'),
+  m('PA11', 'cautery', null, null, UTIL, 'coagulate'),
+  // The access incision takes two: let go of the upper lobe, the middle lobe pull takes over.
+  m('PA12', 'grasper', 'retractor', RML, UTIL, 'retract', { hold: true, release: RUL }),
+  m('PA13', 'clamp', null, BR, UTIL, 'encircle'),
+  m('PA14', 'stapler', 'bronchial', BR, ANT, 'close'),
+  m('PA15', 'ventilate', null, BR, null, 'ventilate'),
+  m('PA16', 'stapler', 'bronchial', BR, ANT, 'fire'),
+  m('PA17', 'peanut', null, ART, UTIL, 'encircle'),
+  m('PA18', 'stapler', 'vascular-leader', ART, ANT, 'fire'),
+  m('PA19', 'grasper', 'retractor', RML, UTIL, 'retract', { hold: true }),
+  // T851: one fire per dotted fissure segment (2 horizontal, underside check, 2 oblique).
+  m('PA20', 'stapler', 'parenchyma', RML, ANT, 'fire'),
+  m('PA29', 'stapler', 'parenchyma', RML, ANT, 'fire'),
+  m('PA21', 'hands', null, 'bronchial_tree', CAM, 'inspect'),
+  m('PA30', 'stapler', 'parenchyma', RML, ANT, 'fire'),
+  m('PA22', 'stapler', 'parenchyma', RML, ANT, 'fire'),
+  m('PA23', 'bag', null, RML, UTIL, 'bag'),
+  m('PA24', 'sucker', 'irrigation', 'bronchial_tree', UTIL, 'irrigate'),
+  m('PA25', 'ventilate', null, 'bronchial_tree', null, 'ventilate'),
+  m('PA26', 'sucker', 'suction', null, UTIL, 'suction'),
 ];
 
 function setup() {
@@ -89,6 +98,7 @@ function setup() {
   );
   const play = (mv: Move): PracticeEvent => {
     if (mv.withdraw) occ.withdraw();
+    if (mv.release) occ.release(mv.release);
     if (INSTR.has(mv.tool) && mv.port) occ.insert(mv.tool as ToolId, mv.port);
     clock.now += 1000;
     const e = eng.attempt(mv);
@@ -107,7 +117,7 @@ function setup() {
 const errors = (eng: PracticeEngine) => eng.log.filter((e) => e.type === 'error');
 
 describe('practice engine', () => {
-  test('full scripted run PA01→PA32 completes, optional PA30/PA31 skipped', () => {
+  test('full scripted run PA01→PA26 completes in the 9 guided steps, optional PA27/PA28 skipped', () => {
     const { eng, play, clock, occ } = setup();
     for (const mv of SCRIPT) {
       const e = play(mv);
@@ -116,38 +126,38 @@ describe('practice engine', () => {
     }
     expect(errors(eng)).toEqual([]);
     expect(eng.finished).toBe(true);
-    expect(eng.step).toBe(7);
-    expect(eng.isDone('PA30') || eng.isDone('PA31')).toBe(false);
-    expect(eng.completed()).toHaveLength(30);
+    expect(eng.step).toBe(9);
+    expect(eng.isDone('PA27') || eng.isDone('PA28')).toBe(false);
+    expect(eng.completed()).toHaveLength(28); // T851: + PA29/PA30 fissure-segment fires
     expect(eng.log.filter((e) => e.type === 'step').map((e) => (e.type === 'step' ? e.step : 0))).toEqual([
-      4, 5, 6, 7,
+      2, 3, 4, 5, 6, 7, 8, 9,
     ]);
-    expect(occ.swaps).toBe(3); // PA09, PA11, PA20
+    expect(occ.swaps).toBe(1); // PA08: the upper lobe re-grasped via the access incision
     const t = eng.elapsed();
     expect(t).toBe(SCRIPT.length);
     clock.now += 60_000;
     expect(eng.elapsed()).toBe(t); // timer frozen at finish
     expect(eng.log.at(-1)?.type).toBe('finish');
     // Result requests are passed through untouched.
-    const pa19 = eng.log.find((e) => e.type === 'action' && e.actionId === 'PA19');
-    expect(pa19?.type === 'action' && pa19.result.divide).toContain('B_RML_common');
+    const pa15 = eng.log.find((e) => e.type === 'action' && e.actionId === 'PA16');
+    expect(pa15?.type === 'action' && pa15.result.divide).toContain(BR);
     // Optional actions still accepted after the finish.
-    const n1 = play(m('PA30', 'grasper', 'ring', 'LN_4R', UTIL, 'remove-node'));
+    const n1 = play(m('PA27', 'grasper', 'ring', 'LN_4R', UTIL, 'remove-node'));
     expect(n1.type).toBe('progress');
-    const n2 = play(m('PA30', 'grasper', 'ring', 'LN_7', UTIL, 'remove-node'));
+    const n2 = play(m('PA27', 'grasper', 'ring', 'LN_7', UTIL, 'remove-node'));
     expect(n2.type === 'action' && n2.optional).toBe(true);
   });
 
   test('wrong order is logged and does not progress', () => {
     const { eng, play, playUntil } = setup();
-    const e = play(m('x', 'stapler', 'vascular-curved', 'V_RML_common', CAM, 'fire'));
-    expect(e).toMatchObject({ type: 'error', error: 'wrong-order', actionId: 'PA10' });
+    const e = play(m('x', 'stapler', 'vascular-curved', VEIN, UTIL, 'fire'));
+    expect(e).toMatchObject({ type: 'error', error: 'wrong-order', actionId: 'PA09' });
     expect(eng.completed()).toEqual([]);
     // Firing on the bronchus before the test ventilation (CONTEXT §6.4: firing without the test = error).
-    playUntil('PA18');
-    const f = play(m('x', 'stapler', 'bronchial', 'B_RML_common', UTIL, 'fire'));
-    expect(f).toMatchObject({ type: 'error', error: 'wrong-order', actionId: 'PA19' });
-    expect(eng.isDone('PA19')).toBe(false);
+    playUntil('PA15');
+    const f = play(m('x', 'stapler', 'bronchial', BR, UTIL, 'fire'));
+    expect(f).toMatchObject({ type: 'error', error: 'wrong-order', actionId: 'PA16' });
+    expect(eng.isDone('PA16')).toBe(false);
   });
 
   test('wrong target, wrong tool and unexpected are classified', () => {
@@ -157,7 +167,7 @@ describe('practice engine', () => {
       error: 'wrong-target',
       actionId: 'PA04',
     });
-    expect(play(m('x', 'cautery', null, 'mediastinal_fat', UTIL, 'dissect'))).toMatchObject({
+    expect(play(m('x', 'sponge', null, PLEURA, UTIL, 'dissect'))).toMatchObject({
       error: 'wrong-tool',
       actionId: 'PA04',
     });
@@ -169,28 +179,33 @@ describe('practice engine', () => {
     expect(eng.isDone('PA04')).toBe(false);
   });
 
-  test('wrong port and port occupancy (retraction swap skipped)', () => {
+  test('wrong port: table port and the stapler approach angle (v8 vein from the access incision)', () => {
     const { play, playUntil } = setup();
-    // Skip the hold in PA09: the retraction stays in the camera port.
-    playUntil('PA10', (mv) => (mv.id === 'PA09' ? { ...mv, hold: false } : mv));
-    expect(play(m('x', 'stapler', 'vascular-curved', 'V_RML_common', UTIL, 'fire'))).toMatchObject({
+    playUntil('PA07');
+    expect(play(m('x', 'peanut', null, VEIN, CAM, 'encircle'))).toMatchObject({
       error: 'wrong-port',
-      actionId: 'PA10',
+      actionId: 'PA07',
     });
-    const e = play(m('x', 'stapler', 'vascular-curved', 'V_RML_common', CAM, 'fire'));
-    expect(e).toMatchObject({ error: 'wrong-port', actionId: 'PA10', fire: 'retraction-in-port' });
+    playUntil('PA09'); // the retraction moved to the access incision (PA08)
+    // v8: the vein is too steep for the stapler from the access incision; the posterior port takes it.
+    const e = play(m('x', 'stapler', 'vascular-curved', VEIN, UTIL, 'fire'));
+    expect(e).toMatchObject({ error: 'poor-angle', actionId: 'PA09', fire: 'poor-angle' });
   });
 
-  test('accepted alternatives: PA10 by branch, PA22 by clips', () => {
+  test('accepted alternatives: PA09 by branch, PA18 by clips, PA04 with the peanut', () => {
     const { eng, play, playUntil } = setup();
-    playUntil('PA10');
-    expect(play(m('PA10', 'stapler', 'vascular-curved', 'V4_lateral', CAM, 'fire')).type).toBe('progress');
-    const e = play(m('PA10', 'stapler', 'vascular-curved', 'V5_medial', CAM, 'fire'));
-    expect(e).toMatchObject({ type: 'action', actionId: 'PA10', alternative: 0 });
+    playUntil('PA04');
+    expect(play(m('PA04', 'peanut', null, PLEURA, UTIL, 'dissect'))).toMatchObject({ alternative: 0 });
+    playUntil('PA09');
+    expect(play(m('PA09', 'stapler', 'vascular-curved', 'middle_lobe_vein_V4', UTIL, 'fire')).type).toBe(
+      'progress',
+    );
+    const e = play(m('PA09', 'stapler', 'vascular-curved', 'middle_lobe_vein_V5', UTIL, 'fire'));
+    expect(e).toMatchObject({ type: 'action', actionId: 'PA09', alternative: 0 });
     expect(eng.step).toBe(4);
-    playUntil('PA22');
-    play(m('PA22', 'clip', null, 'A4_lateral', CAM, 'fire'));
-    expect(play(m('PA22', 'clip', null, 'A5_medial', CAM, 'fire'))).toMatchObject({
+    playUntil('PA18');
+    play(m('PA18', 'clip', null, 'middle_lobe_artery_A4', UTIL, 'fire'));
+    expect(play(m('PA18', 'clip', null, 'middle_lobe_artery_A5', UTIL, 'fire'))).toMatchObject({
       type: 'action',
       alternative: 2,
     });
@@ -201,10 +216,10 @@ describe('practice engine', () => {
     const h = eng.hint();
     expect(h.map((x) => x.actionId)).toEqual(['PA01']);
     expect(h[0]?.text.length).toBeLessThanOrEqual(PRACTICE_CONFIG.hintMaxChars + 1);
-    playUntil('PA32');
+    playUntil('PA26');
     const late = eng.hint().map((x) => x.actionId);
-    expect(late[0]).toBe('PA32'); // required before optional
-    expect(late).toContain('PA30');
+    expect(late[0]).toBe('PA26'); // required before optional
+    expect(late).toContain('PA27');
     expect(eng.log.filter((e) => e.type === 'hint')).toHaveLength(2);
     eng.reset();
     expect(eng.log).toEqual([{ type: 'start', t: 0 }]);

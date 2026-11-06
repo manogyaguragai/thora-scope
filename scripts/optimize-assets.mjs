@@ -1,21 +1,40 @@
-// Source glb → public/models/thorax_sim.opt.glb: Draco removed, meshopt + quantized (morph targets too),
-// textures → KTX2 (UASTC normals, ETC1S colour/roughness). Then runs verify-assets.mjs.
+// v3 scene + the RML hilum model named in src/content/anatomy.json (docs/MODEL_INTEGRATION.md) →
+// public/models/thorax_sim.opt.glb: model nodes replace the old hilum at the scene root (already world space, identity
+// transforms), Draco removed, meshopt + quantized (morph targets too), textures → KTX2 (UASTC normals, ETC1S
+// colour/roughness). Then runs verify-assets.mjs. v8+ = new file in assets_src + bump the manifest `source`.
 // Usage: npm run assets:optimize   (downloads KTX-Software into .cache/ on first run; build-time only)
 import { execFileSync, spawnSync } from 'node:child_process';
-import { copyFileSync, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { NodeIO } from '@gltf-transform/core';
 import { ALL_EXTENSIONS } from '@gltf-transform/extensions';
-import { dedup, meshopt, prune, textureCompress, weld } from '@gltf-transform/functions';
+import {
+  compactPrimitive,
+  dedup,
+  mergeDocuments,
+  meshopt,
+  prune,
+  textureCompress,
+  unpartition,
+  weld,
+} from '@gltf-transform/functions';
 import { Mode, toktx } from '@gltf-transform/cli';
 import draco3d from 'draco3dgltf';
 import { MeshoptEncoder } from 'meshoptimizer';
 import sharp from 'sharp';
+import { BufferAttribute, BufferGeometry, Vector3 } from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const SRC = join(root, 'assets_src/thorax_sim_v3.glb');
+const MANIFEST = join(root, 'src/content/anatomy.json');
+const anatomy = JSON.parse(readFileSync(MANIFEST, 'utf8'));
+const SRC = join(root, anatomy.base);
+const MODEL = join(root, anatomy.source);
+// v3 nodes dropped in the merge: the manifest's removed list + every manifest structure (old same-name meshes);
+// every model node name is dropped from v3 too (below).
+const REMOVED = [...anatomy.removedFromBase, ...Object.keys(anatomy.structures)];
 const OUT = join(root, 'public/models/thorax_sim.opt.glb');
 const DECODERS = join(root, 'public/decoders');
 const BASIS_DIR = join(root, 'node_modules/three/examples/jsm/libs/basis');
@@ -28,6 +47,126 @@ const KTX = {
   dir: join(root, '.cache/ktx'),
 };
 const ktxHome = join(KTX.dir, `KTX-Software-${KTX.version}-Linux-x86_64`);
+
+// World-space positions of a node's mesh (all primitives concatenated) with the named morph keys at full influence
+// (collapse_* × manifest collapseGain, like src/scene/morphs.ts) + the matching triangle indices.
+function posedTriangles(node, keys) {
+  const m = node.getWorldMatrix();
+  const names = node.getMesh().getExtras()?.targetNames ?? [];
+  const pos = [];
+  const idx = [];
+  const p = [0, 0, 0];
+  const d = [0, 0, 0];
+  for (const prim of node.getMesh().listPrimitives()) {
+    const attr = prim.getAttribute('POSITION');
+    const deltas = [];
+    prim.listTargets().forEach((t, i) => {
+      if (!keys.includes(names[i])) return;
+      deltas.push([t.getAttribute('POSITION'), names[i].startsWith('collapse_') ? anatomy.collapseGain : 1]);
+    });
+    const base = pos.length / 3;
+    for (let i = 0, n = attr.getCount(); i < n; i++) {
+      attr.getElement(i, p);
+      for (const [a, w] of deltas) {
+        a.getElement(i, d);
+        for (let k = 0; k < 3; k++) p[k] += w * d[k];
+      }
+      for (let k = 0; k < 3; k++) pos.push(m[k] * p[0] + m[4 + k] * p[1] + m[8 + k] * p[2] + m[12 + k]);
+    }
+    const ind = prim.getIndices()?.getArray() ?? Array.from({ length: attr.getCount() }, (_, i) => i);
+    for (const i of ind) idx.push(base + i);
+  }
+  return { pos, idx };
+}
+
+// T846c: manifest `trimFromBase` — drop the triangles of a kept base mesh whose centroid lies within `clearanceM`
+// of any model structure (except `except`) in any of `poses` (morph-key sets; the base mesh is posed with the same
+// keys), then islands < `minIslandTris`. Keeps v3 CT fat in the anterior mediastinum, off the v8 hilum.
+function trimFromBase(base, src) {
+  for (const [name, cfg] of Object.entries(anatomy.trimFromBase ?? {})) {
+    if (name.startsWith('$')) continue;
+    const node = base
+      .getRoot()
+      .listNodes()
+      .find((n) => n.getName() === name && n.getMesh());
+    if (!node) throw new Error(`trimFromBase: no base mesh ${name}`);
+    const targets = src
+      .getRoot()
+      .listNodes()
+      .filter((n) => n.getMesh() && anatomy.structures[n.getName()] && !cfg.except.includes(n.getName()));
+    const prims = node.getMesh().listPrimitives();
+    const total = prims.reduce((t, pr) => t + (pr.getIndices()?.getCount() ?? 0) / 3, 0);
+    const drop = new Uint8Array(total);
+    const q = new Vector3();
+    for (const keys of cfg.poses) {
+      const pos = [];
+      const idx = [];
+      for (const t of targets) {
+        const g = posedTriangles(t, keys);
+        const off = pos.length / 3;
+        for (const v of g.pos) pos.push(v);
+        for (const i of g.idx) idx.push(off + i);
+      }
+      const geo = new BufferGeometry();
+      geo.setAttribute('position', new BufferAttribute(new Float32Array(pos), 3));
+      geo.setIndex(new BufferAttribute(new Uint32Array(idx), 1));
+      const bvh = new MeshBVH(geo);
+      const fat = posedTriangles(node, keys);
+      for (let t = 0; t < total; t++) {
+        if (drop[t]) continue;
+        q.set(0, 0, 0);
+        for (let c = 0; c < 3; c++) {
+          const v = fat.idx[t * 3 + c] * 3;
+          q.x += fat.pos[v] / 3;
+          q.y += fat.pos[v + 1] / 3;
+          q.z += fat.pos[v + 2] / 3;
+        }
+        if (bvh.closestPointToPoint(q, {}, 0, cfg.clearanceM)) drop[t] = 1;
+      }
+    }
+    // Islands of the kept triangles (vertices joined by quantised rest position: UV/normal seams split indices).
+    const rest = posedTriangles(node, []);
+    const parent = new Int32Array(rest.pos.length / 3).map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    const byPos = new Map();
+    for (let v = 0; v < parent.length; v++) {
+      const key = [0, 1, 2].map((k) => Math.round(rest.pos[v * 3 + k] * 1e5)).join(',');
+      if (byPos.has(key)) parent[find(v)] = find(byPos.get(key));
+      else byPos.set(key, v);
+    }
+    for (let t = 0; t < total; t++)
+      if (!drop[t]) for (let c = 1; c < 3; c++) parent[find(rest.idx[t * 3 + c])] = find(rest.idx[t * 3]);
+    const size = new Map();
+    for (let t = 0; t < total; t++)
+      if (!drop[t]) size.set(find(rest.idx[t * 3]), (size.get(find(rest.idx[t * 3])) ?? 0) + 1);
+    let near = 0;
+    let islands = 0;
+    for (let t = 0; t < total; t++) {
+      if (drop[t]) near++;
+      else if (size.get(find(rest.idx[t * 3])) < cfg.minIslandTris) {
+        drop[t] = 1;
+        islands++;
+      }
+    }
+    let t0 = 0;
+    for (const prim of prims) {
+      const ind = prim.getIndices().getArray();
+      const kept = [];
+      for (let t = 0; t < ind.length / 3; t++)
+        if (!drop[t0 + t]) kept.push(ind[t * 3], ind[t * 3 + 1], ind[t * 3 + 2]);
+      t0 += ind.length / 3;
+      const old = prim.getIndices();
+      prim.setIndices(
+        base.createAccessor().setType('SCALAR').setArray(new Uint32Array(kept)).setBuffer(old.getBuffer()),
+      );
+      compactPrimitive(prim);
+    }
+    const left = total - near - islands;
+    console.log(
+      `trim ${name}: ${total} tris → kept ${left}, dropped ${near} near the hilum + ${islands} in islands`,
+    );
+  }
+}
 
 // --- KTX-Software (toktx/ktx), project-local, no sudo.
 if (!existsSync(join(ktxHome, 'bin/ktx'))) {
@@ -53,7 +192,39 @@ const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies(
 });
 
 const doc = await io.read(SRC);
+const model = await io.read(MODEL);
+const drop = new Set([
+  ...REMOVED,
+  ...model
+    .getRoot()
+    .listNodes()
+    .map((n) => n.getName()),
+]);
+// Base nodes kept under a new name (e.g. v3 CT mediastinal fat fills the anterior mediastinum; name clashes with a model node).
+for (const n of doc.getRoot().listNodes()) {
+  const to = anatomy.renamedFromBase?.[n.getName()];
+  if (to) {
+    n.setName(to);
+    n.getMesh()?.setName(to);
+  }
+}
+trimFromBase(doc, model);
+for (const n of doc.getRoot().listNodes()) {
+  if (!drop.has(n.getName())) continue;
+  n.getMesh()?.dispose();
+  n.dispose();
+}
+// Reference cameras (cam_anterior_hilum) are kept as non-step cameras: the app reads their view axis to aim the
+// port views of steps 2–5 (src/scene/cameras.ts), so a v8 camera tweak needs no code change.
+const modelScene = mergeDocuments(doc, model).get(model.getRoot().listScenes()[0]);
+const scene = doc.getRoot().getDefaultScene() ?? doc.getRoot().listScenes()[0];
+for (const n of modelScene.listChildren()) {
+  modelScene.removeChild(n);
+  scene.addChild(n); // scene root, never under thorax_root (scale 1.3)
+}
+modelScene.dispose();
 await doc.transform(
+  unpartition(), // one buffer (GLB)
   // keepUniqueNames: never merge two named meshes/materials into one (names are the app contract).
   dedup({ keepUniqueNames: true }),
   // Keep empty/leaf nodes (thorax_root, cameras, ports), extras, unused attributes and flat textures.
@@ -93,7 +264,16 @@ for (const f of ['basis_transcoder.js', 'basis_transcoder.wasm'])
 
 const verify = spawnSync(
   process.execPath,
-  [join(root, 'scripts/verify-assets.mjs'), SRC, OUT, '--md', join(root, 'docs/ASSETS.md')],
+  [
+    join(root, 'scripts/verify-assets.mjs'),
+    SRC,
+    MODEL,
+    OUT,
+    '--drop',
+    REMOVED.join(','),
+    '--md',
+    join(root, 'docs/ASSETS.md'),
+  ],
   { stdio: 'inherit' },
 );
 process.exit(verify.status ?? 1);

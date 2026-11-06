@@ -1,4 +1,7 @@
 // Central runtime config (CLAUDE.md: config, not magic numbers). Units: metres, ms, Hz.
+// Hilum names come from the model manifest (src/content/anatomy.json via anatomy.ts), never literals here.
+import { ANATOMY, structuresWhere } from '../content/anatomy';
+import { FISSURE_SEGMENTS } from '../scene/fissureGuide.config';
 const base = import.meta.env.BASE_URL;
 // One step transition window: rig camera move, deflate/retract tweens and guided visibility fades stay in sync.
 const STEP_TRANSITION_MS = 1500;
@@ -54,35 +57,70 @@ export const config = {
     orbitMaxTargetRadius: 0.3, // pan limit around the thorax centre (m)
     orbitMinPolarRad: 0.9, // … and the polar range keeps it below the ceiling and above the floor
     orbitMaxPolarRad: 1.75,
+    // T843: the orbit camera never enters the body: it stays this far outside the last crossing of these layers
+    // on the line from the orbit target (deeper layers cover the skin's operative window and port holes).
+    orbitGuard: {
+      meshes: ['skin', 'subcutaneous_fat', 'chest_wall_muscle', 'parietal_pleura_wall'] as readonly string[],
+      marginM: 0.03,
+    },
   },
   // Scope view through the glTF step cameras (§7.5) + scope ⇄ outside transitions.
   scope: {
     near: 0.001, // ≤ 1 mm
     far: 0.6, // tightened vs. the glTF 1 m: the right hemithorax spans < 0.4 m from any step camera
     transitionMs: STEP_TRANSITION_MS, // eased pose transition (also scope ⇄ outside); 0 with prefers-reduced-motion
-    // Step-camera re-aims (world m, lookAt with world-up): the glTF cam_3 sits inside the pulmonary-vein trunk
-    // (ASSET_ISSUES L3), so step 3 looks at the RML vein from the anterior (cam_1) side, ≈ 5 cm out.
+    // Step-camera re-aims (world m, lookAt with world-up), e.g. { camera, position, target }. Other steps with
+    // `aimAtHilum` (procedure_steps.json: 2–6) are aimed from their port by portAim below.
+    // T844 step 9 (leak test, v8): lens 11 mm in from the camera-port pleura (−0.163, 0.0842, 0.0136) toward the
+    // bronchial stump, y ≈ 0.080 = ≥ 5 mm above the capped water top (waterConfig.maxTopY), looking down over the hilum.
+    // T846b v8: the collapsed middle lobe covers the hilum on the portAim axis of steps 2–4 and 6 (retract_hilum
+    // leaves it in place). Lenses re-picked by a sweep from the step port (port_utility_5ICS, shaft clear, optic
+    // ≤ 55°) for the most STEP_FOCUS pixels; target = a focus structure's centroid. They override portAim (cameras.ts).
     poseFix: [
+      { camera: 'cam_7_reinflation', position: [-0.1528, 0.0803, 0.0127], target: [-0.0285, 0.0326, 0.0013] },
+      {
+        camera: 'cam_2_anterior_hilum',
+        position: [-0.0376, 0.0548, 0.0574],
+        target: [-0.0181, 0.0213, 0.0172],
+      },
       {
         camera: 'cam_3_RML_vein_zoom',
-        position: [-0.0859, 0.0492, 0.0278],
-        target: [-0.0391, 0.0319, 0.0269],
+        position: [-0.0759, 0.0449, 0.0437],
+        target: [-0.0448, 0.0528, 0.0154],
       },
-      // T807b: cam_4 looked down the length of B5, which hid LN_11R/12R; ≈ 2 cm in front of the RML bronchus, in
-      // the opened fissure, LN_12R and B_RML_common are in view (LN_11R is buried in the RLL from any anterior pose).
       {
         camera: 'cam_4_bronchus_nodes',
-        // T807c: 2.5 mm closer (B5 + the PA beside it in view); any pull-back puts the RML in front (pose sweep)
-        position: [-0.0305, 0.0215, 0.0155],
-        target: [-0.029, 0.022, 0.003],
+        position: [-0.0686, 0.0279, 0.0198],
+        target: [-0.0368, 0.029, -0.0134],
       },
-      // T807b: cam_7 framed the re-inflated RLL (stump ≈ 2% of the view); look at the bronchial stump from in front.
       {
-        camera: 'cam_7_reinflation',
-        position: [-0.0435, 0.0349, 0.0466], // T807c: 8 mm further back (stump next to the vein stump)
-        target: [-0.022, 0.019, -0.002],
+        camera: 'cam_5_RML_arteries',
+        position: [-0.0707, 0.069, 0.0215],
+        target: [-0.0353, 0.0375, -0.0036],
       },
-    ],
+    ] as readonly { camera: string; position: readonly number[]; target: readonly number[] }[],
+    // T830 port-aimed step views (steps with `aimAtHilum`): the reference camera's (anatomy.json referenceCameras[0])
+    // view axis is raycast into the hilum, in the step's morph pose, against these manifest structures; the scope
+    // then aims from the step's port at that point (ScopeRig.aimPose) with the reference camera's image up.
+    portAim: {
+      reference: ANATOMY.referenceCameras[0] ?? '',
+      /** Ray targets: the hilum proper (not the lobes, not the soft-tissue sheets that cover it). */
+      targets: structuresWhere((s) => s.group !== 'lungs' && !s.dissectable && !s.hidden),
+      fallbackM: 0.12, // no hit: target this far along the reference view axis
+      /** Per step: target moved fraction `k` toward the AABB centre (in the step's pose) of the structures the
+       *  manifest divides / clears in step `of`, so V4/V5, 11R/12R, B4/B5 and A4/A5 are framed in turn while the
+       *  hilar framing is kept. T844. */
+      toward: {
+        3: { k: 0.5, of: 3 },
+        4: { k: 0.6, of: 4 },
+        5: { k: 0.6, of: 5 },
+        6: { k: 1, of: 6 },
+      } as Readonly<Record<number, { k: number; of: number }>>,
+      // Lens further in than a port switch (scopeRig.aimDepthFrac / depthM.default): the hilum fills the view
+      // instead of the chest wall beside the access incision.
+      depthFrac: 0.6,
+      maxDepthM: 0.08,
+    },
     // Far-field meshes no step camera can see (behind the mediastinum or outside the parietal pleura):
     // hidden in scope view only, to cut draw calls (§6.10 per-step visibility set). Outside view shows them.
     hidden: [
@@ -100,7 +138,6 @@ export const config = {
       // T702: drawn in every step but no ray of a 120×72 grid hit them in any step view (behind pleura/mediastinum)
       'spine',
       'sternum',
-      'pa_left',
       ...Array.from({ length: 12 }, (_, i) => `rib_L${i + 1}`),
       // T807c: the right ribs float bare in front of the dark cavity (steps 1/6); the opaque pleura is the chest wall
       ...Array.from({ length: 12 }, (_, i) => `rib_R${i + 1}`),
@@ -109,13 +146,7 @@ export const config = {
     // T807: per-step scope-only occluders: in front of the step's STEP_FOCUS targets (pick-ray grid from the step
     // pose, tests/e2e/closeup.spec.ts) and not used by that step's actions. Outside view still shows them.
     stepHidden: {
-      2: ['heart_rest', 'left_atrium_provisional', 'inferior_vena_cava'], // bulge through the pericardium over the SPV
-      // arteries cross in front of V4/V5 at the cam_3 pose; V_RML_accessory_1's flattened tube z-fights with itself
-      // (diagonal stripes, ASSET_ISSUES); the phrenic nerve read as an unexplained cream tube (T807c)
-      3: ['A4_lateral', 'A5_medial', 'V_RML_accessory_1', 'phrenic_nerve_right'], // T807c: + the step-2 nerve
-      4: ['A5_medial', 'tree_airway_base'], // in front of B5; the airway tree's cut-out shows as large grey sheets
-      // over the stump; the PA tree pokes through the re-inflated RLL surface as blue blotches
-      7: ['mediastinal_fat_window', 'hilar_connective_tissue_window', 'tree_pulm_artery_base'],
+      2: ['heart_rest', 'inferior_vena_cava'], // bulge through the pericardium over the SPV
     } as Readonly<Record<number, readonly string[]>>,
   },
   steps: {
@@ -131,6 +162,9 @@ export const config = {
   pick: {
     hoverHz: 30, // §6.10: hover picking ≤ 30 Hz
     excludePrefixes: ['port_'] as readonly string[], // node-name prefixes never picked (port markers)
+    // T843: never hover / click-labelled (still solid for scope collision): the kept v3 CT fat sits over the
+    // inferior lung surface and stole its labels.
+    skipNames: ['mediastinal_fat_ct'] as readonly string[],
     clickSlopPx: 4, // pointer travel below this between down and up counts as a click (pick), not a drag
   },
   // Fulcrum thoracoscope rig (§6.2, src/sim/scopeRig.ts) + its input mapping.
@@ -138,6 +172,15 @@ export const config = {
     defaultPort: 'port_camera_8ICS',
     depthM: { min: 0.01, max: 0.16, default: 0.05 }, // step cameras sit 4–13 cm past the pleura
     coneDeg: 100, // shaft vs. port axis; the authored cam_6 is ~95° off its port axis (asset limitation, §7.6)
+    // T843: user pivots can't tilt the shaft further than this off the port axis (it would leave the chest through
+    // the wall); a pose already beyond it (authored cam_6) may still pivot back in.
+    pivotConeDeg: 80,
+    // T843: the lens stays this far short of the first surface along the shaft (BVH ray from the port's pleura
+    // point; hits closer than nearM to it are the pierced chest wall itself). Insert clamps; pivots slide back.
+    // T847a: 5 mm filled the 55° view with one flat patch of the surface ahead (read as "inside the organ"); 15 mm
+    // keeps context. The lens also keeps clearM (> the 1 mm near plane's half-diagonal) from any surface beside the
+    // shaft (the 30° optic looks sideways): backs off along the shaft in clearStepM steps.
+    collision: { marginM: 0.015, nearM: 0.003, clearM: 0.002, clearStepM: 0.004 },
     dragRadPerPx: 0.003, // shaft-tip swing per pointer pixel
     opticDefaultDeg: 30,
     opticMaxDeg: 70,
@@ -161,6 +204,9 @@ export const config = {
     labelGapPx: 2, // declutter: min gap between tags
     labelNudges: 1, // declutter: rows tried above/below an overlapping tag before it is skipped
     compassHz: 10, // T816: orientation compass DOM updates per second (max)
+    // T843: patient axes in glTF world space (left lateral decubitus, right side up): +X cranial, +Z anterior
+    // (+Y = patient right, up). Checked against the heart / spine / lobe centroids in tests/unit/compass.test.ts.
+    compassAxes: { head: [1, 0, 0], anterior: [0, 0, 1] } as const,
     labelAvoid: '.shell-top, .guided-caption, .scope-compass', // T806: tags never land under these (rects measured on resize/toggle)
     labelAvoidMax: 4, // at most this many labelAvoid rects
     focusLabelModes: ['guided'] as readonly string[], // T807: L shows only the step-focus structures' tags here
@@ -277,12 +323,14 @@ export const config = {
     olvMs: 5000, // startOLV: all lobes deflate → 1
     clampMs: 4000, // clamp RML bronchus: RUL, RLL re-inflate → 0
     releaseMs: 4000, // release clamp: RML re-inflates → 0 (only if not divided)
+    // T843 topbar ventilation switch (guided / practice / explore): two-lung re-inflates every undivided right lobe
+    // over reinflateMs; the switch reads "Two-lung" while RUL and RLL head below twoLungBelow (collapse).
+    ventilation: { reinflateMs: 4000, twoLungBelow: 0.5 },
     refHrBpm: 75,
     systoleMsAtRef: 300, // systole ≈ 0.3 s at 75 bpm; fraction of cycle kept constant as HR changes
     inspFraction: 0.4, // inspiration share of the breath cycle
     rightLobeBreathAmp: 0.08, // ventilated right lobe collapse offset at end-expiration
     rightLobeBreathMaxDeflate: 0.2, // offset fades to 0 as deflate → this value; collapsed lobes don't breathe
-    retractGate: [0.9, 1] as const, // smoothstep on min(deflate) — retraction morphs authored on collapsed lung
     morphEpsilon: 1e-4, // influence written only when |new − old| exceeds this
     // Physiology lab panel inputs.
     limits: {
@@ -423,28 +471,20 @@ export const config = {
     inflateMs: 4000, // tween duration for test inflation and final re-inflation
     recollapseMs: 2000, // after the test the right lobes go back down (OLV resumes)
     waterTestCmH2O: 20, // video: stump check at ~20 cmH2O (VIDEO_STEP_MAP decision 13)
-    fissureFiresRequired: 2, // book p131 2–3 fires; video 2 (decision 11)
+    fissureFiresRequired: FISSURE_SEGMENTS, // T851: one fire per fissure-guide segment (fissureGuide.config.ts)
     minFissureRetract: 0.9, // retract_fissure needed to fire on / flip the lobe
     irrigationLevel: 1, // fluid level (0–1) after irrigation
     accessPort: 'port_utility_5ICS', // bag + LN removal (access incision)
     chestTubePort: 'port_camera_8ICS',
-    requiredNodes: ['LN_11R', 'LN_12R'],
+    requiredNodes: structuresWhere((s) => s.clearStep !== undefined),
     optionalNodes: ['LN_4R', 'LN_7'], // end of case, after extraction
-    lobe: 'lung_middle_lobe_right',
-    stump: 'tree_airway_base',
-    bronchus: ['B_RML_common', 'B4_lateral', 'B5_medial'],
-  },
-  // Irrigation fluid surface (src/scene/fluid.ts).
-  fluid: {
-    radius: 0.035, // m, pool over the bronchial stump
-    segments: 24,
-    color: 0xb8c8c4, // saline, faintly tinted by the cavity
-    opacity: 0.45,
-    roughness: 0.05,
-    metalness: 0,
-    depth: 0.012, // m, surface rise from empty (level 0) to full (level 1)
-    fillPerSec: 0.5, // level units per second while the sucker irrigates
-    belowStumpM: 0.01, // pool bottom sits this far below the stump (−Y)
+    lobe: structuresWhere((s) => s.removedAfterStep !== undefined)[0] ?? '',
+    stump: structuresWhere((s) => s.group === 'airway' && s.danger === 'major')[0] ?? '', // parent airway tree
+    // Non-empty by the manifest contract (verify-assets checks every structure is in the glb).
+    bronchus: structuresWhere((s) => s.group === 'airway' && s.divideStep !== undefined) as [
+      string,
+      ...string[],
+    ],
   },
   // Gloved hands + PiP inset (src/scene/hands.ts, src/ui/pip.ts).
   hands: {
@@ -511,15 +551,7 @@ export const config = {
   },
   // Grasp & retract (src/sim/actions/retract.ts, §7.3).
   retract: {
-    dragPerPx: 1 / 250, // morph influence per pixel of drag along dragAxis
-    /** Screen direction (px, +y down) that increases each morph: drag up lifts the lung. Pending visual tuning. */
-    dragAxis: { retract_posterior: [0, -1], retract_fissure: [0, -1] } as Readonly<
-      Record<'retract_posterior' | 'retract_fissure', readonly [number, number]>
-    >,
-    /** Morph per grasp target; everything else retracts posteriorly. */
-    morphFor: { lung_middle_lobe_right: 'retract_fissure' } as Readonly<
-      Record<string, 'retract_posterior' | 'retract_fissure'>
-    >,
+    dragPerPx: 1 / 250, // morph influence per pixel of drag (direction blend: src/sim/actions/retract.ts)
     minDeflate: 0.9, // §7.3: retraction morphs were authored on the collapsed lung; all right lobes must be ≥ this
     springBack: false as boolean, // default; the Retract constructor can override (optional spring-back, §6.4)
     springPerSec: 1.5, // influence per second back to the pre-grasp value on release (spring-back on, not held)
@@ -536,11 +568,9 @@ export const config = {
     /** Progress per second of hold. Pending clinician review (video: ~10–15 s of sweeping per window). */
     ratePerSec: { peanut: 0.25, cautery: 0.4 } as Readonly<Record<'peanut' | 'cautery', number>>,
     fadeTo: 0.35, // fade multiplier reached just before the window swap
-    /** Target → pre-built window variant (CONTEXT §7.2). */
-    windows: {
-      mediastinal_fat: 'mediastinal_fat_window',
-      hilar_connective_tissue: 'hilar_connective_tissue_window',
-    } as Readonly<Record<string, string>>,
+    /** Target → pre-built window variant (CONTEXT §7.2). The v7+ model has none: its soft tissue
+     *  (anatomy.json `dissectable`) opens locally under cautery instead. */
+    windows: {} as Readonly<Record<string, string>>,
     windowSuffix: '_window',
   },
   // M4 wiring (src/app/wireM4.ts).
@@ -587,12 +617,10 @@ export const config = {
     /** Complications on the same structure within this many seconds are one injury (highest severity counts). */
     dedupeWindowSec: 1,
     /** Retraction swaps the reference sequence needs (tests/unit/practice.test.ts SCRIPT); extra ones cost `perSwap`. */
-    expectedSwaps: 3,
+    expectedSwaps: 1, // v7 reference run: one swap (T832)
     perSwap: 0.25,
-    /** Clamp + test ventilation of the middle lobe bronchus before stapling it. */
-    bronchusTestAction: 'PA18',
     /** Upper-lobe venous drainage lives in this node (src/content/targets.ts DANGER_STRUCTURES note). */
-    upperLobeVein: 'tree_pulm_vein_base',
+    upperLobeVein: structuresWhere((s) => s.group === 'veins' && s.danger === 'major')[0] ?? '',
   },
   // Complications (src/sim/complications.ts). Clinical thresholds / rates are placeholders, pending clinician review.
   complications: {

@@ -111,19 +111,20 @@ export function scoreRun(input: ScoreInput): ScoreBreakdown {
     PracticeErrorKind,
     number
   >;
+  const vein = C.upperLobeVein;
   let finished = false;
   let veinCut = false;
   for (const e of input.log) {
     if (e.type === 'action') {
       done.add(e.actionId);
-      if (e.result.divide?.includes(C.upperLobeVein)) veinCut = true;
+      if (e.result.divide?.includes(vein)) veinCut = true;
     } else if (e.type === 'error') {
       errors[e.error]++;
       const a = e.attempt;
-      if (a.target === C.upperLobeVein && (a.kind === 'fire' || a.tool === 'clip')) veinCut = true;
+      if (a.target === vein && (a.kind === 'fire' || a.tool === 'clip')) veinCut = true;
     } else if (e.type === 'finish') finished = true;
   }
-  if (complications.some((c) => c.structure === C.upperLobeVein)) veinCut = true;
+  if (complications.some((c) => c.structure === vein)) veinCut = true;
 
   const required = input.actions.filter((a) => !a.optional);
   const wTotal = required.reduce((s, a) => s + a.weight, 0);
@@ -140,7 +141,9 @@ export function scoreRun(input: ScoreInput): ScoreBreakdown {
   }
   const compPenalty = complications.reduce((s, c) => s + C.severityPenalty[c.severity], 0);
   const extraSwaps = Math.max(0, input.swaps - C.expectedSwaps);
-  const bronchusTested = done.has(C.bronchusTestAction);
+  // The bronchus clamp test = the table's (single) test-ventilation action.
+  const test = input.actions.find((a) => a.action === 'ventilate');
+  const bronchusTested = test !== undefined && done.has(test.id);
   const sec = input.elapsedSec;
 
   const raw: Record<ScoreItemId, [number, string]> = {

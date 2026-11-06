@@ -14,8 +14,8 @@ const HOT: Record<string, string[]> = {
   'src/core/adaptiveResolution.ts': ['update', 'evaluate', 'step', 'applyPixelRatio'],
   'src/scene/postfx.ts': ['render', 'drawMeter', 'onMeter'],
   'src/scene/cameras.ts': ['update', 'targetPose', 'worldPose', 'lerpPose', 'copyPose'],
-  'src/scene/effects.ts': ['update'],
-  'src/scene/fluid.ts': ['update', 'apply'],
+  'src/scene/effects.ts': ['update', 'attract', 'drain', 'touch', 'paint'],
+  'src/scene/water.ts': ['update', 'apply'],
   'src/scene/hands.ts': ['update'],
   'src/scene/morphs.ts': ['updateMorphs'],
   'src/sim/state.ts': ['updateTweens'],
@@ -32,7 +32,9 @@ const HOT: Record<string, string[]> = {
   'src/sim/scopeRig.ts': ['drag', 'pivot', 'writePose', 'frame', 'viewDir', 'shaftFrame', 'setShaft'],
   'src/sim/actions/dissect.ts': ['update'],
   'src/sim/actions/retract.ts': ['update', 'drag'],
-  'src/sim/actions/staple.ts': ['update'],
+  'src/sim/actions/staple.ts': ['update', 'jawPose'],
+  'src/scene/stumps.ts': ['sync', 'syncSplits', 'cutAt', 'centroid', 'followMatrix'],
+  'src/scene/staples.ts': ['reveal'], // T841 progressive staple line
   'src/ui/vitalsMonitor.ts': ['tick', 'stroke'],
 };
 

@@ -36,7 +36,9 @@ export function releaseRendering(reason: string): void {
 
 /** While held: draw exactly one more frame (e.g. after a static overlay changed what's behind it). */
 export function requestRender(): void {
-  pending = true;
+  // Only meaningful while held: the continuous loop draws anyway, and a request queued before a hold must not leak
+  // an extra frame into it (visibility.spec render-gate race).
+  if (holds.size > 0) pending = true;
 }
 
 export function isRenderingHeld(): boolean {

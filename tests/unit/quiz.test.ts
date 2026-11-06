@@ -43,11 +43,11 @@ describe('quiz engine', () => {
   });
 
   it('accepts merged-mesh suffixes and listed alternatives for identify items', () => {
-    const vein = ALL_ITEMS.find((q) => q.kind === 'identify' && q.item.node === 'V_RML_common');
+    const vein = ALL_ITEMS.find((q) => q.kind === 'identify' && q.item.node === 'middle_lobe_vein');
     if (!vein) throw new Error('missing item');
-    expect(checkAnswer(vein, 'V_RML_common')).toBe(true);
-    expect(checkAnswer(vein, 'V4_lateral.001')).toBe(true);
-    expect(checkAnswer(vein, 'A_RML_common')).toBe(false);
+    expect(checkAnswer(vein, 'middle_lobe_vein')).toBe(true);
+    expect(checkAnswer(vein, 'middle_lobe_vein_V4.001')).toBe(true);
+    expect(checkAnswer(vein, 'middle_lobe_artery')).toBe(false);
     expect(checkAnswer(vein, 0)).toBe(false);
   });
 

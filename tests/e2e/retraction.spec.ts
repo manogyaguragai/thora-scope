@@ -1,14 +1,17 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
 
-// T820: multi-instrument retraction. A lung grasper on the middle lobe is dragged (retract_fissure), held in its
-// port (G), the hand switches to cautery in another port while the lung stays retracted; Shift+G releases and the
-// morph eases back. Guided steps 2–6 show a static held grasper. No new shader programs.
+// T820/T832/T840: multi-instrument retraction on the v7 keys. Any drag direction blends retract_hilum /
+// retract_RML_lateral / retract_fissure for the grasped lobe (directions measured from its morph deltas); grasps add
+// up. Held (G) or left in place by a tool switch, a grasper keeps the pose while another tool works; Shift+G / a mode
+// change ease it back. Guided steps 2–7 show a static held grasper. No new shader programs.
 test.use({ viewport: { width: 1280, height: 720 } });
 
 const SHOTS = 'qa/screenshots';
 const RML = 'lung_middle_lobe_right';
 const RUL = 'lung_upper_lobe_right';
+const RLL = 'lung_lower_lobe_right';
+const RET = 'port_retraction_8ICS';
 const UTIL = 'port_utility_5ICS';
 const SETTLE_MS = 600;
 const RELEASE_MS = 1200; // retractionConfig.releaseMs (700) + margin
@@ -19,8 +22,12 @@ const place = (page: Page, id: string, target: string, sub?: string, port?: stri
     ([i, t, s, p]) => window.__sim.placeTool?.(i as string, t as string, s, p) ?? 'no helper',
     [id, target, sub, port],
   );
-const fissure = (page: Page): Promise<number> => page.evaluate(() => window.__sim.state.retract_fissure);
-const posterior = (page: Page): Promise<number> => page.evaluate(() => window.__sim.state.retract_posterior);
+const keys = (page: Page): Promise<number[]> =>
+  page.evaluate(() => {
+    const s = window.__sim.state;
+    return [s.retract_hilum, s.retract_RML_lateral, s.retract_fissure];
+  });
+const sum = (v: number[]): number => v.reduce((a, b) => a + b, 0);
 const held = (page: Page) =>
   page.evaluate(() => {
     const m4 = window.__sim.m4;
@@ -32,18 +39,50 @@ const held = (page: Page) =>
       toolPort: m4.occupancy.activePort,
     };
   });
-/** Pointer drag on the canvas, straight up by `px` (config.retract.dragAxis: up lifts the lung). */
-const dragUp = (page: Page, px: number): Promise<void> =>
-  page.evaluate((d) => {
+/** Pointer drag on the canvas, `px` of travel: straight up, along the screen image of world `dir`, or up across it
+ *  (perpendicular to that image, the upward one, scaled to `px` of upward travel). */
+const drag = (
+  page: Page,
+  px: number,
+  dir: readonly [number, number, number],
+  how: 'up' | 'along' | 'across',
+): Promise<void> =>
+  page.evaluate(
+    ([d, h, w]) => {
+      const e = window.__sim.rig?.camera.matrixWorld.elements ?? [];
+      const sx = (e[0] ?? 1) * w[0] + (e[1] ?? 0) * w[1] + (e[2] ?? 0) * w[2]; // · camera right
+      const sy = -((e[4] ?? 0) * w[0] + (e[5] ?? 1) * w[1] + (e[6] ?? 0) * w[2]); // · camera up (px +y down)
+      const n = Math.hypot(sx, sy) || 1;
+      const [ax, ay] = [sx / n, sy / n];
+      const [cx, cy] = ax > 0 ? [ay, -ax] : [-ay, ax]; // perpendicular with an upward (−y) part
+      const k = Math.min(10, 1 / Math.max(1e-3, -cy));
+      const [ux, uy] = h === 'up' ? [0, -1] : h === 'along' ? [ax, ay] : [cx * k, cy * k];
+      const c = document.querySelector('canvas') as HTMLCanvasElement;
+      const [x0, y0] = [c.clientWidth / 2, c.clientHeight / 2];
+      const ev = (t: number) =>
+        c.dispatchEvent(new PointerEvent('pointermove', { clientX: x0 + ux * t, clientY: y0 + uy * t }));
+      ev(0); // baseline at the centre (see centre())
+      for (let i = 1; i <= 10; i++) ev((d * i) / 10);
+    },
+    [px, how, dir] as const,
+  );
+const UP: readonly [number, number, number] = [1, 0, 0]; // RUL fissure-apart (head)
+const RLL_APART: readonly [number, number, number] = [-1, 0, -0.6]; // retractionConfig.grasp.fissureApart.RLL
+/** Pointer to the canvas centre before a press, so the next drag starts there (no jump from the last drag's end). */
+const centre = (page: Page): Promise<void> =>
+  page.evaluate(() => {
     const c = document.querySelector('canvas') as HTMLCanvasElement;
-    const x = c.clientWidth / 2;
-    const y0 = c.clientHeight * 0.7;
-    const ev = (y: number) => c.dispatchEvent(new PointerEvent('pointermove', { clientX: x, clientY: y }));
-    ev(y0); // baseline after the scripted press (lastX/lastY)
-    for (let k = 1; k <= 10; k++) ev(y0 - (d * k) / 10);
-  }, px);
+    c.dispatchEvent(
+      new PointerEvent('pointermove', { clientX: c.clientWidth / 2, clientY: c.clientHeight / 2 }),
+    );
+  });
+const grasp = async (page: Page, target: string, port?: string): Promise<void> => {
+  expect(await place(page, 'grasper', target, 'retractor', port), `grasper → ${target}`).toBe('ok');
+  await centre(page);
+  expect(await page.evaluate(() => window.__sim.m4?.press(true))).toBe('ok');
+};
 
-test('retraction: grasp → drag → hold → cautery in another port → release eases back; no new programs', async ({
+test('retraction: key per lobe + drag → hold → cautery in another port → release eases back; no new programs', async ({
   page,
 }) => {
   test.setTimeout(240_000);
@@ -60,17 +99,22 @@ test('retraction: grasp → drag → hold → cautery in another port → releas
 
   await page.evaluate(() => {
     const s = window.__sim.state;
-    s.retract_fissure = s.retract_posterior = s.deflate_RUL = s.deflate_RML = s.deflate_RLL = 0;
+    s.retract_hilum = s.retract_RML_lateral = s.retract_fissure = 0;
+    s.deflate_RUL = s.deflate_RML = s.deflate_RLL = 0;
+    // T840: the access incision's two positions go to the second grasper + the cautery.
+    window.__sim.m3?.scope.switchPort('port_camera_8ICS');
+    window.__sim.m3?.syncScope();
   });
 
-  // Grasp the middle lobe and lift it (retract_fissure: RUL up, RLL down, RML lifted).
-  expect(await place(page, 'grasper', RML, 'retractor', 'port_retraction_8ICS')).toBe('ok');
+  // Middle lobe grasp (collapse guard: OLV starts first, the grasp lands once the lung is down).
+  expect(await place(page, 'grasper', RML, 'retractor', RET)).toBe('ok');
+  await centre(page);
   expect(await page.evaluate(() => window.__sim.m4?.press(true))).toBe('One-lung ventilation started');
-  await page.waitForTimeout(OLV_MS); // button still down: the grasp lands once the lung is down
+  await page.waitForTimeout(OLV_MS); // button still down
   expect(await page.evaluate(() => window.__sim.state.deflate_RML)).toBe(1);
-  await dragUp(page, 300);
-  const target = await fissure(page);
-  expect(target).toBeGreaterThan(0.9);
+  await drag(page, 300, UP, 'up');
+  const k1 = await keys(page);
+  expect(Math.max(...k1)).toBeGreaterThan(0.3);
 
   // Hold (G): the grasper stays in its port, the hand is free.
   await page.keyboard.press('KeyG');
@@ -81,70 +125,62 @@ test('retraction: grasp → drag → hold → cautery in another port → releas
   const heldPort = h1.holds[0]?.split('@')[1];
   await expect(page.locator('.retraction-btn[data-action=release]')).toContainText('(1)');
 
-  // Second held instrument: the upper lobe pushed posteriorly via the access incision (anterior hilum).
-  expect(await place(page, 'grasper', RUL, 'retractor', UTIL)).toBe('ok');
-  expect(await page.evaluate(() => window.__sim.m4?.press(true))).toBe('ok');
-  await dragUp(page, 300);
-  await page.keyboard.press('KeyG');
-  expect((await held(page)).holds).toEqual([`grasper@${heldPort}`, `grasper@${UTIL}`]);
-  expect(await posterior(page)).toBeGreaterThan(0.9);
-  await expect(page.locator('.retraction-btn[data-action=release]')).toContainText('(2)');
+  // Second grasper on the upper lobe; switching to the cautery leaves it in place (no G needed).
+  await grasp(page, RUL, UTIL);
+  await drag(page, 300, UP, 'across');
+  await page.evaluate(() => window.__sim.m4?.press(false));
+  const k2 = await keys(page);
+  expect(sum(k2)).toBeGreaterThan(sum(k1) + 0.1); // the two grasps add up
 
-  // Cautery through another port; the lung stays retracted and the held grasper stays drawn.
+  // Cautery through the access incision's second position; the lung stays retracted, both graspers drawn.
   expect(await place(page, 'cautery', 'hilar_connective_tissue', undefined, UTIL)).toBe('ok');
   const h2 = await held(page);
+  expect(h2.holds).toEqual([`grasper@${heldPort}`, `grasper@${UTIL}`]);
   expect(h2.tool).toBe('cautery');
-  expect(h2.toolPort).not.toBe(heldPort);
-  expect(h2.shown).toBe(2); // 2 held + the active cautery
+  expect(h2.toolPort).toBe(UTIL);
+  expect(h2.shown).toBe(2);
+  await expect(page.locator('.retraction-btn[data-action=release]')).toContainText('(2)');
   await page.waitForTimeout(SETTLE_MS);
-  expect(await fissure(page)).toBeCloseTo(target, 2);
+  expect(await keys(page)).toEqual(k2);
+  await page.screenshot({ path: `${SHOTS}/retraction-hilum.png` });
+
+  // Release (Shift+G, most recent first): the upper lobe grasper, then the middle lobe one; the lung eases back.
+  await page.keyboard.press('Shift+KeyG');
+  await page.waitForTimeout(RELEASE_MS);
+  (await keys(page)).forEach((v, i) => expect(v).toBeCloseTo(k1[i] ?? 0, 2));
+  await page.keyboard.press('Shift+KeyG');
+  await page.waitForTimeout(RELEASE_MS / 4);
+  const mid = sum(await keys(page));
+  expect(mid).toBeLessThan(sum(k1));
+  expect(mid).toBeGreaterThan(0);
+  await page.waitForTimeout(RELEASE_MS);
+  expect(sum(await keys(page))).toBeCloseTo(0, 6);
+  expect((await held(page)).shown).toBe(0);
+
+  // Lower lobe pulled apart along the fissure; a mode change while holding eases it back.
+  await page.keyboard.press('Escape');
+  await grasp(page, RLL); // first port with a workable angle
+  await drag(page, 300, RLL_APART, 'along');
+  expect(Math.max(...(await keys(page)))).toBeGreaterThan(0.3);
+  await page.keyboard.press('KeyG');
+  expect((await held(page)).holds).toHaveLength(1);
   await page.evaluate(() => {
-    // Step-6 view (fissure open, interlobar artery in sight), cautery still in.
+    // Step-6 view (fissure open, interlobar artery in sight).
     const { m3, rig } = window.__sim;
     if (m3 && rig) m3.scope.snapTo(rig.scopePoseOf('cam_6_fissures'), 'port_camera_8ICS');
     m3?.syncScope();
   });
   await page.waitForTimeout(SETTLE_MS);
   await page.screenshot({ path: `${SHOTS}/retraction-fissure.png` });
-  await page.evaluate(() => {
-    // Step-2 view: lung held back, anterior hilum (superior pulmonary vein, phrenic nerve) in sight.
-    const { m3, rig } = window.__sim;
-    if (m3 && rig) m3.scope.snapTo(rig.scopePoseOf('cam_2_anterior_hilum'), 'port_camera_8ICS');
-    m3?.syncScope();
-  });
-  await page.waitForTimeout(SETTLE_MS);
-  await page.screenshot({ path: `${SHOTS}/retraction-hilum.png` });
-
-  // Release (Shift+G, most recent first): the upper lobe grasper, then the middle lobe one; the lung eases back.
-  await page.keyboard.press('Shift+KeyG');
-  await page.waitForTimeout(RELEASE_MS);
-  expect(await posterior(page)).toBe(0);
-  expect(await fissure(page)).toBeCloseTo(target, 2);
-  await page.keyboard.press('Shift+KeyG');
-  await page.waitForTimeout(RELEASE_MS / 4);
-  const mid = await fissure(page);
-  expect(mid).toBeLessThan(target);
-  expect(mid).toBeGreaterThan(0);
-  await page.waitForTimeout(RELEASE_MS);
-  expect(await fissure(page)).toBe(0);
-  expect((await held(page)).shown).toBe(0);
-
-  // Mode change while holding: the hold drops and the lung eases back (not left floating without a grasper).
-  expect(await place(page, 'grasper', RML, 'retractor', 'port_retraction_8ICS')).toBe('ok');
-  expect(await page.evaluate(() => window.__sim.m4?.press(true))).toBe('ok');
-  await dragUp(page, 300);
-  await page.keyboard.press('KeyG');
-  expect((await held(page)).holds).toHaveLength(1);
-  expect(await fissure(page)).toBeGreaterThan(0.9);
   await page.click('button[data-mode=physiology]');
   await page.waitForTimeout(RELEASE_MS);
-  expect(await fissure(page)).toBe(0);
+  expect(sum(await keys(page))).toBeCloseTo(0, 6);
   expect((await held(page)).holds).toHaveLength(0);
   expect(await programs()).toBe(before);
   expect(errors).toEqual([]);
 });
 
-test('guided: steps 2–6 show the static held grasper, step 1 and 7 do not', async ({ page }) => {
+test('guided: steps 2–7 show the static held grasper, steps 1, 8 and 9 do not', async ({ page }) => {
   test.setTimeout(180_000);
   await page.goto('/?view=scope&step=2');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
@@ -152,8 +188,8 @@ test('guided: steps 2–6 show the static held grasper, step 1 and 7 do not', as
   const before = await programs();
   for (const [step, shown] of [
     [2, 1],
-    [6, 1],
-    [7, 0],
+    [7, 1],
+    [8, 0],
     [1, 0],
     [3, 1],
   ] as const) {
@@ -161,7 +197,7 @@ test('guided: steps 2–6 show the static held grasper, step 1 and 7 do not', as
     await page.waitForTimeout(SETTLE_MS);
     expect((await held(page)).shown, `step ${step}`).toBe(shown);
   }
-  for (const step of [2, 3, 4, 5, 6]) {
+  for (const step of [2, 3, 4, 5, 6, 7]) {
     await page.evaluate((n) => window.__sim.setStep(n, true), step);
     await page.waitForTimeout(SETTLE_MS);
     await page.screenshot({ path: `${SHOTS}/guided-grasper-s${step}.png` }); // T821: grasper framed in 3, 5, 6

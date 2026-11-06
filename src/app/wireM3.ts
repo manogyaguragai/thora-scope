@@ -3,7 +3,7 @@
 // camera rig, guided controller and shell exist. Input is event-driven (rig pose written on input, not per frame);
 // update(now) does throttled hover, label positions and the morph re-bake when a state tween ends.
 import { Box3, Vector2, Vector3 } from 'three';
-import type { Object3D, PerspectiveCamera } from 'three';
+import type { Mesh, Object3D, PerspectiveCamera } from 'three';
 import { TARGET_BY_ID, TARGETS } from '../content/targets';
 import { config } from '../core/config';
 import { HOTBAR_KEYS, keybindings as K, matchesKey } from '../core/keybindings';
@@ -11,15 +11,15 @@ import { makePose } from '../scene/cameras';
 import type { CameraRig, ViewMode } from '../scene/cameras';
 import { collectMorphMeshes } from '../scene/morphs';
 import { buildPickBVH } from '../scene/picking';
-import type { Picker } from '../scene/picking';
+import type { Picker, PickHit } from '../scene/picking';
 import type { Guided } from '../sim/guided';
 import { CONTEXT_ACTIONS, createHotbar, SLOTS } from '../sim/hotbar';
 import type { Hotbar } from '../sim/hotbar';
 import { getMode } from '../sim/modes';
 import { readPorts } from '../sim/ports';
 import { ScopeRig } from '../sim/scopeRig';
-import { TWEEN_KEYS } from '../sim/state';
-import type { AppState } from '../sim/state';
+import { startOLV, tweenTo, TWEEN_KEYS } from '../sim/state';
+import type { AppState, TweenKey } from '../sim/state';
 import { stepHidden } from '../sim/steps';
 import type { StepVisibility } from '../sim/steps';
 import { mountHotbar, mountPortChips } from '../ui/hotbar';
@@ -28,7 +28,7 @@ import type { Labels3D } from '../ui/labels3d';
 import { mountCompass } from '../ui/compass';
 import { LAYER_GROUPS, mountLayersPanel } from '../ui/layersPanel';
 import type { Layers } from '../ui/layersPanel';
-import { SHELL_VIEWS } from '../ui/shell';
+import { SHELL_VENTS, SHELL_VIEWS } from '../ui/shell';
 import type { Shell } from '../ui/shell';
 
 export interface M3Context {
@@ -68,10 +68,17 @@ export interface M3 {
     occupant: (id: string) => string;
     refusal: (id: string) => string;
     toast: (msg: string) => void;
+    /** T840: the port-chip withdraw button (shown while `canWithdraw`). */
+    canWithdraw: (id: string) => boolean;
+    withdraw: (id: string) => void;
   };
   /** Move the scope to port `id` (chip click / P): eases to a default view of the step's focus; false + toast if
    *  refused. */
   moveScope: (id: string) => boolean;
+  /** T843: two-lung ventilation selected (the right lung re-inflating / inflated): M4 should refuse retraction. */
+  twoLung: () => boolean;
+  /** The user explicitly chose two-lung ventilation (topbar switch); cleared by One-lung or a step change. */
+  twoLungChosen: () => boolean;
   /** Frame loop, after morphs. Allocation-free. */
   update: (now: number) => void;
 }
@@ -80,6 +87,12 @@ const HANDS = 0; // hotbar slot driving the scope (§6.3 slot 1)
 const R = config.scopeRig;
 const SKIP_TARGETS = 'input, select, textarea, [contenteditable], dialog';
 const PORT_HINT = 'Click a port chip or press Shift+P to view from another port';
+const V = config.physiology.ventilation;
+const VENT_TOAST = {
+  one: 'One-lung ventilation: the right lung collapses away from the hilum',
+  two: 'Two-lung ventilation: the right lung re-inflates and fills the field; switch back to one-lung to retract',
+} as const;
+const LOBE_KEYS = ['deflate_RUL', 'deflate_RML', 'deflate_RLL'] as const;
 
 // Port-switch aim (T808): mean rest point of the step's focus targets, else of every target (the operative field).
 const aim = new Vector3();
@@ -110,17 +123,56 @@ export function wireM3(ctx: M3Context): M3 {
 
   // Scope rig drives the rig's scope pose through `live`.
   const scope = new ScopeRig(readPorts(model));
+  // T843: the lens stops short of the first surface along the shaft (picking BVHs, current morph bake).
+  const COL = R.collision;
+  // T847a: + clearance from surfaces beside the shaft (the oblique view looks at them; near-plane clipping).
+  const lensAt = new Vector3();
+  const colHit: PickHit = { nodeName: '', point: new Vector3(), normal: new Vector3(), distance: 0 };
+  scope.limit = (origin, dir) => {
+    const h = picker.ray(origin, dir, COL.nearM, R.depthM.max + COL.marginM, colHit);
+    let d = Math.min(h ? h.distance - COL.marginM : Infinity, R.depthM.max);
+    // ponytail: fixed-step back-off march (≤ depth range / clearStepM nearest() calls; usually the first is clear).
+    for (; d > R.depthM.min; d -= COL.clearStepM)
+      if (!picker.nearest(lensAt.copy(origin).addScaledVector(dir, d), COL.clearM, false, colHit)) return d;
+    return R.depthM.min;
+  };
+  // T843: the outside orbit camera stays out of the body.
+  const body: Mesh[] = [];
+  for (const n of config.camera.orbitGuard.meshes)
+    lookup(n)?.traverse((o) => {
+      if ((o as Mesh).isMesh) body.push(o as Mesh);
+    });
+  rig.guardOrbit(body);
   const live = makePose();
   const hotbar = createHotbar();
   mountHotbar(shell.hotbar, hotbar);
-  const portHooks: M3['portHooks'] = { occupant: () => '', refusal: () => '', toast: () => {} };
+  const portHooks: M3['portHooks'] = {
+    occupant: () => '',
+    refusal: () => '',
+    toast: () => {},
+    canWithdraw: () => false,
+    withdraw: () => {},
+  };
   const occupant = (id: string): string => {
     const s = id === scope.port.id ? (scope.horizonLock ? 'Scope · level' : 'Scope') : '';
     const x = portHooks.occupant(id);
     return s && x ? `${s} + ${x}` : s || x || '—';
   };
-  const chips = mountPortChips(shell.ports, scope.ports, occupant, (id) => void moveScope(id));
+  const chips = mountPortChips(shell.ports, scope.ports, occupant, (id) => void moveScope(id), {
+    can: (id) => portHooks.canWithdraw(id),
+    run: (id) => portHooks.withdraw(id),
+  });
+  // Morph pose the picking BVHs were last baked at (update re-bakes when it settles).
+  const poseKey = (): number => {
+    let k = 0;
+    for (let i = 0; i < TWEEN_KEYS.length; i++) k += state[TWEEN_KEYS[i] ?? 'deflate_RUL'] * (i + 1);
+    return k;
+  };
+  let bakedPose = NaN;
   const syncScope = (): void => {
+    // T847a: step snaps / port moves / reset / probe poses never leave the lens in tissue either (BVH current only;
+    // otherwise the re-bake in update settles it).
+    if (poseKey() === bakedPose) scope.settle();
     scope.writePose(live.position, live.quaternion, live);
     for (const p of scope.ports) chips.setOccupant(p.id, occupant(p.id));
     chips.setCurrent(scope.port.id);
@@ -181,6 +233,21 @@ export function wireM3(ctx: M3Context): M3 {
     reapplyLayers();
     labels.setFocus(stepFocus(state.step));
   });
+  // T847a: the user entering a guided step (Next / Prev / rail click / PageDown / PageUp / Show me) goes Inside —
+  // the app opens on the theatre; a later Outside click holds until the next such input. User input only: scripted
+  // setStep calls (probe, tests, mode switches) keep the view. Capture: Show me relabels itself to Stop in its handler.
+  const enterScope = (): void => {
+    if (rig.target !== 'scope' && shell.root.dataset.mode === 'guided') ctx.setView('scope');
+  };
+  const ENTER_SCOPE = '.guided-step, .guided-nav, .guided-demo[aria-label="Show me this step"]';
+  for (const host of [shell.rail, shell.caption])
+    host.addEventListener(
+      'click',
+      (e) => {
+        if (e.target instanceof Element && e.target.closest(ENTER_SCOPE)) enterScope();
+      },
+      true,
+    );
 
   const toggleHelp = (): void =>
     void import('../ui/helpOverlay').then((h) =>
@@ -200,7 +267,25 @@ export function wireM3(ctx: M3Context): M3 {
     shell.viewButtons[view].addEventListener('click', () => ctx.setView(view));
   let shownTarget: ViewMode | null = null;
   const compass = mountCompass(shell.root, K.resetScope.code.replace(/^Key/, ''));
-  const root = lookup('thorax_root') ?? model;
+
+  // T843: One-lung / Two-lung switch (any mode with the topbar switch; guided steps re-apply their OLV state).
+  const ventTarget = (k: TweenKey): number => (state.tweens[k].active ? state.tweens[k].to : state[k]);
+  const twoLung = (): boolean =>
+    ventTarget('deflate_RUL') < V.twoLungBelow && ventTarget('deflate_RLL') < V.twoLungBelow;
+  let chosenTwo = false;
+  guided.on('stepchange', () => (chosenTwo = false)); // guided steps re-apply their own OLV state
+  const ventilate = (two: boolean): void => {
+    chosenTwo = two;
+    if (two === twoLung()) return;
+    if (!two) startOLV(state);
+    else
+      for (const k of LOBE_KEYS)
+        if (k !== 'deflate_RML' || !state.rmlDivided) tweenTo(state, k, 0, V.reinflateMs);
+    portHooks.toast(two ? VENT_TOAST.two : VENT_TOAST.one);
+  };
+  shell.ventButtons.one.addEventListener('click', () => ventilate(false));
+  shell.ventButtons.two.addEventListener('click', () => ventilate(true));
+  let shownTwo: boolean | null = null;
 
   // T816: held arrows pivot the scope (screen terms) in the scope view, any tool; applied per frame in update.
   const ARROWS = [K.scopeUp, K.scopeDown, K.scopeLeft, K.scopeRight] as const;
@@ -222,6 +307,7 @@ export function wireM3(ctx: M3Context): M3 {
     if (e.ctrlKey || e.metaKey || e.altKey) return;
     if (e.target instanceof Element && e.target.closest(SKIP_TARGETS)) return;
     const c = e.code;
+    if (!e.shiftKey && (matchesKey(K.guidedNext, c) || matchesKey(K.guidedPrev, c))) enterScope(); // guidedPanel steps
     if (e.key === '?' || matchesKey(K.help, c)) {
       if (!e.repeat) toggleHelp();
     } else if (hotbar.handleKey(c)) {
@@ -331,6 +417,8 @@ export function wireM3(ctx: M3Context): M3 {
 
   const hoverMs = 1000 / config.pick.hoverHz;
   let lastHover = -Infinity;
+  let lastPose = NaN;
+  let baked = false;
   let wasTweening = true; // first frame writes the initial step's morphs → bake them
   const m3: M3 = {
     scope,
@@ -345,6 +433,8 @@ export function wireM3(ctx: M3Context): M3 {
     reapplyLayers,
     portHooks,
     moveScope,
+    twoLung,
+    twoLungChosen: () => chosenTwo,
     update(now) {
       const dtMs = lastFrame < 0 ? 0 : Math.min(now - lastFrame, R.arrowMaxDtMs);
       lastFrame = now;
@@ -367,11 +457,31 @@ export function wireM3(ctx: M3Context): M3 {
         for (const { view } of SHELL_VIEWS)
           shell.viewButtons[view].setAttribute('aria-pressed', String(view === shownTarget));
       }
-      compass.update(now, rig.mode === 'scope', root, camera);
+      compass.update(now, rig.mode === 'scope', camera);
+      const two = twoLung();
+      if (two !== shownTwo) {
+        shownTwo = two;
+        for (const { vent } of SHELL_VENTS)
+          shell.ventButtons[vent].setAttribute('aria-pressed', String((vent === 'two') === two));
+      }
       let tweening = false;
       for (let i = 0; i < TWEEN_KEYS.length && !tweening; i++)
         tweening = state.tweens[TWEEN_KEYS[i] ?? 'deflate_RUL'].active;
-      if (wasTweening && !tweening) picker.refreshMorphs(morphMeshes);
+      // Re-bake picking when the morph pose settles: after a tween, and after instant step jumps / grasper drags
+      // (pose unchanged for one frame and different from the last bake). Allocation-free.
+      const pose = poseKey();
+      if (!tweening && ((wasTweening && !tweening) || (pose === lastPose && pose !== bakedPose))) {
+        picker.refreshMorphs(morphMeshes);
+        bakedPose = pose;
+        if (scope.settle()) {
+          // T843: tissue moved onto the lens (re-inflation, retraction released): back off to its surface. T847a: the
+          // load-time bake corrects the opening view instantly.
+          syncScope();
+          if (baked) rig.easeScope();
+        }
+        baked = true;
+      }
+      lastPose = pose;
       wasTweening = tweening;
       if (pointerDirty && now - lastHover >= hoverMs) {
         pointerDirty = false;

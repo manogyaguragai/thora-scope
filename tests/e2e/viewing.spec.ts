@@ -19,14 +19,14 @@ test('viewing aids: layers, opacity, X-ray, cut-away and labels compile no new p
   const before = await programs();
 
   await page.locator('.viewing-panel summary', { hasText: 'Layers' }).click();
-  const lobes = page.locator('details[data-group="Lobes"]');
+  const lobes = page.locator('details[data-group="lungs"]');
   await lobes.locator('summary').click();
-  const showLobes = lobes.getByLabel('Show Lobes');
+  const showLobes = lobes.getByLabel('Show Lungs');
   await showLobes.uncheck();
   await expect(lobes.getByLabel('Show Right middle lobe')).not.toBeChecked();
   await showLobes.check();
   await expect(lobes.getByLabel('Show Right middle lobe')).toBeChecked();
-  await lobes.getByLabel('Lobes opacity').fill('0.3');
+  await lobes.getByLabel('Lungs opacity').fill('0.3');
 
   const xray = page.getByLabel('X-ray');
   await xray.check();

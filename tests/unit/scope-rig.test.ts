@@ -118,7 +118,59 @@ describe('ScopeRig', () => {
     const rig = new ScopeRig(ports);
     for (let i = 0; i < 200; i++) rig.drag(50, 0);
     const deg = (shaftDir(rig).angleTo(rig.port.axis) * 180) / Math.PI;
-    expect(deg).toBeLessThanOrEqual(SCOPE_RIG_CONFIG.coneDeg + 1e-6);
+    expect(deg).toBeLessThanOrEqual(SCOPE_RIG_CONFIG.pivotConeDeg + 1e-6); // T843: pivots stop short of the wall
+  });
+
+  test('T843 collision: insertion stops at the limit, settle backs off, pivots into tissue are rejected', () => {
+    const rig = new ScopeRig(ports);
+    const D = SCOPE_RIG_CONFIG.depthM.default;
+    let wall = D + 0.01;
+    rig.limit = () => wall;
+    rig.insert(0.05);
+    expect(rig.depth).toBeCloseTo(wall, 9);
+    rig.insert(-0.02); // withdrawing is always free
+    expect(rig.depth).toBeCloseTo(wall - 0.02, 9);
+    wall = D - 0.03; // tissue moved onto the lens
+    rig.insert(0.01);
+    expect(rig.depth).toBeCloseTo(D - 0.01, 9); // insert never pulls back …
+    expect(rig.settle()).toBe(true); // … settle does
+    expect(rig.depth).toBeCloseTo(wall, 9);
+    expect(rig.settle()).toBe(false);
+
+    // Tissue on one side of the port axis: swinging into it is refused, swinging away is not.
+    rig.reset();
+    const side = new Vector3().crossVectors(rig.port.axis, new Vector3(1, 0, 0)).normalize();
+    rig.limit = (_o, d) => (d.dot(side) > 0.05 ? 0.01 : Infinity);
+    let moved = 0;
+    let refused = 0;
+    for (const [r, u] of [
+      [0.2, 0],
+      [-0.2, 0],
+      [0, 0.2],
+      [0, -0.2],
+    ] as const) {
+      rig.reset();
+      rig.pivot(r, u);
+      if (Math.abs(rig.yaw) + Math.abs(rig.pitch) > 1e-9) moved++;
+      else refused++;
+      expect(shaftDir(rig).dot(side)).toBeLessThanOrEqual(0.05 + 1e-9);
+    }
+    expect(moved).toBeGreaterThan(0);
+    expect(refused).toBeGreaterThan(0);
+
+    // T847a: tissue the shallowest lens clears: the swing goes through and the lens slides back to the limit.
+    rig.limit = (_o, d) => (d.dot(side) > 0.05 ? 0.03 : Infinity);
+    for (const [r, u] of [
+      [0.2, 0],
+      [-0.2, 0],
+      [0, 0.2],
+      [0, -0.2],
+    ] as const) {
+      rig.reset();
+      rig.pivot(r, u);
+      expect(Math.abs(rig.yaw) + Math.abs(rig.pitch)).toBeGreaterThan(1e-9);
+      expect(rig.depth).toBeCloseTo(shaftDir(rig).dot(side) > 0.05 ? 0.03 : D, 9);
+    }
   });
 
   test('optic rotation turns the view, not the lens or shaft; no effect at 0°', () => {

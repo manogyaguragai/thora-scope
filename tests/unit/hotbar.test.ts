@@ -90,4 +90,17 @@ describe('hotbar state', () => {
     expect(n).toBe(0);
     expect(hb.slot).toBe(3);
   });
+
+  it('T840: in-use counts notify only on change', () => {
+    const hb = createHotbar();
+    let n = 0;
+    const off = hb.onUsage(() => n++);
+    expect(hb.inUse('grasper')).toBe(0);
+    hb.setInUse('grasper', 2);
+    hb.setInUse('grasper', 2);
+    expect([hb.inUse('grasper'), n]).toEqual([2, 1]);
+    off();
+    hb.setInUse('grasper', 1);
+    expect(n).toBe(1);
+  });
 });

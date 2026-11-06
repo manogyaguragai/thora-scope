@@ -1,19 +1,20 @@
 // Scope orientation compass (T816): where the patient's head / feet / anterior / posterior lie in the current
-// scope image. Patient axes are thorax_root-local (CONTEXT §7.1: +X head, +Z anterior), rotated into camera space;
-// each label sits on the rim at its in-plane angle. DOM writes ≤ config.viewing.compassHz; update is allocation-free.
+// scope image. Patient axes are glTF world axes (config.viewing.compassAxes; T843: thorax_root's rotated frame
+// inverted Ant/Post), rotated into camera space; each label sits on the rim at its in-plane angle.
+// DOM writes ≤ config.viewing.compassHz; update is allocation-free.
 import { Quaternion, Vector3 } from 'three';
 import type { Object3D } from 'three';
 import { config } from '../core/config';
 
-const HEAD = new Vector3(1, 0, 0);
-const ANTERIOR = new Vector3(0, 0, 1);
+const HEAD = new Vector3(...config.viewing.compassAxes.head);
+const ANTERIOR = new Vector3(...config.viewing.compassAxes.anterior);
 const tC = new Quaternion();
 const tV = new Vector3();
 
 /** out ← unit screen directions (x right, y up) of head [0,1] and anterior [2,3]; feet/posterior are the negatives.
  *  An axis along the view axis keeps its last direction. */
-export function projectAxes(root: Quaternion, cam: Quaternion, out: Float32Array): void {
-  tC.copy(cam).invert().multiply(root);
+export function projectAxes(cam: Quaternion, out: Float32Array): void {
+  tC.copy(cam).invert();
   for (let i = 0; i < 2; i++) {
     tV.copy(i === 0 ? HEAD : ANTERIOR).applyQuaternion(tC);
     const len = Math.hypot(tV.x, tV.y);
@@ -33,7 +34,7 @@ const MARKS = [
 export interface Compass {
   el: HTMLElement;
   /** Frame loop: show in the scope view only, re-aim ≤ compassHz. */
-  update(now: number, show: boolean, root: Object3D, camera: Object3D): void;
+  update(now: number, show: boolean, camera: Object3D): void;
 }
 
 export function mountCompass(host: HTMLElement, resetKey: string): Compass {
@@ -59,17 +60,16 @@ export function mountCompass(host: HTMLElement, resetKey: string): Compass {
   host.append(el);
 
   const dirs = new Float32Array([0, 1, 1, 0]);
-  const rootQ = new Quaternion();
   const camQ = new Quaternion();
   const periodMs = 1000 / config.viewing.compassHz;
   let last = -Infinity;
   return {
     el,
-    update(now, show, root, camera) {
+    update(now, show, camera) {
       if (el.hidden === show) el.hidden = !show;
       if (!show || now - last < periodMs) return;
       last = now;
-      projectAxes(root.getWorldQuaternion(rootQ), camera.getWorldQuaternion(camQ), dirs);
+      projectAxes(camera.getWorldQuaternion(camQ), dirs);
       for (let i = 0; i < 4; i++) {
         const s = i % 2 === 0 ? 1 : -1; // Feet / Posterior = −Head / −Anterior
         const k = i < 2 ? 0 : 2;

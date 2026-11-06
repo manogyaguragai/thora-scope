@@ -4,6 +4,8 @@ import type { M3 } from './app/wireM3';
 import type { M4 } from './app/wireM4';
 import type { M5, M5Context } from './app/wireM5';
 import type { VitalsMonitor } from './app/wireM7';
+import type { Stumps } from './scene/stumps';
+import type { FissureGuide } from './scene/fissureGuide';
 import {
   AdaptiveResolution,
   applyPixelRatio,
@@ -16,24 +18,28 @@ import { pickQuality } from './core/quality';
 import type { QualityName, QualityPreset } from './core/quality';
 import { createRenderer, holdRendering, releaseRendering, requestRender, startLoop } from './core/renderer';
 import { registerWarmupObject, runLoadingStages } from './scene/loadingStages';
-import { createCameraRig } from './scene/cameras';
+import { aimStepPoses, createCameraRig } from './scene/cameras';
 import type { CameraRig, ViewMode } from './scene/cameras';
 import { buildOtRoom } from './scene/otRoom';
 import type { OtRoom } from './scene/otRoom';
 import { createPostFx } from './scene/postfx';
-import { applyRealism, setFade } from './scene/materials';
+import { applyRealism, setFade, setHeartbeat } from './scene/materials';
 import { buildMorphBindings, collectMorphMeshes, updateMorphs } from './scene/morphs';
 import type { MorphBindings } from './scene/morphs';
+import { ANATOMY } from './content/anatomy';
+import type { Anatomy } from './content/anatomy';
 import { GUIDED_STEPS } from './content/steps';
 import { createGuided } from './sim/guided';
 import type { Guided } from './sim/guided';
 import { getMode, MODES, onModeChange, setMode } from './sim/modes';
 import type { Mode } from './sim/modes';
 import { tickSim } from './sim/physiology';
+import { readPorts } from './sim/ports';
 import { clampRMLReinflate, createState, releaseClamp, setLobe, startOLV } from './sim/state';
 import type { AppState, Lobe } from './sim/state';
 import type { ProbeResult } from './sim/probe';
-import { applyVisibility, createStepVisibility, STEPS } from './sim/steps';
+import { applyVisibility, createStepVisibility, getStep, STEPS } from './sim/steps';
+import { fissureGuideConfig } from './scene/fissureGuide.config';
 import { mountGuidedPanel } from './ui/guidedPanel';
 import { irisOpen, setOverall, setStage, showError } from './ui/loadingScreen';
 import { mountShell } from './ui/shell';
@@ -43,6 +49,8 @@ const params = new URLSearchParams(location.search);
 // M3 controls + BVH picking: own chunk (keeps the initial JS in budget), fetched beside the glb download.
 const m3Chunk = import('./app/wireM3');
 const m4Chunk = import('./app/wireM4'); // M4 instruments + actions, own chunk
+const stumpsChunk = import('./scene/stumps'); // T834 division stumps (built at load)
+const fissureChunk = import('./scene/fissureGuide'); // T851 step-7 dotted fissure guide (built at load)
 const debug = params.has('debug');
 const { holdFraction, stages } = config.loading;
 // ?view=scope|outside (?scope = legacy alias from T105) and ?step=N (implies a step camera for the scope).
@@ -55,6 +63,8 @@ declare global {
   interface Window {
     __sim: {
       state: AppState;
+      /** RML hilum model manifest (src/content/anatomy.json), for tests. */
+      anatomy: Anatomy;
       morphs: MorphBindings | null;
       cmd: {
         startOLV: () => void;
@@ -81,6 +91,10 @@ declare global {
       placeTool?: (id: string, target: string, sub?: string, port?: string) => Promise<string>;
       /** T813 static OT room (outside view only); null until the model is loaded. */
       room: OtRoom | null;
+      /** T834 division stumps + staple lines; null until the model is loaded. */
+      stumps: Stumps | null;
+      /** T851 step-7 fissure guide (segments fired = sim.fissure.fired); null until the model is loaded. */
+      fissure: FissureGuide | null;
     };
   }
 }
@@ -88,6 +102,7 @@ declare global {
 const state = createState();
 const sim: Window['__sim'] = {
   state,
+  anatomy: ANATOMY,
   morphs: null,
   cmd: {
     startOLV: () => startOLV(state),
@@ -103,6 +118,8 @@ const sim: Window['__sim'] = {
   m4: null,
   m5: null,
   room: null,
+  stumps: null,
+  fissure: null,
 };
 window.__sim = sim;
 
@@ -196,13 +213,16 @@ async function main(): Promise<void> {
     lastNow = now;
     if (adaptive.downgradeRequested) downgrade();
     tickSim(state, now);
+    setHeartbeat(state.heartbeat); // T831 code pulse on the PA tree / RML arteries / pericardium (uniform only)
     vitals?.tick(now);
     sim.rig?.update(now);
     sim.guided?.update(now);
     if (sim.morphs) updateMorphs(sim.morphs, state);
     sim.m3?.update(now);
     sim.m4?.update(now);
+    if (sim.m4) sim.fissure?.update(state, sim.m4.finish, sim.m4.control.tipPos);
     sim.m5?.update(now);
+    sim.stumps?.sync();
   }
 
   let m5Ctx: M5Context | null = null; // set once M4 is wired
@@ -234,7 +254,12 @@ async function main(): Promise<void> {
     return shell;
   };
 
-  const [{ wireM3 }, { wireM4 }] = await Promise.all([m3Chunk, m4Chunk]);
+  const [{ wireM3 }, { wireM4 }, { buildStumps }, { buildFissureGuide }] = await Promise.all([
+    m3Chunk,
+    m4Chunk,
+    stumpsChunk,
+    fissureChunk,
+  ]);
   const { axis } = await runLoadingStages(
     renderer,
     scene,
@@ -261,6 +286,7 @@ async function main(): Promise<void> {
           sim.m3?.reapplyLayers();
         },
       ));
+      aimStepPoses(r, m, readPorts(m)); // T830: steps 2–5 aimed from their port at the hilum
       const g = (sim.guided = createGuided({
         vis: v,
         state,
@@ -289,6 +315,11 @@ async function main(): Promise<void> {
       const ctx = { ...ui, setView: (mode: ViewMode) => sim.setView(mode), onHover: showHover };
       const m3 = (sim.m3 = wireM3(ctx));
       const m4 = (sim.m4 = wireM4({ ...ctx, m3, scene, renderer, preset, fog: post.uniforms.uFog }));
+      // After picking (stumps are not pickable), before the compile stage (titanium program compiles at load).
+      sim.stumps = buildStumps(m);
+      const fg = (sim.fissure = buildFissureGuide(m, r.scopePoseOf(getStep(fissureGuideConfig.step).camera).position));
+      scene.add(fg.group);
+      registerWarmupObject(fg.group);
       m5Ctx = { ...ui, m3, m4, gain: post.uniforms.uGain, setStep: sim.setStep, setView: sim.setView };
     },
     preset.textureDownscale,

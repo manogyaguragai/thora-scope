@@ -138,4 +138,22 @@ describe('InstrumentController', () => {
     expect(pos.equals(c.tipPos)).toBe(true);
     expect(new Vector3(0, 0, 1).applyQuaternion(q).distanceTo(c.shaftDir)).toBeLessThan(1e-9);
   });
+
+  test('T840: the tip follows the cursor point through the fulcrum, short of the surface; instant snap lands now', () => {
+    const c = new InstrumentController();
+    c.park(port);
+    c.follow(target);
+    for (let i = 0; i < 120; i++) c.update(16);
+    expect(c.phase).toBe('manual');
+    expect(lineDist(c.tipPos, port.pleura, c.shaftDir)).toBeLessThan(1e-9);
+    expect(c.tipPos.distanceTo(target)).toBeLessThan(0.002); // within backM + easing
+    expect(c.tipPos.distanceTo(port.pleura)).toBeLessThan(target.distanceTo(port.pleura));
+    c.stopFollow();
+    const far = target.clone().add(new Vector3(0, 0.01, 0));
+    expect(c.snapTo(port, far, null, true).ok).toBe(true);
+    expect(c.phase).toBe('placed');
+    expect(c.tipPos.equals(far)).toBe(true);
+    c.update(16); // snap stopped the follow: the tip stays
+    expect(c.tipPos.equals(far)).toBe(true);
+  });
 });

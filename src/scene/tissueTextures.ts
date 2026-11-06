@@ -245,15 +245,15 @@ function lung(s: Scratch, S: number, seed: number): void {
 function bronchus(s: Scratch, S: number, seed: number): void {
   const p = C.bronchus;
   fbm(s.t, S, p.grainCells, p.grainCells, p.grainOctaves, seed);
-  fbm(s.n, S, p.jitterCells, p.jitterCells, 1, seed + 1);
-  for (let y = 0; y < S; y++)
-    for (let x = 0; x < S; x++) {
-      const i = y * S + x;
-      const phase = (y / S) * p.rings + p.ringJitter * p.rings * 2 * ((s.n[i] ?? 0) - 0.5);
-      s.alb[i] = 0.5 + p.grainAmp * ((s.t[i] ?? 0) - 0.5);
-      s.h[i] = s.t[i] ?? 0;
-      s.m[i] = ss(p.ringSharp[0], p.ringSharp[1], 0.5 + 0.5 * Math.cos(2 * Math.PI * phase));
-    }
+  s.m.fill(0);
+  capillaries(s.m, s.n, S, p.caps, seed + 1, 1);
+  fbm(s.f1, S, p.patchCells, p.patchCells, 2, seed + 2); // soft membranous patches between the cartilage
+  for (let i = 0; i < S * S; i++) {
+    const patch = ss(p.patch[0], p.patch[1], s.f1[i] ?? 0);
+    s.alb[i] = 0.5 + p.grainAmp * ((s.t[i] ?? 0) - 0.5);
+    s.h[i] = s.t[i] ?? 0;
+    s.m[i] = patch * (p.patchTint + (1 - p.patchTint) * (s.m[i] ?? 0));
+  }
 }
 
 function blood(s: Scratch, S: number, seed: number): void {

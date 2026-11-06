@@ -9,6 +9,7 @@ import { config } from '../core/config';
 import { SUB_IDS, TARGET_BY_ID } from '../content/targets';
 import { SLOTS } from './hotbar';
 import { STEPS } from './steps';
+import { structuresWhere } from '../content/anatomy';
 
 export interface ProbeResult {
   /** Estimated GPU memory of material + environment textures (RGBA texels × mip chain), MB. */
@@ -253,6 +254,10 @@ export async function placeTool(
   const k = sub ? (SUB_IDS[id as keyof typeof SUB_IDS]?.indexOf(sub) ?? 0) : 0;
   for (let n = 0; n < (SLOTS[slot]?.subOptions.length ?? 0) && m3.hotbar.subOption() !== k; n++)
     m3.hotbar.select(slot);
+  // T840: instruments stay in their ports across tool switches; free the requested (or any) port first.
+  const o = m4.occupancy;
+  if (port) while (o.activePort !== port && !o.hasRoom(port) && o.heldIn(port) > 0) m4.withdrawPort(port);
+  else if (o.activePort === null && o.holds[0]) m4.withdrawPort(o.holds[0].port);
   const centroid = new Vector3(...(TARGET_BY_ID.get(target)?.point ?? [0, 0, 0]));
   const near = new Vector3();
   let r = 'no port';
@@ -294,20 +299,22 @@ async function m4Phases(
       for (let f = 0; f < config.perf.probeSettleFrames; f++) await nextFrame();
     }
   });
+  const tissue = structuresWhere((s) => s.dissectStep === 3)[0] ?? ''; // soft tissue cautery opens in step 3
   await run('m4-cautery', async () => {
-    await placeTool(sim, scene, 'cautery', 'hilar_connective_tissue');
+    await placeTool(sim, scene, 'cautery', tissue);
     m4.press(true);
     await waitMs(config.perf.probeHoldMs);
     m4.press(false);
   });
   // Vein: clamp passage, scope out of the camera port, stapler in through it, fire → division plane + cap.
+  const vein = structuresWhere((s) => s.group === 'veins' && s.divideStep !== undefined)[0] ?? '';
   await run('m4-staple', async () => {
-    await placeTool(sim, scene, 'clamp', 'V_RML_common');
+    await placeTool(sim, scene, 'clamp', vein);
     m4.press(true);
     m4.press(false);
     m3.scope.switchPort('port_retraction_8ICS');
     m3.syncScope();
-    await placeTool(sim, scene, 'stapler', 'V_RML_common', 'vascular-curved');
+    await placeTool(sim, scene, 'stapler', vein, 'vascular-curved');
     m4.press(true);
     m4.press(false);
     await waitMs(config.staple.closeMs + config.staple.fireMs + config.staple.openMs);

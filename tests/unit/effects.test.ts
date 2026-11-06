@@ -1,8 +1,19 @@
-import { Matrix4, Vector3 } from 'three';
+import { BufferAttribute, Matrix4, Mesh, MeshBasicMaterial, PlaneGeometry, Vector3 } from 'three';
+import { MeshBVH } from 'three-mesh-bvh';
 import { describe, expect, it } from 'vitest';
 import { config } from '../../src/core/config';
 import { cauteryConfig as CAUTERY } from '../../src/scene/cautery.config';
-import { createEffects, CutPool, EFFECTS_CONFIG, LensFog, poolCapacity } from '../../src/scene/effects';
+import {
+  addOpenedAttribute,
+  createEffects,
+  BLUNT_ATTR,
+  CutPool,
+  EFFECTS_CONFIG,
+  LensFog,
+  OPEN_THRESHOLD,
+  OPENED_ATTR,
+  poolCapacity,
+} from '../../src/scene/effects';
 
 const presets = config.quality.presets;
 
@@ -115,60 +126,162 @@ describe('cautery (T817)', () => {
   });
 });
 
-describe('smoke haze driver', () => {
-  it('builds slowly to haze.max while on, clears after', () => {
+describe('smoke density (T842)', () => {
+  it('accumulates with energy time to haze.max, stays (slow passive clearing), the sucker clears it', () => {
+    const H = CAUTERY.haze;
     const fog = new LensFog();
     fog.on = true;
     fog.update(1);
-    expect(fog.value).toBeCloseTo(CAUTERY.haze.riseRate);
+    expect(fog.value).toBeCloseTo(H.riseRate);
+    for (let i = 0; i < 29; i++) fog.update(1); // 30 s of cautery → murky
+    expect(fog.value).toBeGreaterThan(0.5);
     for (let i = 0; i < 100; i++) fog.update(1);
-    expect(fog.value).toBe(CAUTERY.haze.max);
+    expect(fog.value).toBe(H.max);
     fog.on = false;
+    for (let i = 0; i < 10; i++) fog.update(1);
+    expect(fog.value).toBeCloseTo(H.max - 10 * H.decayRate); // persists
+    fog.suction = true;
     fog.update(1);
-    expect(fog.value).toBeCloseTo(CAUTERY.haze.max - CAUTERY.haze.decayRate);
-    for (let i = 0; i < 100; i++) fog.update(1);
+    expect(fog.value).toBeCloseTo(H.max - 11 * H.decayRate - CAUTERY.suction.hazeClearPerSec);
+    for (let i = 0; i < 10; i++) fog.update(1);
     expect(fog.value).toBe(0);
+  });
+
+  it('cavity smoke drifts in with density; the held sucker pulls particles to the tip and aspirates them', () => {
+    const fx = createEffects(presets.high);
+    const at = new Vector3(0, 0, 0);
+    fx.cautery(at);
+    fx.contact(at, new Vector3(0, 1, 0));
+    for (let i = 0; i < 300; i++) fx.update(1 / 10); // 30 s
+    fx.cautery(null);
+    expect(fx.fog.value).toBeGreaterThan(0.5);
+    expect(fx.haze.aliveCount).toBeGreaterThan(0);
+    const fog = fx.fog.value;
+    fx.suck(at);
+    expect(fx.sucking).toBe(true);
+    for (let i = 0; i < 30; i++) fx.update(1 / 10);
+    expect(fx.fog.value).toBeLessThan(fog);
+    expect(fx.smoke.aliveCount).toBe(0); // all within reach of the tip: aspirated
+    fx.suck(null);
+    expect(fx.sucking).toBe(false);
+  });
+
+  it('suction shrinks pooled blood near the tip; a still-bleeding decal keeps a floor', () => {
+    const fx = createEffects(presets.medium);
+    const n = new Vector3(0, 1, 0);
+    const size = (i: number): number => {
+      const m = new Matrix4();
+      fx.blood.mesh.getMatrixAt(i, m);
+      return new Vector3().setFromMatrixScale(m).x;
+    };
+    fx.blood.spawn(new Vector3(), n, 0.01);
+    fx.blood.spawn(new Vector3(0.001, 0, 0), n, 0.01);
+    fx.blood.stop(1);
+    fx.update(EFFECTS_CONFIG.decal.growSec);
+    fx.suck(new Vector3());
+    for (let i = 0; i < 60; i++) fx.update(1 / 10);
+    expect(size(0)).toBeGreaterThan(0); // bleeding: floor
+    expect(size(1)).toBe(0); // controlled: aspirated
   });
 });
 
-describe('cautery openings (T822 CutPool ring buffer)', () => {
+describe('node-bed ooze (T842)', () => {
+  it('drips until energised contact holds coag.sec on it', () => {
+    const fx = createEffects(presets.medium);
+    const bed = new Vector3(0.01, 0, 0);
+    fx.startOoze(bed, new Vector3(0, 1, 0));
+    expect(fx.oozing).toBe(1);
+    expect(fx.oozeNear(bed)).toBe(true);
+    expect(fx.oozeNear(new Vector3(1, 0, 0))).toBe(false);
+    fx.update(1);
+    expect(fx.ooze.aliveCount).toBeGreaterThan(0);
+    fx.cautery(bed);
+    fx.contact(new Vector3(1, 0, 0), new Vector3(0, 1, 0)); // elsewhere: no seal
+    fx.update(CAUTERY.coag.sec + 0.1);
+    expect(fx.oozing).toBe(1);
+    fx.contact(bed, new Vector3(0, 1, 0));
+    for (let t = 0; t <= CAUTERY.coag.sec + 0.1; t += 0.1) fx.update(0.1);
+    expect(fx.oozing).toBe(0);
+    expect(fx.oozeNear(bed)).toBe(false);
+  });
+});
+
+describe('persistent dissection (T842 per-vertex opened field)', () => {
   const D = CAUTERY.dissect;
-  const pool = () => {
-    const u = { uCuts: { value: new Float32Array(D.maxPoints * 4) }, uCutCount: { value: 0 } };
-    return { u, cuts: new CutPool(u) };
+  /** 4 cm sheet, 0.5 mm grid, BVH as the picker builds it. */
+  const layer = () => {
+    const g = new PlaneGeometry(0.04, 0.04, 80, 80);
+    const mesh = new Mesh(g, new MeshBasicMaterial());
+    mesh.name = 'mediastinal_pleura_hilum';
+    mesh.updateMatrixWorld();
+    g.boundsTree = new MeshBVH(g);
+    addOpenedAttribute(mesh);
+    const opened = g.getAttribute(OPENED_ATTR) as BufferAttribute;
+    return { mesh, opened, cuts: new CutPool([mesh]) };
   };
 
-  it('adds openings at spacing along the path, interpolates fast sweeps, grows on dwell up to the cap', () => {
-    const { u, cuts } = pool();
+  it('opens along the stroke, widens on dwell; picking sees the same field', () => {
+    const { mesh, opened, cuts } = layer();
     const p = new Vector3();
-    cuts.touch(p, 0.03);
-    expect(cuts.count).toBe(1);
-    expect(u.uCuts.value[3]).toBeCloseTo(D.startRadiusM);
-    for (let i = 0; i < 200; i++) cuts.touch(p, 0.03); // dwell
-    expect(cuts.count).toBe(1);
-    expect(u.uCuts.value[3]).toBeCloseTo(D.maxRadiusM);
-    cuts.touch(p.set(D.spacingM * 3.5, 0, 0), 0.03); // jump of 3.5 spacings → 3 openings
-    expect(cuts.count).toBe(4);
-    expect(cuts.inside(new Vector3(D.spacingM, 0, 0))).toBe(true);
-    expect(cuts.inside(new Vector3(0, 1, 0))).toBe(false);
+    cuts.touch(mesh.name, p, 0.03);
+    const first = cuts.count;
+    expect(first).toBeGreaterThan(0);
+    expect(cuts.inside(mesh, p)).toBe(true);
+    expect(cuts.inside(mesh, new Vector3(D.maxRadiusM * 2, 0, 0))).toBe(false);
+    for (let i = 0; i < 200; i++) cuts.touch(mesh.name, p, 0.03); // dwell → maxRadiusM
+    expect(cuts.count).toBeGreaterThan(first);
+    expect(cuts.inside(mesh, new Vector3(D.maxRadiusM * 0.9, 0, 0))).toBe(true);
+    cuts.touch(mesh.name, p.set(0.01, 0, 0), 0.03); // fast jump: the capsule opens the whole path
+    expect(cuts.inside(mesh, new Vector3(0.006, 0, 0))).toBe(true);
+    expect(opened.updateRanges).toHaveLength(1); // one reused range, widened while the upload is pending
     expect(cuts.stroking).toBe(true);
-    cuts.lift();
+    cuts.touch('lung_upper_lobe_right', p, 0.03); // not a layer: lifts
     expect(cuts.stroking).toBe(false);
-    cuts.touch(p.set(1, 0, 0), 0.03); // new stroke: no interpolation across the lift
-    expect(cuts.count).toBe(5);
   });
 
-  it('recycles the oldest slot at capacity; reset clears', () => {
-    const { u, cuts } = pool();
-    for (let i = 0; i < D.maxPoints + 5; i++) {
+  it('T852 blunt (peanut) touch: a wider opening flagged blunt; a later cautery touch flags its own vertices', () => {
+    const cautery = layer();
+    const blunt = layer();
+    const p = new Vector3();
+    cautery.cuts.touch(cautery.mesh.name, p, 0.03);
+    blunt.cuts.touch(blunt.mesh.name, p, 0.03, true);
+    expect(blunt.cuts.count).toBeGreaterThan(cautery.cuts.count); // radiusScale wider
+    const b = blunt.mesh.geometry.getAttribute(BLUNT_ATTR) as BufferAttribute;
+    const flags = b.array as Float32Array;
+    expect(flags.some((v) => v === 1)).toBe(true);
+    expect(b.updateRanges).toHaveLength(1);
+    blunt.cuts.lift();
+    blunt.cuts.touch(blunt.mesh.name, p.set(0.012, 0, 0), 0.03); // cautery elsewhere: its rim is coagulated
+    const pos = blunt.mesh.geometry.getAttribute('position');
+    const at = (x: number): number => {
+      for (let k = 0; k < pos.count; k++) if (Math.hypot(pos.getX(k) - x, pos.getY(k)) < 1e-4) return k;
+      return -1;
+    };
+    expect(flags[at(0)]).toBe(1);
+    expect(flags[at(0.012)]).toBe(0);
+    expect(blunt.cuts.inside(blunt.mesh, p)).toBe(true);
+    expect((cautery.mesh.geometry.getAttribute(BLUNT_ATTR).array as Float32Array).every((v) => v === 0)).toBe(true);
+  });
+
+  it('never closes: 10 sweeps back and forth only add; reset clears everything', () => {
+    const { mesh, opened, cuts } = layer();
+    const p = new Vector3();
+    let prev = 0;
+    for (let sweep = 0; sweep < 10; sweep++) {
+      for (let k = 0; k <= 20; k++) {
+        const t = sweep % 2 ? 1 - k / 20 : k / 20;
+        cuts.touch(mesh.name, p.set(-0.012 + 0.024 * t, 0.002 * Math.sin(sweep), 0), 0.03);
+        expect(cuts.count).toBeGreaterThanOrEqual(prev);
+        prev = cuts.count;
+      }
       cuts.lift();
-      cuts.touch(new Vector3(i, 0, 0), 0.03);
+      expect(cuts.inside(mesh, new Vector3(-0.012, 0, 0))).toBe(true); // the first opening is still open
     }
-    expect(cuts.count).toBe(D.maxPoints);
-    expect(u.uCuts.value.length).toBe(D.maxPoints * 4);
-    expect(u.uCuts.value[0]).toBe(D.maxPoints); // slot 0 overwritten by stroke #maxPoints
+    const o = opened.array as Float32Array;
+    expect(o.filter((v) => v > OPEN_THRESHOLD).length).toBe(cuts.count);
     cuts.reset();
     expect(cuts.count).toBe(0);
-    expect(cuts.inside(new Vector3(D.maxPoints, 0, 0))).toBe(false);
+    expect(o.every((v) => v === 0)).toBe(true);
+    expect(cuts.inside(mesh, new Vector3(-0.012, 0, 0))).toBe(false);
   });
 });

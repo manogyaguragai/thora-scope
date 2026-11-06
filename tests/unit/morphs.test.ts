@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { config } from '../../src/core/config';
-import { buildMorphBindings, updateMorphs } from '../../src/scene/morphs';
+import { ANATOMY } from '../../src/content/anatomy';
+import { buildMorphBindings, CHANNELS, COLLAPSE_GAIN, updateMorphs } from '../../src/scene/morphs';
 import type { MorphMesh } from '../../src/scene/morphs';
 import { tickSim } from '../../src/sim/physiology';
 import { clampRMLReinflate, createState, releaseClamp, setLobe, startOLV } from '../../src/sim/state';
@@ -26,43 +27,43 @@ function still(): AppState {
 }
 
 describe('morph bindings', () => {
-  const lobe = fakeMesh(['retract_fissure', 'collapse_RML', 'mediastinal_shift', 'retract_posterior']);
-  const heart = fakeMesh(['heartbeat', 'mediastinal_shift']);
+  const lobe = fakeMesh([
+    'retract_fissure',
+    'collapse_RML',
+    'retract_hilum',
+    'retract_RML_lateral',
+    'old_key',
+  ]);
+  const heart = fakeMesh(['heartbeat']);
   const bare: MorphMesh = { visible: true, parent: null };
   const b = buildMorphBindings([lobe, heart, bare]);
 
-  test('binding table resolved by name', () => {
+  test('channels = manifest morphs + heartbeat + breath_left; bound by name', () => {
+    expect(CHANNELS).toEqual([...ANATOMY.morphs, 'heartbeat', 'breath_left']);
     expect(b.meshes).toBe(2);
-    expect(b.list.length).toBe(6);
+    expect(b.list.length).toBe(5); // old_key has no channel
   });
 
-  test('mediastinal_shift = max(deflate); collapse follows its lobe', () => {
+  test('collapse follows its lobe; retract keys are ungated, additive', () => {
     const s = still();
-    s.deflate_RUL = 0.2;
     s.deflate_RML = 0.7;
-    s.deflate_RLL = 0.4;
+    s.retract_hilum = 0.4;
+    s.retract_RML_lateral = 0.6;
+    s.retract_fissure = 1;
     updateMorphs(b, s);
-    expect(inf(lobe, 'mediastinal_shift')).toBeCloseTo(0.7);
-    expect(inf(heart, 'mediastinal_shift')).toBeCloseTo(0.7);
-    expect(inf(lobe, 'collapse_RML')).toBeCloseTo(0.7);
+    expect(inf(lobe, 'collapse_RML')).toBeCloseTo(0.7 * COLLAPSE_GAIN); // T843 manifest gain
+    expect(inf(lobe, 'retract_hilum')).toBeCloseTo(0.4);
+    expect(inf(lobe, 'retract_RML_lateral')).toBeCloseTo(0.6);
+    expect(inf(lobe, 'retract_fissure')).toBe(1);
+    expect(inf(lobe, 'old_key')).toBe(0);
   });
 
-  test('retraction gated by min(deflate)', () => {
+  test('legacy grasper key drives retract_hilum (max)', () => {
     const s = still();
-    s.retract_posterior = 1;
-    s.retract_fissure = 1;
-    s.deflate_RUL = s.deflate_RML = s.deflate_RLL = 1;
-    s.deflate_RLL = 0.5;
+    s.retract_hilum = 0.2;
+    s.retract_posterior = 0.9;
     updateMorphs(b, s);
-    expect(inf(lobe, 'retract_posterior')).toBe(0);
-    expect(inf(lobe, 'retract_fissure')).toBe(0);
-    s.deflate_RLL = 1;
-    updateMorphs(b, s);
-    expect(inf(lobe, 'retract_posterior')).toBeCloseTo(1);
-    expect(inf(lobe, 'retract_fissure')).toBeCloseTo(1);
-    s.deflate_RLL = (P.retractGate[0] + P.retractGate[1]) / 2;
-    updateMorphs(b, s);
-    expect(inf(lobe, 'retract_posterior')).toBeCloseTo(0.5);
+    expect(inf(lobe, 'retract_hilum')).toBeCloseTo(0.9);
   });
 
   test('dirty flags: identical second frame writes 0', () => {
@@ -85,7 +86,7 @@ describe('morph bindings', () => {
     expect(inf(child, 'collapse_RUL')).toBe(0);
     group.visible = true;
     expect(updateMorphs(b2, s)).toBe(1);
-    expect(inf(child, 'collapse_RUL')).toBeCloseTo(0.9);
+    expect(inf(child, 'collapse_RUL')).toBeCloseTo(0.9 * COLLAPSE_GAIN);
   });
 
   test('ventilated right lobe breathes subtly; collapsed lobe does not', () => {
@@ -103,8 +104,14 @@ describe('morph bindings', () => {
     }
     expect(maxU).toBeGreaterThan(P.rightLobeBreathAmp * 0.9);
     expect(maxU).toBeLessThanOrEqual(P.rightLobeBreathAmp + 1e-9);
-    expect(maxL).toBe(1);
+    expect(maxL).toBeCloseTo(COLLAPSE_GAIN, 9);
   });
+});
+
+test('T843 collapse gain comes from the manifest, within the tear-checked range', () => {
+  expect(COLLAPSE_GAIN).toBe((ANATOMY as { collapseGain?: number }).collapseGain ?? 1);
+  expect(COLLAPSE_GAIN).toBeGreaterThanOrEqual(1);
+  expect(COLLAPSE_GAIN).toBeLessThanOrEqual(1.6);
 });
 
 describe('physiology clock', () => {

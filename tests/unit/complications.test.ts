@@ -34,7 +34,7 @@ const HIT = { x: 1, y: 2, z: 3 };
 describe('complications triggers', () => {
   it('ignores correct actions', () => {
     const { ctl } = setup();
-    expect(ctl.onAction(act({ tool: 'stapler', target: 'V_RML_common', kind: 'fire' }))).toEqual([]);
+    expect(ctl.onAction(act({ tool: 'stapler', target: 'middle_lobe_vein', kind: 'fire' }))).toEqual([]);
     expect(
       ctl.onAction(act({ tool: 'cautery', target: 'hilar_connective_tissue', kind: 'dissect' })),
     ).toEqual([]);
@@ -63,13 +63,24 @@ describe('complications triggers', () => {
     expect(ctl.activeBleeds).toBe(0);
   });
 
+  it('manifest danger severity: pericardium is minor (own toast, no bleed); the PA tree major', () => {
+    const { ctl } = setup();
+    expect(ctl.onAction(act({ tool: 'cautery', target: 'pericardium', kind: 'dissect' }))).toEqual([
+      { type: 'toast', key: 'complication.dangerMinor' },
+    ]);
+    expect(ctl.log[0]).toMatchObject({ type: 'danger-hit', severity: 'minor' });
+    ctl.onAction(act({ tool: 'stapler', target: 'pulmonary_artery_tree', kind: 'fire' }));
+    expect(ctl.log.slice(1).map((e) => e.type)).toEqual(['danger-hit', 'bleed']);
+    expect(ctl.log[1]).toMatchObject({ severity: 'major' });
+  });
+
   it('cautery on a target vessel → bleed at its centroid when no point given', () => {
     const { ctl } = setup();
-    const req = ctl.onAction(act({ tool: 'cautery', target: 'V4_lateral', kind: 'dissect' }));
+    const req = ctl.onAction(act({ tool: 'cautery', target: 'middle_lobe_vein_V4', kind: 'dissect' }));
     expect(req[0]).toMatchObject({
       type: 'blood',
       severity: 'major',
-      point: { x: -0.0479, y: 0.0736, z: 0.044 },
+      point: { x: -0.0457, y: 0.0692, z: 0.0157 }, // targets.ts V4 centroid (v8)
     });
     expect(req[1]).toEqual({ type: 'toast', key: 'complication.bleed' });
   });
@@ -83,16 +94,21 @@ describe('complications triggers', () => {
 
   it('vessel classification by node name', () => {
     for (const id of [
-      'A_RML_common',
-      'A4_lateral',
-      'V5_medial',
-      'tree_pulm_vein_base',
+      'middle_lobe_artery',
+      'middle_lobe_artery_A4',
+      'middle_lobe_vein_V5',
+      'pulmonary_vein_tree',
       'azygos_vein',
       'aorta',
     ]) {
       expect(isVascular(id), id).toBe(true);
     }
-    for (const id of ['B_RML_common', 'tree_airway_base', 'vagus_nerve_right', 'lung_middle_lobe_right']) {
+    for (const id of [
+      'middle_lobe_bronchus',
+      'bronchial_tree',
+      'vagus_nerve_right',
+      'lung_middle_lobe_right',
+    ]) {
       expect(isVascular(id), id).toBe(false);
     }
   });
@@ -101,7 +117,7 @@ describe('complications triggers', () => {
 describe('bleed control', () => {
   it('pool grows, reddens the view and warns until sucker + pressure stop it', () => {
     const { ctl, input, stopped, run } = setup();
-    ctl.onAction(act({ tool: 'cautery', target: 'tree_pulm_artery_base', kind: 'dissect', point: HIT }));
+    ctl.onAction(act({ tool: 'cautery', target: 'pulmonary_artery_tree', kind: 'dissect', point: HIT }));
     ctl.bindSlot(0, 7);
     run(5);
     expect(ctl.pool).toBeCloseTo(C.oozeRate.major * 5, 5);
@@ -124,14 +140,14 @@ describe('bleed control', () => {
     expect(ctl.redden).toBe(0);
     expect(ctl.log.at(-1)).toMatchObject({
       type: 'bleed-controlled',
-      target: 'tree_pulm_artery_base',
+      target: 'pulmonary_artery_tree',
       severity: 'major',
     });
   });
 
   it('releasing pressure resets the hold', () => {
     const { ctl, input, run } = setup();
-    ctl.onAction(act({ tool: 'cautery', target: 'V5_medial', kind: 'dissect' }));
+    ctl.onAction(act({ tool: 'cautery', target: 'middle_lobe_vein_V5', kind: 'dissect' }));
     input.suction = true;
     input.pressure = true;
     run(C.pressureSec.major - 1);
@@ -146,7 +162,7 @@ describe('bleed control', () => {
 describe('over-traction during artery passage', () => {
   it('retract above threshold while encircling an artery → one minor bleed', () => {
     const { ctl, input, run } = setup();
-    ctl.onAction(act({ tool: 'clamp', target: 'A_RML_common', kind: 'encircle', point: HIT }));
+    ctl.onAction(act({ tool: 'clamp', target: 'middle_lobe_artery', kind: 'encircle', point: HIT }));
     input.retract = C.overTractionRetract - 0.05;
     expect(ctl.update(0.1, input)).toBeNull();
     input.retract = C.overTractionRetract + 0.05;
@@ -156,7 +172,11 @@ describe('over-traction during artery passage', () => {
     ]);
     expect(ctl.update(0.1, input)).toBeNull(); // once per passage
     expect(ctl.vitalsKey).toBe('vitals.bleed.minor');
-    expect(ctl.log.at(-1)).toMatchObject({ type: 'bleed', cause: 'over-traction', target: 'A_RML_common' });
+    expect(ctl.log.at(-1)).toMatchObject({
+      type: 'bleed',
+      cause: 'over-traction',
+      target: 'middle_lobe_artery',
+    });
     input.retract = 0;
     input.suction = true;
     input.pressure = true;
@@ -167,10 +187,10 @@ describe('over-traction during artery passage', () => {
   it('no tear when encircling a vein or after the passage ends', () => {
     const { ctl, input } = setup();
     input.retract = 1;
-    ctl.onAction(act({ tool: 'clamp', target: 'V_RML_common', kind: 'encircle' }));
+    ctl.onAction(act({ tool: 'clamp', target: 'middle_lobe_vein', kind: 'encircle' }));
     expect(ctl.update(0.1, input)).toBeNull();
-    ctl.onAction(act({ tool: 'clamp', target: 'A4_lateral', kind: 'encircle' }));
-    ctl.onAction(act({ tool: 'stapler', target: 'A4_lateral', kind: 'fire' }));
+    ctl.onAction(act({ tool: 'clamp', target: 'middle_lobe_artery_A4', kind: 'encircle' }));
+    ctl.onAction(act({ tool: 'stapler', target: 'middle_lobe_artery_A4', kind: 'fire' }));
     expect(ctl.update(0.1, input)).toBeNull();
     expect(ctl.log).toEqual([]);
   });
@@ -194,7 +214,7 @@ describe('log + pool capacity', () => {
 describe('cautery coagulation (T822)', () => {
   const K = cauteryConfig.coag;
   const tear = (ctl: ComplicationController) => {
-    ctl.onAction(act({ tool: 'clamp', target: 'A4_lateral', kind: 'encircle', point: HIT }));
+    ctl.onAction(act({ tool: 'clamp', target: 'middle_lobe_artery_A4', kind: 'encircle', point: HIT }));
     ctl.update(0.01, { suction: false, pressure: false, retract: 1 });
   };
 
@@ -219,6 +239,16 @@ describe('cautery coagulation (T822)', () => {
     expect(ctl.coagulated).toBe(1);
     expect(stopped).toHaveLength(1);
     expect(ctl.log.at(-1)?.type).toBe('bleed-controlled');
+  });
+
+  it('T844 node-bed ooze: a minor bleed logged as node-bed, sealed by the cautery', () => {
+    const { ctl, input, run } = setup();
+    expect(ctl.startOoze('LN_12R', HIT)).toEqual({ type: 'blood', bleed: 0, point: HIT, severity: 'minor' });
+    expect(ctl.log.at(-1)).toMatchObject({ type: 'bleed', target: 'LN_12R', cause: 'node-bed' });
+    input.coagAt = HIT;
+    run(K.sec + 0.2);
+    expect(ctl.activeBleeds).toBe(0);
+    expect(ctl.coagulated).toBe(1);
   });
 
   it('a major vessel injury is never sealed by the cautery (refused flag for the toast)', () => {

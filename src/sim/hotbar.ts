@@ -59,7 +59,7 @@ export const CONTEXT_ACTIONS = [
     code: CONTEXT_KEYS.chestTube,
     key: 'T',
     icon: 'i-chest-tube',
-    label: 'Chest tube (step 7, optional)',
+    label: 'Chest tube (step 9, optional)',
   },
 ] as const;
 
@@ -82,12 +82,22 @@ export interface Hotbar {
   handleKey(code: string): boolean;
   /** Returns an unsubscribe function. */
   on(ev: 'change', fn: HotbarListener): () => void;
+  /** T840: instruments of an inventory kind (interaction.config invKind) in the chest, for the tooltips. */
+  inUse(kind: string): number;
+  /** Event-time; notifies onUsage listeners when the count changes. */
+  setInUse(kind: string, n: number): void;
+  onUsage(fn: () => void): () => void;
+  /** T850: re-selecting the active slot asks this first (true = consumed, e.g. resume a parked instrument; no
+   *  sub-option cycle). */
+  reselect: ((slot: number) => boolean) | null;
 }
 
 export function createHotbar(): Hotbar {
   let slot = 0;
   const subs = SLOTS.map(() => 0);
   const listeners: HotbarListener[] = [];
+  const usage = new Map<string, number>();
+  const usageListeners: (() => void)[] = [];
   const emit = (): void => {
     const e = { slot, subOption: subs[slot] ?? 0 };
     for (const fn of listeners) fn(e);
@@ -102,6 +112,7 @@ export function createHotbar(): Hotbar {
       const def = SLOTS[i];
       if (!def) return;
       if (i === slot) {
+        if (hb.reselect?.(i)) return;
         const n = def.subOptions.length;
         if (n < 2) return;
         subs[i] = ((subs[i] ?? 0) + 1) % n;
@@ -119,6 +130,20 @@ export function createHotbar(): Hotbar {
       else if (code === HOTBAR_KEYS.next.code) hb.cycle(1);
       else return false;
       return true;
+    },
+    reselect: null,
+    inUse: (kind) => usage.get(kind) ?? 0,
+    setInUse(kind, n) {
+      if ((usage.get(kind) ?? 0) === n) return;
+      usage.set(kind, n);
+      for (const fn of usageListeners) fn();
+    },
+    onUsage(fn) {
+      usageListeners.push(fn);
+      return () => {
+        const k = usageListeners.indexOf(fn);
+        if (k >= 0) usageListeners.splice(k, 1);
+      };
     },
     on(_ev, fn) {
       listeners.push(fn);

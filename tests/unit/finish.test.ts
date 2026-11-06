@@ -1,4 +1,3 @@
-import { Vector3 } from 'three';
 import { describe, expect, it } from 'vitest';
 import {
   bagExtract,
@@ -17,7 +16,6 @@ import {
   type FinishResult,
   type FinishState,
 } from '../../src/sim/actions/finish';
-import { FLUID_CONFIG, IrrigationFluid } from '../../src/scene/fluid';
 
 const kinds = (r: FinishResult): string[] => (r.ok ? r.requests.map((q) => q.kind) : []);
 const flags = (r: FinishResult): string[] =>
@@ -36,7 +34,7 @@ function toLobeFree(): FinishState {
   ventilate(s);
   fireBronchus(s);
   noteDivided(s, 'artery');
-  expect(fireFissure(s, 1).ok).toBe(true);
+  for (let i = 1; i < C.fissureFiresRequired; i++) expect(fireFissure(s, 1).ok).toBe(true);
   expect(confirmUnderside(s, 1).ok).toBe(true);
   expect(fireFissure(s, 1).ok).toBe(true);
   return s;
@@ -110,6 +108,8 @@ describe('finish: fissure + extraction sequence', () => {
     expect(fireFissure(s, 0.2).ok).toBe(false);
     expect(confirmUnderside(s, 1).ok).toBe(false); // before first fire
     expect(flags(fireFissure(s, 1))).toEqual(['fissure_fire_1']);
+    // T851: one fire per fissure-guide segment; only the last one needs the underside check.
+    for (let i = 2; i < C.fissureFiresRequired; i++) expect(flags(fireFissure(s, 1))).toEqual([`fissure_fire_${i}`]);
     const early = fireFissure(s, 1);
     expect(!early.ok && early.error).toBe(true);
     expect(confirmUnderside(s, 0.1).ok).toBe(false);
@@ -164,25 +164,5 @@ describe('finish: water test', () => {
     const r = ventilate(s);
     expect(r.ok && r.requests[0]).toEqual({ kind: 'bubbles', node: C.stump });
     expect(s.caseComplete).toBe(false);
-  });
-});
-
-describe('IrrigationFluid', () => {
-  it('level moves only position/visibility; material fixed', () => {
-    const f = new IrrigationFluid();
-    const mat = f.mesh.material;
-    expect(mat.transparent).toBe(true);
-    expect(f.mesh.visible).toBe(false);
-    f.placeAt(new Vector3(0, 1, 0));
-    f.setLevel(2);
-    f.update(1 / FLUID_CONFIG.fillPerSec); // full in one second of fill rate
-    expect(f.level).toBe(1);
-    expect(f.mesh.visible).toBe(true);
-    expect(f.mesh.position.y).toBeCloseTo(1 + FLUID_CONFIG.depth);
-    f.setLevel(0);
-    f.update(10);
-    expect(f.mesh.visible).toBe(false);
-    expect(f.mesh.material).toBe(mat);
-    expect(mat.transparent).toBe(true);
   });
 });

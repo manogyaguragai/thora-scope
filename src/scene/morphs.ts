@@ -1,20 +1,35 @@
-// Morph controller (CONTEXT §7.3): app state → 8 channel values → every mesh carrying each morph name.
-// Bindings are resolved by name once at load (morph order differs per mesh); the per-frame path has no strings.
+// Morph controller (CONTEXT §7.3): app state → channel values → every mesh carrying each morph name. Channels =
+// the manifest morphs (src/content/anatomy.json, additive deltas from the inflated Basis) + heartbeat + breath_left.
+// Bindings are resolved by name once at load (morph order differs per mesh); the per-frame path has no allocations.
 import type { Mesh, Object3D } from 'three';
+import { ANATOMY } from '../content/anatomy';
+import type { Anatomy } from '../content/anatomy';
 import { config } from '../core/config';
 import { breathOffset } from '../sim/physiology';
-import type { AppState } from '../sim/state';
+import { TWEEN_KEYS } from '../sim/state';
+import type { AppState, TweenKey } from '../sim/state';
 
-export const CHANNELS = [
-  'collapse_RUL',
-  'collapse_RML',
-  'collapse_RLL',
-  'mediastinal_shift',
-  'retract_posterior',
-  'retract_fissure',
-  'heartbeat',
-  'breath_left',
-] as const;
+const MODEL = ANATOMY.morphs;
+export const CHANNELS: readonly string[] = [...MODEL, 'heartbeat', 'breath_left'];
+const HEART = MODEL.length;
+const BREATH = HEART + 1;
+const COLLAPSE = 'collapse_';
+/** Legacy grasper key (old model's retract_posterior) also drives this morph until T832/T833 move to it. */
+const LEGACY_RETRACT: TweenKey = 'retract_posterior';
+const LEGACY_TARGET = 'retract_hilum';
+
+/** State key per model morph: collapse_<lobe> ← deflate_<lobe> (ventilated lobes breathe), else the same name. */
+const SOURCE: (TweenKey | null)[] = MODEL.map((m) => {
+  const key = m.startsWith(COLLAPSE) ? `deflate_${m.slice(COLLAPSE.length)}` : m;
+  if ((TWEEN_KEYS as readonly string[]).includes(key)) return key as TweenKey;
+  console.warn(`[morphs] manifest morph "${m}" has no state key; held at 0`);
+  return null;
+});
+const BREATHES = MODEL.map((m) => m.startsWith(COLLAPSE));
+/** T843: manifest `collapseGain` scales the collapse_* depth (v7's collapse is shallow; the keys are analytic, so
+ *  extrapolating stays connected). Breathing excursion is not scaled. */
+export const COLLAPSE_GAIN = (ANATOMY as Anatomy & { collapseGain?: number }).collapseGain ?? 1;
+const LEGACY = MODEL.indexOf(LEGACY_TARGET);
 
 interface VisNode {
   visible: boolean;
@@ -41,7 +56,6 @@ export interface MorphBindings {
 }
 
 const P = config.physiology;
-const [GATE_LO, GATE_HI] = P.retractGate;
 
 /** All meshes under root that have morph targets. Load-time only. */
 export function collectMorphMeshes(root: Object3D): Mesh[] {
@@ -70,28 +84,17 @@ export function buildMorphBindings(meshes: readonly MorphMesh[]): MorphBindings 
 }
 
 const clamp01 = (v: number): number => (v < 0 ? 0 : v > 1 ? 1 : v);
-const smoothstep = (a: number, b: number, x: number): number => {
-  const t = clamp01((x - a) / (b - a));
-  return t * t * (3 - 2 * t);
-};
 
-/**
- * §7.3 mapping. Retraction gate uses min(deflate) for BOTH retract morphs: they were authored on the fully
- * collapsed right lung, and each moves all three lobes (posterior: whole lung; fissure: RUL/RML/RLL).
- */
+/** §7.3 mapping. The model's keys are additive and position-independent, so no retraction gate is needed. */
 export function computeChannels(s: AppState, out: Float64Array): void {
-  const u = s.deflate_RUL;
-  const m = s.deflate_RML;
-  const l = s.deflate_RLL;
-  const gate = smoothstep(GATE_LO, GATE_HI, Math.min(u, m, l));
-  out[0] = clamp01(u + breathOffset(s, u));
-  out[1] = clamp01(m + breathOffset(s, m));
-  out[2] = clamp01(l + breathOffset(s, l));
-  out[3] = Math.max(u, m, l);
-  out[4] = s.retract_posterior * gate;
-  out[5] = s.retract_fissure * gate;
-  out[6] = s.heartbeat;
-  out[7] = s.breath;
+  for (let i = 0; i < SOURCE.length; i++) {
+    const key = SOURCE[i];
+    const v = key ? s[key] : 0;
+    out[i] = BREATHES[i] ? clamp01(v + breathOffset(s, v)) + (COLLAPSE_GAIN - 1) * v : v;
+  }
+  if (LEGACY >= 0) out[LEGACY] = Math.max(out[LEGACY] ?? 0, s[LEGACY_RETRACT]);
+  out[HEART] = s.heartbeat;
+  out[BREATH] = s.breath;
 }
 
 function shown(o: VisNode | null): boolean {

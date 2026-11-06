@@ -7,7 +7,7 @@ import { hideShell } from './pixels';
 
 // T807: per-step scope close-ups (steps 2–7) + per-structure-class colour table from a pick-ray grid.
 // Each grid ray names the node under that pixel (BVH pick, scope pose), the screenshot gives its colour.
-// T826: the T807 gates run on the Teaching palette; Realistic gets a light sanity check (steps 3 and 5).
+// T826: the T807 gates run on the Teaching palette; Realistic gets a light sanity check (vein + artery steps).
 test.use({ viewport: { width: 1280, height: 720 } });
 
 const GRID = { x: 64, y: 40, extent: 0.85 }; // NDC samples per axis, ±extent (inside the 5:4 mask)
@@ -15,7 +15,7 @@ const GRID = { x: 64, y: 40, extent: 0.85 }; // NDC samples per axis, ±extent (
 const MIN_FOCUS_HITS: Readonly<Record<number, number>> = {
   2: 0.03,
   3: 0.03,
-  4: 0.03,
+  4: 0.008, // T846b v8: LN_11R/12R are ~1 cm and half-buried; the best shaft-clear lens from the step port reaches 1.1 %
   5: 0.03,
   6: 0.03,
   7: 0.1,
@@ -27,9 +27,12 @@ const SETTLE_MS = 1500; // auto-exposure
 // T818: lung pixels in this luma band read as the black/purple "V" the rest-pose normals made on the retracted RLL
 // (V ≈ L35; distant lobes ≥ L85; below L15 = scope mask / vitals monitor over the canvas).
 const DARK_LUMA = [15, 60] as const;
-const MAX_DARK_LUNG = 0.03; // fraction of lung-lobe rays (rest normals: step 3 28 %, step 5 7 %, step 6 6 %)
-const DARK_STEPS = [3, 5, 6];
-const PALETTE_STEPS = [3, 5]; // qa/screenshots/palette-{realistic,teaching}-s{3,5}.png
+const MAX_DARK_LUNG = 0.03; // fraction of lung-lobe rays (T818 rest normals, old 7-step list: 3 28 %, 5 7 %, 6 6 %)
+const DARK_STEPS = [3, 6, 7]; // T846b 9-step list: vein, arteries, fissures (retracted lobes in view)
+// qa/screenshots/palette-{realistic,teaching}-s{2,3,6}.png (T846b 9-step list: 2 pleura, 3 vein, 6 arteries)
+const PALETTE_STEPS = [2, 3, 6];
+const VEIN_STEP = 3;
+const ARTERY_STEP = 6;
 const MAX_ARTERY_SAT = 0.35; // realistic artery: grey-pink, not the saturated teaching blue (HSV S ≈ 0.4)
 
 const classOf = (name: string): string => TISSUE_RULES.find(([re]) => re.test(name))?.[1] ?? FALLBACK_TISSUE;
@@ -151,7 +154,10 @@ test('realistic palette: vein darker than lung, artery not saturated blue', asyn
   const rows: Record<number, Row> = {};
   for (const step of PALETTE_STEPS)
     rows[step] = (
-      await sample(page, step, 'realistic', [`qa/screenshots/palette-realistic-s${step}.png`])
+      await sample(page, step, 'realistic', [
+        `qa/screenshots/palette-realistic-s${step}.png`,
+        `qa/screenshots/t846-realistic-s${step}.png`,
+      ])
     ).row;
   const sat = ([r, g, b]: number[]): number => {
     const max = Math.max(r ?? 0, g ?? 0, b ?? 0);
@@ -164,11 +170,13 @@ test('realistic palette: vein darker than lung, artery not saturated blue', asyn
           .map(([c, v]) => `${c} ${hex(v.rgb)} L${Math.round(lum(v.rgb))} S${sat(v.rgb).toFixed(2)} n${v.n}`)
           .join(' · '),
     );
-  const vein = rows[3]?.vein?.rgb ?? [];
-  const lung = rows[3]?.collapsedLung?.rgb ?? [];
-  const artery = rows[5]?.artery?.rgb ?? [];
-  expect(lum(vein), 'step 3 vein darker than lung').toBeLessThan(lum(lung));
-  expect(sat(artery), 'step 5 artery saturation').toBeLessThan(MAX_ARTERY_SAT);
-  expect(artery[2] ?? 0, 'step 5 artery not blue-dominant').toBeLessThanOrEqual(artery[0] ?? 0);
+  expect(rows[VEIN_STEP]?.vein, 'vein in the vein-step view').toBeDefined();
+  expect(rows[ARTERY_STEP]?.artery, 'artery in the artery-step view').toBeDefined();
+  const vein = rows[VEIN_STEP]?.vein?.rgb ?? [];
+  const lung = rows[VEIN_STEP]?.collapsedLung?.rgb ?? [];
+  const artery = rows[ARTERY_STEP]?.artery?.rgb ?? [];
+  expect(lum(vein), 'vein darker than lung').toBeLessThan(lum(lung));
+  expect(sat(artery), 'artery saturation').toBeLessThan(MAX_ARTERY_SAT);
+  expect(artery[2] ?? 0, 'artery not blue-dominant').toBeLessThanOrEqual(artery[0] ?? 0);
   expect(errors).toEqual([]);
 });

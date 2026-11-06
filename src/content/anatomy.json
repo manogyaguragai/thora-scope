@@ -1,0 +1,124 @@
+{
+  "$comment": "Single source of truth for the RML hilum model. v8+ drop-in = new file in assets_src + bump `source`; names/keys are the Blender contract (docs/BLENDER_PROMPT_v8.md). Read by scripts/optimize-assets.mjs, materials.config, morphs/state, steps, content.",
+  "version": "v8",
+  "collapseGain": 1,
+  "source": "assets_src/RML_v8.glb",
+  "base": "assets_src/thorax_sim_v3.glb",
+  "morphs": [
+    "collapse_RUL",
+    "collapse_RML",
+    "collapse_RLL",
+    "retract_hilum",
+    "retract_RML_lateral",
+    "retract_fissure"
+  ],
+  "referenceCameras": ["cam_anterior_hilum"],
+  "renamedFromBase": { "mediastinal_fat": "mediastinal_fat_ct" },
+  "trimFromBase": {
+    "$comment": "T846c build-time trim (scripts/optimize-assets.mjs): drop triangles whose centroid is within clearanceM of any model structure (except `except`) in any pose (morph-key sets), then islands < minIslandTris.",
+    "mediastinal_fat_ct": {
+      "clearanceM": 0.006,
+      "minIslandTris": 200,
+      "except": ["lung_upper_lobe_right", "lung_middle_lobe_right", "lung_lower_lobe_right", "pericardium"],
+      "poses": [[], ["collapse_RUL", "collapse_RML", "collapse_RLL", "retract_hilum"]]
+    }
+  },
+  "removedFromBase": [
+    "tree_pulm_artery_base",
+    "pa_left",
+    "A_RML_common",
+    "A4_lateral",
+    "A5_medial",
+    "A_RML_accessory_1",
+    "A_RML_accessory_2",
+    "A_RML_extra_1",
+    "tree_pulm_vein_base",
+    "V_RML_common",
+    "V4_lateral",
+    "V5_medial",
+    "V_RML_accessory_1",
+    "V_RML_accessory_2",
+    "tree_airway_base",
+    "B_RML_common",
+    "B4_lateral",
+    "B5_medial",
+    "hilar_connective_tissue_window",
+    "mediastinal_fat_window",
+    "left_atrium_provisional",
+    "inferior_pulmonary_ligament"
+  ],
+  "structures": {
+    "lung_upper_lobe_right": { "tissue": "collapsedLung", "lobe": "RUL", "group": "lungs" },
+    "lung_middle_lobe_right": {
+      "tissue": "collapsedLung",
+      "lobe": "RML",
+      "group": "lungs",
+      "removedAfterStep": 8
+    },
+    "lung_lower_lobe_right": { "tissue": "collapsedLung", "lobe": "RLL", "group": "lungs" },
+    "pulmonary_artery_tree": { "tissue": "artery", "group": "arteries", "danger": "major", "pulse": 1 },
+    "middle_lobe_artery": {
+      "tissue": "artery",
+      "lobe": "RML",
+      "group": "arteries",
+      "divideStep": 6,
+      "pulse": 0.6
+    },
+    "middle_lobe_artery_A4": {
+      "tissue": "artery",
+      "lobe": "RML",
+      "group": "arteries",
+      "divideStep": 6,
+      "pulse": 0.4
+    },
+    "middle_lobe_artery_A5": {
+      "tissue": "artery",
+      "lobe": "RML",
+      "group": "arteries",
+      "divideStep": 6,
+      "pulse": 0.4
+    },
+    "pulmonary_vein_tree": { "tissue": "vein", "group": "veins", "danger": "major", "pulse": 0.25 },
+    "middle_lobe_vein": { "tissue": "vein", "lobe": "RML", "group": "veins", "divideStep": 3, "pulse": 0.15 },
+    "middle_lobe_vein_V4": {
+      "tissue": "vein",
+      "lobe": "RML",
+      "group": "veins",
+      "divideStep": 3,
+      "pulse": 0.1
+    },
+    "middle_lobe_vein_V5": {
+      "tissue": "vein",
+      "lobe": "RML",
+      "group": "veins",
+      "divideStep": 3,
+      "pulse": 0.1
+    },
+    "bronchial_tree": { "tissue": "bronchus", "group": "airway", "danger": "major" },
+    "middle_lobe_bronchus": { "tissue": "bronchus", "lobe": "RML", "group": "airway", "divideStep": 5 },
+    "middle_lobe_bronchus_B4": { "tissue": "bronchus", "lobe": "RML", "group": "airway", "divideStep": 5 },
+    "middle_lobe_bronchus_B5": { "tissue": "bronchus", "lobe": "RML", "group": "airway", "divideStep": 5 },
+    "LN_4R": { "tissue": "lymphNode", "group": "nodes" },
+    "LN_7": { "tissue": "lymphNode", "group": "nodes" },
+    "LN_10R": { "tissue": "lymphNode", "group": "nodes" },
+    "LN_11R": { "tissue": "lymphNode", "group": "nodes", "clearStep": 4 },
+    "LN_12R": { "tissue": "lymphNode", "group": "nodes", "clearStep": 4 },
+    "mediastinal_pleura_hilum": {
+      "tissue": "pleuraHilum",
+      "group": "softTissue",
+      "dissectStep": 2,
+      "dissectable": true
+    },
+    "hilar_connective_tissue": {
+      "tissue": "connective",
+      "group": "softTissue",
+      "dissectStep": 3,
+      "dissectable": true
+    },
+    "mediastinal_fat": { "tissue": "fat", "group": "softTissue", "hidden": true },
+    "pericardium": { "tissue": "pericardium", "group": "mediastinum", "danger": "minor", "pulse": 0.3 },
+    "phrenic_nerve_right": { "tissue": "nerve", "group": "mediastinum", "danger": "major" },
+    "superior_vena_cava": { "tissue": "svc", "group": "mediastinum", "danger": "major" },
+    "azygos_vein": { "tissue": "svc", "group": "mediastinum", "danger": "major" }
+  }
+}

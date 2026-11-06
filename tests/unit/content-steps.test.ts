@@ -8,13 +8,16 @@ const secs = (t: string): number => {
 };
 
 describe('guided step content', () => {
-  test('7 steps in order, matching procedure_steps.json', () => {
-    expect(GUIDED_STEPS.map((s) => s.step)).toEqual([1, 2, 3, 4, 5, 6, 7]);
+  test('9 steps in order, matching procedure_steps.json', () => {
+    expect(GUIDED_STEPS.map((s) => s.step)).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9]);
     expect(GUIDED_STEPS.map((s) => s.step)).toEqual(procedure.steps.map((s) => s.step));
   });
 
   test.each(GUIDED_STEPS.map((s) => [s.step, s] as const))('step %i fields', (_, s) => {
     expect(s.title.length).toBeGreaterThan(0);
+    expect(s.rail.length).toBeGreaterThan(0);
+    expect(s.rail.length).toBeLessThanOrEqual(12); // one rail line
+    expect(s.title.toLowerCase()).toContain(s.rail.toLowerCase()); // visible label inside the accessible name
     expect(s.caption.length).toBeGreaterThan(0);
     expect(s.portLabel.length).toBeGreaterThan(0);
     expect(s.points.length).toBeGreaterThanOrEqual(3);
@@ -26,8 +29,8 @@ describe('guided step content', () => {
     expect(s.video.text.startsWith('In the reference video:')).toBe(true);
   });
 
-  test('step 6 notes the unmodelled tumour and margin', () => {
-    const note = GUIDED_STEPS.find((s) => s.step === 6)?.note;
+  test('step 7 (fissures) notes the unmodelled tumour and margin', () => {
+    const note = GUIDED_STEPS.find((s) => s.step === 7)?.note;
     expect(note).toMatch(/not modelled/i);
     expect(note).toMatch(/tumour/i);
   });

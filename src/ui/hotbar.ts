@@ -1,7 +1,10 @@
 // Tool hotbar dock + port status chips (CONTEXT §6.3, §6.7). Plain DOM (ADR-007), event-driven: DOM writes only
 // on hotbar 'change' / setOccupant, never per frame.
+import { SUB_IDS } from '../content/targets';
+import type { ToolId } from '../content/targets';
 import type { Hotbar, HotbarSlot } from '../sim/hotbar';
 import { SLOTS } from '../sim/hotbar';
+import { interactionConfig, invKind } from '../sim/interaction.config';
 import { ensureIconSprite, icon } from './icons';
 import './hotbar.css';
 
@@ -44,7 +47,10 @@ export function mountHotbar(host: HTMLElement, hotbar: Hotbar): () => void {
     const { slot, btn, use, tip, dots } = s;
     const active = i === hotbar.slot;
     const sub = hotbar.subOption(i);
-    const text = slotLabel(slot, sub);
+    // T840: inventory count, e.g. "· 1/2 in use".
+    const kind = invKind(slot.id, SUB_IDS[slot.id as ToolId]?.[sub] ?? null);
+    const cap = interactionConfig.inventory[kind];
+    const text = `${slotLabel(slot, sub)}${cap ? ` · ${hotbar.inUse(kind)}/${cap} in use` : ''}`;
     btn.setAttribute('aria-label', `${text} (key ${i + 1})`);
     btn.setAttribute('aria-pressed', String(active));
     btn.tabIndex = active ? 0 : -1;
@@ -61,6 +67,9 @@ export function mountHotbar(host: HTMLElement, hotbar: Hotbar): () => void {
     render(slot);
     shown = slot;
     if (moveFocus) slots[slot]?.btn.focus();
+  });
+  const offUsage = hotbar.onUsage(() => {
+    for (let i = 0; i < slots.length; i++) render(i);
   });
 
   // Roving tabindex: arrows/Home/End move focus only; Enter/Space (native click) selects.
@@ -94,6 +103,7 @@ export function mountHotbar(host: HTMLElement, hotbar: Hotbar): () => void {
   host.append(bar);
   return () => {
     off();
+    offUsage();
     bar.remove();
   };
 }
@@ -110,13 +120,20 @@ export interface PortChips {
   dispose(): void;
 }
 
+/** T840: per-port withdraw button beside each chip (shown while the port holds an instrument). */
+export interface PortWithdraw {
+  can: (portId: string) => boolean;
+  run: (portId: string) => void;
+}
+
 /** Port status chips (occupant per port), shown beside the dock; each is a button that moves the scope there
- *  (T808). Update via `setOccupant` / `setCurrent` (event-driven). */
+ *  (T808), plus an optional withdraw button (T840). Update via `setOccupant` / `setCurrent` (event-driven). */
 export function mountPortChips(
   host: HTMLElement,
   ports: readonly PortChip[],
   getOccupant: (portId: string) => string,
   onSelect: (portId: string) => void,
+  withdraw?: PortWithdraw,
 ): PortChips {
   const list = document.createElement('div');
   list.className = 'port-chips';
@@ -124,6 +141,7 @@ export function mountPortChips(
   list.setAttribute('aria-label', 'Scope port: click to view from that port');
   const occ = new Map<string, HTMLElement>();
   const btns = new Map<string, HTMLButtonElement>();
+  const outs = new Map<string, HTMLButtonElement>();
   for (const p of ports) {
     const btn = document.createElement('button');
     btn.type = 'button';
@@ -141,13 +159,31 @@ export function mountPortChips(
     btn.addEventListener('click', () => onSelect(p.id));
     occ.set(p.id, who);
     btns.set(p.id, btn);
-    list.append(btn);
+    const row = document.createElement('span');
+    row.className = 'port-chip-row';
+    row.append(btn);
+    list.append(row);
+    if (withdraw) {
+      const out = document.createElement('button');
+      out.type = 'button';
+      out.className = 'port-chip-withdraw';
+      out.dataset.port = p.id;
+      out.textContent = '⏏';
+      out.title = `Withdraw the last instrument from the ${p.label.toLowerCase()}`;
+      out.setAttribute('aria-label', out.title);
+      out.hidden = !withdraw.can(p.id);
+      out.addEventListener('click', () => withdraw.run(p.id));
+      outs.set(p.id, out);
+      row.append(out);
+    }
   }
   host.append(list);
   return {
     setOccupant(portId, text) {
       const el = occ.get(portId);
       if (el && el.textContent !== text) el.textContent = text;
+      const out = outs.get(portId);
+      if (out && withdraw) out.hidden = !withdraw.can(portId);
     },
     setCurrent(portId) {
       for (const [id, b] of btns) b.setAttribute('aria-pressed', String(id === portId));
@@ -156,16 +192,76 @@ export function mountPortChips(
   };
 }
 
+/** T850 "Insert via" picker: one button per port (key cap shown); event-driven DOM writes only. */
+export interface PortPicker {
+  setShown(on: boolean): void;
+  /** `reason` ≠ '' greys the port out (aria-disabled, tooltip); `current` = the instrument is in it. */
+  set(portId: string, reason: string, current: boolean, recommended: boolean): void;
+  dispose(): void;
+}
+
+export function mountPortPicker(
+  host: HTMLElement,
+  ports: readonly (PortChip & { key: string })[],
+  onPick: (portId: string) => void,
+): PortPicker {
+  const box = document.createElement('div');
+  box.className = 'port-picker';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', 'Insert the instrument via');
+  box.hidden = true;
+  const head = document.createElement('span');
+  head.className = 'port-picker-head';
+  head.textContent = 'Insert via:';
+  box.append(head);
+  const btns = new Map<string, { b: HTMLButtonElement; p: PortChip & { key: string } }>();
+  for (const p of ports) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'port-pick';
+    b.dataset.port = p.id;
+    b.textContent = `${p.label} · ${p.key}`;
+    b.addEventListener('click', () => onPick(p.id));
+    btns.set(p.id, { b, p });
+    box.append(b);
+  }
+  host.append(box);
+  return {
+    setShown(on) {
+      box.hidden = !on;
+    },
+    set(id, reason, current, recommended) {
+      const e = btns.get(id);
+      if (!e) return;
+      const { b, p } = e;
+      const title = reason
+        ? `${p.label}: ${reason}`
+        : `${current ? 'Re-insert' : 'Insert'} the instrument via the ${p.label.toLowerCase()} (${p.key})${recommended ? ': recommended for this step' : ''}`;
+      if (b.title !== title) {
+        b.title = title;
+        b.setAttribute('aria-label', title);
+      }
+      b.setAttribute('aria-disabled', String(reason !== ''));
+      b.setAttribute('aria-pressed', String(current));
+      b.dataset.recommended = String(recommended);
+    },
+    dispose: () => box.remove(),
+  };
+}
+
 export interface RetractionStrip {
   /** Number of held instruments (enables Release, shows the count). */
   setHeld(n: number): void;
+  /** T850: lymph-node station in the jaws ('11R'), null hides "Record sample". */
+  setSample(station: string | null): void;
   dispose(): void;
 }
 
 /** T820: Hold / Release buttons beside the port chips, keys shown (G, Shift+G). Event-driven DOM writes only. */
 export function mountRetractionStrip(
   host: HTMLElement,
-  on: { hold: () => void; release: () => void },
+  on: { hold: () => void; release: () => void; sample: () => void },
+  sampleKey = 'S',
 ): RetractionStrip {
   const strip = document.createElement('div');
   strip.className = 'retraction-strip';
@@ -184,6 +280,7 @@ export function mountRetractionStrip(
   };
   button('hold', 'Hold · G', 'Lock the placed grasper / sponge-stick in its port, lung retracted', on.hold);
   const rel = button('release', 'Release · Shift+G', 'Let go of the most recent held instrument', on.release);
+  const smp = button('sample', '', 'Take the grasped lymph node out as a labelled sample', on.sample);
   host.append(strip);
   const api = {
     setHeld(n: number) {
@@ -191,8 +288,14 @@ export function mountRetractionStrip(
       const text = n ? `Release · Shift+G (${n})` : 'Release · Shift+G';
       if (rel.textContent !== text) rel.textContent = text;
     },
+    setSample(station: string | null) {
+      smp.hidden = station === null;
+      const text = station ? `Record sample: Station ${station} · ${sampleKey}` : '';
+      if (smp.textContent !== text) smp.textContent = text;
+    },
     dispose: () => strip.remove(),
   };
   api.setHeld(0);
+  api.setSample(null);
   return api;
 }

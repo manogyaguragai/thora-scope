@@ -47,9 +47,9 @@ describe('quiz content', () => {
   });
 
   test('merged mesh names are accepted', () => {
-    const item = IDENTIFY_ITEMS.find((i) => i.node === 'V_RML_common');
-    expect(item && isAccepted(item, 'V4_lateral.001')).toBe(true);
-    expect(item && isAccepted(item, 'B_RML_common')).toBe(false);
+    const item = IDENTIFY_ITEMS.find((i) => i.node === 'middle_lobe_vein');
+    expect(item && isAccepted(item, 'middle_lobe_vein_V4.001')).toBe(true);
+    expect(item && isAccepted(item, 'middle_lobe_bronchus')).toBe(false);
   });
 
   test(`no ${RUN}-word runs copied from source notes`, () => {

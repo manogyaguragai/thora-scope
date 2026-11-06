@@ -1,7 +1,12 @@
 import { describe, expect, test, vi } from 'vitest';
 import { keybindings, matchesKey } from '../../src/core/keybindings';
+import { structuresWhere } from '../../src/content/anatomy';
 import { config } from '../../src/core/config';
+import { DEMOS } from '../../src/app/guidedDemo';
+import { TARGET_BY_ID } from '../../src/content/targets';
 import { createGuided } from '../../src/sim/guided';
+import { CONTEXT_ACTIONS, SLOTS } from '../../src/sim/hotbar';
+import { STEPS } from '../../src/sim/steps';
 import { getMode, onModeChange, setMode } from '../../src/sim/modes';
 import type { Mode } from '../../src/sim/modes';
 import { createState, updateTweens } from '../../src/sim/state';
@@ -77,7 +82,7 @@ describe('guided controller', () => {
     const { g, state } = setup();
     g.goTo(5, true);
     state.t = 10_000; // last tick before the click
-    g.next(); // 5 → 6 tweens retract_posterior / retract_fissure
+    g.next(); // 5 → 6 tweens retract_hilum / retract_RML_lateral / retract_fissure
     const late = state.t + MS + 1; // one multi-second SwiftShader frame later
     updateTweens(state, late); // tickSim runs before guided.update in the frame loop
     g.update(late);
@@ -87,24 +92,34 @@ describe('guided controller', () => {
 
   test('fades: swap to transparent → eased fade → swap back to opaque (or hide)', () => {
     const { g, fades, obj } = setup();
-    g.goTo(2, true);
-    const leaving = obj('hilar_connective_tissue'); // shown in step 2, hidden in step 3
-    const entering = obj('hilar_connective_tissue_window');
-    expect([leaving.visible, entering.visible]).toEqual([true, false]);
-    g.goTo(3);
-    // both drawn during the fade, on the transparent variant from the start
-    expect([leaving.visible, entering.visible]).toEqual([true, true]);
-    expect(fades.get(leaving.name)).toEqual([GUIDED_CONFIG.fadeCeil]);
-    expect(fades.get(entering.name)).toEqual([0]);
+    // manifest: the RML vein is divided in step 3, so it leaves on 3 → 4 and comes back on 4 → 3
+    const vein = obj(structuresWhere((x) => x.divideStep === 3)[0] ?? '');
+    g.goTo(3, true);
+    expect(vein.visible).toBe(true);
+    g.goTo(4);
+    expect(vein.visible).toBe(true); // still drawn during the fade, on the transparent variant from the start
+    expect(fades.get(vein.name)).toEqual([GUIDED_CONFIG.fadeCeil]);
     g.update(0);
     g.update(MS / 2);
     g.update(MS);
-    const out = fades.get(leaving.name) ?? [];
-    const inn = fades.get(entering.name) ?? [];
-    expect(out.slice(1)).toEqual([GUIDED_CONFIG.fadeCeil, GUIDED_CONFIG.fadeCeil / 2, 0, 1]);
+    expect(fades.get(vein.name)?.slice(1)).toEqual([
+      GUIDED_CONFIG.fadeCeil,
+      GUIDED_CONFIG.fadeCeil / 2,
+      0,
+      1,
+    ]);
+    expect(vein.visible).toBe(false);
+    fades.clear();
+    g.goTo(3);
+    expect(vein.visible).toBe(true);
+    expect(fades.get(vein.name)).toEqual([0]);
+    g.update(2 * MS);
+    g.update(2 * MS + MS / 2);
+    g.update(3 * MS);
+    const inn = fades.get(vein.name) ?? [];
     expect(inn.slice(1)).toEqual([0, GUIDED_CONFIG.fadeCeil / 2, GUIDED_CONFIG.fadeCeil, 1]);
-    for (const a of [...out, ...inn].slice(0, -1)) expect(a).toBeLessThanOrEqual(1);
-    expect([leaving.visible, entering.visible]).toEqual([false, true]);
+    for (const a of inn.slice(0, -1)) expect(a).toBeLessThanOrEqual(1);
+    expect(vein.visible).toBe(true);
     expect(fades.has('lung_middle_lobe_right')).toBe(false); // unchanged meshes are untouched
   });
 
@@ -135,7 +150,7 @@ describe('guided controller', () => {
     g.update(MS); // ends 1, starts the queued 4 (one transition, no stacking)
     expect(g.current).toBe(4);
     g.goTo(99, true);
-    expect(g.current).toBe(7);
+    expect(g.current).toBe(9);
     g.goTo(-3, true);
     expect(g.current).toBe(1);
   });
@@ -191,5 +206,31 @@ describe('keybindings', () => {
     expect(matchesKey(keybindings.guidedPrev, 'ArrowLeft')).toBe(false);
     expect(matchesKey(keybindings.scopeLeft, 'ArrowLeft')).toBe(true);
     for (const b of Object.values(keybindings)) expect(b.label.length).toBeGreaterThan(0);
+  });
+});
+
+describe('T844 guided demonstrations (declarative scripts)', () => {
+  test('fissure (7) and lobe removal (8) have scripts; every beat names a known tool, target, port, step', () => {
+    expect(DEMOS[7]?.beats.length).toBeGreaterThan(0);
+    expect(DEMOS[8]?.beats.some((b) => b.action === 'context' && b.tool === 'bag')).toBe(true);
+    const tools = new Set(SLOTS.map((t) => t.id));
+    const context = new Set<string>(CONTEXT_ACTIONS.map((c) => c.id));
+    const ports = new Set(STEPS.map((s) => s.port).concat('port_retraction_8ICS'));
+    for (const [step, script] of Object.entries(DEMOS)) {
+      expect(STEPS.some((s) => s.step === Number(step))).toBe(true);
+      for (const b of script.beats) {
+        expect(b.ms).toBeGreaterThan(0);
+        expect(b.say.length).toBeGreaterThan(0);
+        if (b.action === 'place') {
+          expect(tools.has(b.tool ?? ''), `${step} ${b.tool}`).toBe(true);
+          expect(
+            TARGET_BY_ID.get(b.target ?? '')?.tools[b.tool as 'grasper'],
+            `${step} ${b.target}`,
+          ).toBeDefined();
+          if (b.port) expect(ports.has(b.port)).toBe(true);
+        }
+        if (b.action === 'context') expect(context.has(b.tool ?? '')).toBe(true);
+      }
+    }
   });
 });

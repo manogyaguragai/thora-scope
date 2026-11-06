@@ -36,6 +36,11 @@ export const keybindings = {
   rollHeadRight: { code: 'Period', label: 'Roll the camera head right (unlocks the level)', group: 'Scope' },
   // Instruments (§6.4): active with a tool slot (2–9).
   instrumentWithdraw: { code: 'Escape', label: 'Withdraw the instrument to its port', group: 'Tools' },
+  // T850: "Insert via" (the picker beside the port chips; order = interactionConfig.insertOrder) + node sample.
+  insertVia1: { code: 'KeyC', label: 'Insert the instrument via the camera port', group: 'Tools' },
+  insertVia2: { code: 'KeyN', label: 'Insert the instrument via the anterior working port', group: 'Tools' },
+  insertVia3: { code: 'KeyU', label: 'Insert the instrument via the access incision', group: 'Tools' },
+  recordSample: { code: 'KeyS', label: 'Record the grasped lymph-node sample', group: 'Tools' },
   // Viewing aids (§6.5).
   toggleLabels: { code: 'KeyL', label: 'Toggle all structure labels', group: 'Views & labels' },
   dismissLabel: { code: 'Escape', label: 'Dismiss structure label', group: 'Views & labels' },

@@ -1,7 +1,27 @@
 // Look config (CONTEXT §8): per-tissue material params, shared noise, scope headlight. All look numbers live here.
 // Colours are sRGB hex. Targets come from docs/REFERENCE_FRAMES.md "Sampled tissue colours" (mid-field values,
 // slightly darkened because the ref values are lit + graded); tuned by eye against the ref-frames.
+// T831: hilum structures are keyed off the model manifest (src/content/anatomy.json `structures`: tissue class, pulse
+// weight, dissectable, hidden, step fields), so a new model version with the same names needs no code change.
+import anatomyJson from '../content/anatomy.json' with { type: 'json' };
+const { structures } = anatomyJson;
 import type { Family } from './tissueTextures.config';
+
+/** One manifest entry (docs/MODEL_INTEGRATION.md). `tissue` must be a TissueClass (unit-tested). */
+export interface ManifestStructure {
+  tissue: string;
+  lobe?: string;
+  group?: string;
+  divideStep?: number;
+  dissectStep?: number;
+  clearStep?: number;
+  removedAfterStep?: number;
+  danger?: string;
+  pulse?: number; // heartbeat pulse weight 0..1 (× look.pulse.amplitudeM)
+  dissectable?: boolean;
+  hidden?: boolean; // starts invisible (visibility, not material)
+}
+export const STRUCTURES: Readonly<Record<string, ManifestStructure>> = structures;
 
 /** T824 procedural triplanar detail (tissueTextures.ts atlas layer), sampled in rest-pose object space (metres). */
 export interface TissueDetail {
@@ -27,13 +47,14 @@ export interface TissueParams {
   scatterStrength: number;
   rim: string; // fresnel rim colour
   rimStrength: number;
-  speckle: number; // anthracotic black dots (needs UVs)
+  speckle: number; // anthracotic black dots (needs UVs; UV-less meshes use `detail` instead)
   lobular: number; // lobular network darkening (needs UVs)
+  veil?: number; // T831 thin membranes: alpha → 1 toward grazing angles (fresnel), transparent variants only
   opacity?: number; // overrides the glTF alpha for BLEND materials (default look)
   bakedMaps?: boolean; // false: drop the glTF colour/normal/roughness maps (broken bakes); default true
   env?: number; // × env-map reflections (scene.environmentIntensity overrides per-material intensity); default 1
-  rings?: number; // cartilage-ring groove darkening (look.rings), default 0
   // Shade with the derivative normal where the rest-pose normal is wrong: true = look.normalFix edges, or own edges.
+  // T831: applied only to meshes WITHOUT morph normals (position-only morphs keep stale rest normals).
   normalFix?: boolean | readonly [number, number];
   detail?: TissueDetail; // T824, default none (no extra texture fetches: uniform-gated)
   blood?: number; // T824 blood staining (look.blood) strength, default 0
@@ -60,10 +81,19 @@ const pleuraDetail = {
 const lungDetail = {
   family: 'lung',
   scale: 12,
-  bump: 0.0015,
+  bump: 0.0008, // T831: 0.0015 creased every lobule border into a honeycomb close up
   albedo: 0.15,
   mask: 0.4,
   maskColor: '#201418',
+} as const satisfies TissueDetail;
+// T831 vessel walls: arteries thick + pale with fine red vasa vasorum; veins thin-walled, darker, fewer visible vasa.
+const arteryDetail = { ...vesselDetail, mask: 0.3, maskColor: '#a8202c' } as const satisfies TissueDetail;
+const veinDetail = {
+  ...vesselDetail,
+  bump: 0.002,
+  albedo: 0.3,
+  mask: 0.12, // T831: 0.3 read as dark cracks close up
+  maskColor: '#3a0818',
 } as const satisfies TissueDetail;
 
 const wet = {
@@ -91,13 +121,15 @@ const bronchus = {
   microNormal: 0.6, // T823
   env: 0.5, // T823
   normalFix: true,
+  // T831: the cartilage rings are model geometry; the detail adds ivory cartilage grain + pinkish membranous patches
+  // with fine vessels between the rings.
   detail: {
     family: 'bronchus',
     scale: 50,
     bump: 0.003,
     albedo: 0.25,
-    mask: 0,
-    maskColor: '#000000',
+    mask: 0.35,
+    maskColor: '#c87c78',
   } as const,
 };
 const subsurface = { wrap: 0.5, scatter: '#ff3020', scatterStrength: 1.2 };
@@ -111,16 +143,14 @@ export const TISSUES = {
     roughness: 0.4,
     microNormal: 0.8, // T111: breaks the env reflection into wet glints (frames: many small sharp highlights)
     scatterStrength: 0.6, // T807b: less red back-scatter → greyer than the plum vein / pleura
-    // T807b: collapsed lobes kept rest-pose normals → dark maroon blotches at the step-3 pose. T818: retract_fissure
-    // tilts the RLL fissural face only 25–35° off its rest normals (dot 0.8–0.9, under look.normalFix), which then
-    // face away from the headlight → dark maroon "V" between RML and RLL at step 6; lungs use tighter edges.
+    // T807b/T818: position-only morphs keep rest normals → dark bands at collapse/retract poses. T831: skipped per mesh
+    // when the mesh ships morph normals (manifest models do).
     normalFix: [0.88, 0.97],
     env: 0.3, // T807: grazing lobe surfaces mirrored the env room as silver bands close up
-    speckle: 0.35, // T807b: fine anthracotic flecks (0.85 read as polka dots close up)
-    lobular: 0.22,
+    clearcoatRoughness: 0.06, // T831: glossy visceral pleura
     rim: '#ffd0e0',
     rimStrength: 0.1,
-    detail: lungDetail,
+    detail: { ...lungDetail, mask: 0.55 }, // lobules + anthracotic dots (UV-free, unlike speckle/lobular)
   },
   ventilatedLung: { ...wet, ...subsurface, color: '#e0a098', roughness: 0.45, detail: lungDetail },
   fat: {
@@ -133,65 +163,71 @@ export const TISSUES = {
     clearcoat: 1,
     clearcoatRoughness: 0.05,
     microNormal: 0.8,
-    lobular: 0.3, // T807: visible fat lobules; T823 0.18 → 0.3
+    lobular: 0.15, // T846: 0.3 + the detail cells read as cobblestones; real fat lobules are small and soft
     scatter: '#ff7a20',
-    detail: { family: 'fat', scale: 45, bump: 0.004, albedo: 0.25, mask: 0.35, maskColor: '#b02818' },
+    detail: { family: 'fat', scale: 90, bump: 0.0015, albedo: 0.12, mask: 0.3, maskColor: '#b02818' }, // T846: smaller, softer lobules
     blood: 0.2, // seen through the translucent pericardium, more reads as purple bruising
   },
-  // T807 clarity classes (the Teaching palette, ADR-012): PA blue-violet, PV darker plum (luminance contrast too), no
-  // baked maps on hilar structures (their dark streaky bakes read as grey chrome), low env. REALISTIC below (ADR-013).
+  // Teaching palette = STS colours (ADR-014): pulmonary artery blue, pulmonary vein red, systemic veins navy; no baked
+  // maps on hilar structures (their dark streaky bakes read as grey chrome), low env. REALISTIC below (ADR-013).
   vein: {
     ...wet,
-    color: '#5a2c56', // T807b: darkest of vein / pleura / lung; T823 #3a1846 read as a hole, not a tube
+    color: '#b8282c', // T831 STS red (ADR-012 plum #5a2c56 superseded)
     bakedMaps: false,
-    clearcoat: 0.8,
-    clearcoatRoughness: 0.12, // T823: glossy tube highlights
+    roughness: 0.45,
+    clearcoat: 0.9,
+    clearcoatRoughness: 0.1, // T823: glossy tube highlights
     microNormal: 0.3,
     env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
+    // T831: thin wall, the dark blood glows through toward the terminator (arteries: thick, opaque)
+    wrap: 0.3,
+    scatter: '#5a0a24',
+    scatterStrength: 0.8,
     normalFix: true,
-    rim: '#e0a0d0',
+    rim: '#ffb0a0',
     rimStrength: 0.1,
-    detail: vesselDetail,
-    blood: 0.25, // T824: hilar vessels carry smears in the refs (03:52)
+    detail: veinDetail,
+    blood: 0.45, // T824: hilar vessels carry smears in the refs (03:52); T831 0.25 was invisible
   },
   svc: {
     ...wet,
-    color: '#76507e',
+    color: '#3a4688', // T831: systemic veins STS blue, darker than the PA so the two stay apart
     bakedMaps: false,
     clearcoat: 0.8,
     clearcoatRoughness: 0.12, // T823
     env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
+    wrap: 0.3,
+    scatter: '#3a0a2a',
+    scatterStrength: 0.6,
     normalFix: true,
     rim: '#c0c8ff',
     rimStrength: 0.08,
-    detail: vesselDetail,
+    detail: veinDetail,
   },
   artery: {
     ...wet,
-    color: '#5560b8',
+    color: '#3a5ac8', // T831 STS blue
     bakedMaps: false,
     roughness: 0.5,
     clearcoat: 0.8,
-    clearcoatRoughness: 0.12, // T823
+    clearcoatRoughness: 0.14, // T823 0.12; T831 thicker wall, a touch more satin than the vein
     microNormal: 0.3,
     env: 0.15, // the RoomEnvironment's hard-edged boxes mirrored as grey bands
     normalFix: true,
     rim: '#c0d0ff',
     rimStrength: 0.12,
-    detail: vesselDetail,
-    blood: 0.25, // T824: hilar vessels carry smears in the refs (03:52)
+    detail: arteryDetail,
+    blood: 0.45, // T824: hilar vessels carry smears in the refs (03:52); T831 0.25 was invisible
   },
-  aorta: { ...wet, color: '#d8a090', roughness: 0.5, detail: vesselDetail },
-  bronchus: { ...bronchus, rings: 0.45 },
-  // T807c: no rings on the airway tree (its spherical-shell rings read as grey parallel bands on the step-7 stump).
-  airwayTree: bronchus,
+  aorta: { ...wet, color: '#d8a090', roughness: 0.5, detail: arteryDetail },
+  bronchus,
   nerve: {
     ...wet,
-    color: '#f6eebc',
+    color: '#ecc848', // T831 STS yellow
     bakedMaps: false,
     roughness: 0.4,
     clearcoat: 1,
-    clearcoatRoughness: 0.08,
+    clearcoatRoughness: 0.06, // glossy epineurium
     env: 0.5,
     rimStrength: 0.15,
     normalFix: true,
@@ -199,39 +235,59 @@ export const TISSUES = {
   },
   lymphNode: {
     ...wet,
-    color: '#6e5c50',
+    color: '#6a5c78', // T831 STS grey-purple
     bakedMaps: false,
     roughness: 0.6,
     clearcoat: 0.7,
     clearcoatRoughness: 0.15,
     env: 0.4,
-    speckle: 0.7, // T807b: anthracotic node (vs the plain ivory bronchus)
     blood: 0.3,
-    lobular: 0.15,
     normalFix: true,
+    // T831: lobulation + anthracotic dots via the UV-free lung family at node scale (≈ 3 mm lobules)
+    detail: { family: 'lung', scale: 40, bump: 0.003, albedo: 0.25, mask: 0.75, maskColor: '#141014' },
+  },
+  // T831 manifest soft tissue (cautery-dissectable, manifest `dissectable`): glTF BLEND sheets → pre-built
+  // transparent variants at load; `veil` makes them read as a membrane (milky at grazing angles).
+  pleuraHilum: {
+    ...wet,
+    color: '#d8c4c4', // faintly milky pink-grey: the hilar vessels show through (#f2e2de read as white paper)
+    bakedMaps: false,
+    roughness: 0.3,
+    clearcoat: 1,
+    clearcoatRoughness: 0.05, // glistening
+    microNormal: 0.4,
+    env: 0.35,
+    opacity: 0.18,
+    veil: 0.35,
+    rimStrength: 0.18,
+    // fibrous grain + fine capillaries
+    detail: { family: 'pleura', scale: 45, bump: 0.002, albedo: 0.2, mask: 0.4, maskColor: '#b01c26' },
+    blood: 0.5,
   },
   connective: {
     ...wet,
     ...subsurface,
-    color: '#e8b0a0', // T823
+    color: '#f0d4c8', // T831: pale areolar strands (T823 #e8b0a0)
     retint: 0.6,
     mapLuma: 0.5,
+    roughness: 0.4,
     clearcoat: 1,
-    clearcoatRoughness: 0.05,
-    opacity: 0.55, // T807: thin veil over the hilum so the structures being dissected show through; T823 0.4 → 0.55
-    detail: pleuraDetail,
-    blood: 1, // T824: the hilum is blood-stained throughout in the refs (03:52, 04:29)
+    clearcoatRoughness: 0.06,
+    opacity: 0.7, // slightly translucent strands (T807/T823 sheet: 0.55)
+    veil: 0.4,
+    detail: { ...pleuraDetail, scale: 90, mask: 0.3 }, // fine fibres
+    blood: 0.75, // T824: blood-tinged in the refs (03:52, 04:29)
   },
   pericardium: {
     ...wet,
     color: '#8a7cc0', // T810: lavender after the warm grade (01:01); #9a7090 read tan and collided with the SPV
     bakedMaps: false, // T807: its baked streaks read as grey chrome close up
-    clearcoat: 0.8,
-    clearcoatRoughness: 0.12,
+    clearcoat: 1,
+    clearcoatRoughness: 0.06, // T831: glossy fibrous sac
     env: 0.4,
     rim: '#c8c0ff',
     rimStrength: 0.12,
-    detail: { ...pleuraDetail, mask: 0.25 },
+    detail: { ...pleuraDetail, scale: 30, mask: 0.25 },
   },
   heart: { ...wet, ...subsurface, color: '#8a3a3c', mapLuma: 0.1 },
   pleuraWall: {
@@ -284,16 +340,18 @@ export type TissueClass = keyof typeof TISSUES;
  *  palette field is a uniform / material.color (setPalette never compiles). */
 export const PALETTES = ['realistic', 'teaching'] as const;
 export type Palette = (typeof PALETTES)[number];
-export type PaletteParams = Pick<TissueParams, 'color' | 'retint' | 'rim'>;
+export type PaletteParams = Pick<TissueParams, 'color' | 'retint' | 'rim' | 'scatterStrength'> & {
+  blood: number;
+};
 // Footage-true targets (docs/REFERENCE_FRAMES.md sampled colours, darkened like TISSUES: the refs are lit + graded).
 export const REALISTIC: Partial<Record<TissueClass, Partial<PaletteParams>>> = {
-  collapsedLung: { color: '#aa7682' }, // dusky pink-grey (04:29 #BC7B84)
+  collapsedLung: { color: '#a06e7c' }, // dusky pink-grey (04:29 #BC7B84; T831 #aa7682 read bright pink close up)
   fat: { color: '#f0c880' }, // rich yellow (01:17 #F8C899)
-  vein: { color: '#4e2234', rim: '#e0a0b8' }, // dark plum-maroon (01:01 #64324A)
+  // T846b: blood film + red back-scatter cut on the realistic vessels (they read crimson / saturated close up).
+  vein: { color: '#200a18', rim: '#e0a0b8', blood: 0.15, scatterStrength: 0.3 }, // dark plum-maroon (01:01 #64324A)
   svc: { color: '#6e4a62', rim: '#e0c0d8' }, // preserved upper vein (05:21 #74455A)
-  artery: { color: '#c4a0a6', rim: '#f0d8e0' }, // pale grey-pink, faint blue cast (03:52 salmon under its blood film)
-  bronchus: { color: '#eed4c4' }, // pale ivory-pink cartilage (03:18 #FFE8BF)
-  airwayTree: { color: '#eed4c4' },
+  artery: { color: '#c4a0a6', rim: '#f0d8e0', blood: 0.12 }, // pale grey-pink, faint blue cast (03:52 salmon under its blood film)
+  bronchus: { color: '#e0c6b6' }, // pale ivory-pink cartilage (03:18 #FFE8BF; T831 #eed4c4 clipped to white close up)
   nerve: { color: '#f2ece0' }, // white-cream (01:01 #FFF1E0)
   lymphNode: { color: '#5e5048' }, // grey-brown, anthracotic speckle
   pericardium: { color: '#a07888', rim: '#f0d0e0' }, // glossy pale pink-lavender (01:01 #965C74)
@@ -302,25 +360,34 @@ export const REALISTIC: Partial<Record<TissueClass, Partial<PaletteParams>>> = {
 export function paletteParams(cls: TissueClass, p: Palette): PaletteParams {
   const t: TissueParams = TISSUES[cls];
   const r = p === 'realistic' ? REALISTIC[cls] : undefined;
-  return { color: r?.color ?? t.color, retint: r?.retint ?? t.retint, rim: r?.rim ?? t.rim };
+  return {
+    color: r?.color ?? t.color,
+    retint: r?.retint ?? t.retint,
+    rim: r?.rim ?? t.rim,
+    scatterStrength: r?.scatterStrength ?? t.scatterStrength,
+    blood: r?.blood ?? t.blood ?? 0,
+  };
 }
 
-/** glTF node name → tissue class; first match wins (CONTEXT §7.2 names). */
+/** Manifest names with `flag`, e.g. every dissectable structure. */
+const manifestWith = (pick: (s: ManifestStructure) => unknown): string[] =>
+  Object.keys(STRUCTURES).filter((n) => pick(STRUCTURES[n] as ManifestStructure));
+const exactly = (names: readonly string[]): RegExp => new RegExp(`^(${names.join('|')})$`);
+const isClass = (c: string): c is TissueClass => c in TISSUES;
+
+/** glTF node name → tissue class; first match wins: the manifest's `tissue` per structure, then name patterns for the
+ *  non-manifest (base scene) meshes (CONTEXT §7.2 names). */
 export const TISSUE_RULES: readonly [RegExp, TissueClass][] = [
-  [/^lung_.*_right$/, 'collapsedLung'], // right lobes are collapsed for most of the procedure
+  ...Object.entries(STRUCTURES).flatMap(([n, s]): [RegExp, TissueClass][] =>
+    isClass(s.tissue) ? [[exactly([n]), s.tissue]] : [],
+  ),
   [/^lung_/, 'ventilatedLung'],
   [/fat/, 'fat'],
-  [/^superior_vena_cava$/, 'svc'],
-  [/^(V\d|V_|tree_pulm_vein|azygos|inferior_vena|brachiocephalic_vein)/, 'vein'],
+  [/^(inferior_vena_cava|brachiocephalic_vein)/, 'svc'], // systemic veins
   [/^(aorta|brachiocephalic_trunk)$/, 'aorta'],
-  [/^(A\d|A_|tree_pulm_artery|pa_left|arteries_)/, 'artery'],
-  [/^tree_airway_base$/, 'airwayTree'],
-  [/^(B\d|B_|tree_airway)/, 'bronchus'],
+  [/^arteries_/, 'artery'],
   [/_nerve_/, 'nerve'],
-  [/^LN_/, 'lymphNode'],
-  [/^(hilar_connective|inferior_pulmonary_ligament)/, 'connective'],
-  [/^pericardium$/, 'pericardium'],
-  [/^(heart_|left_atrium)/, 'heart'],
+  [/^heart_/, 'heart'],
   [/^parietal_pleura_wall$/, 'pleuraWall'],
   [/^(intercostal_muscles|chest_wall_muscle|diaphragm)$/, 'muscle'],
   [/^esophagus$/, 'esophagus'],
@@ -330,24 +397,49 @@ export const TISSUE_RULES: readonly [RegExp, TissueClass][] = [
 ];
 export const FALLBACK_TISSUE: TissueClass = 'connective';
 
-/** T822: soft overlying layers the energised cautery opens (shader openings + coagulated rim); window variants too.
- *  Anything else (lung, vessels, nerves …) only takes a subtle sear / char mark. */
-export const DISSECTABLE =
-  /^(hilar_connective_tissue|mediastinal_fat|inferior_pulmonary_ligament|parietal_pleura_wall)/;
+/** T822: soft overlying layers the energised cautery opens (shader openings + coagulated rim): manifest `dissectable`
+ *  + the base scene's chest-wall pleura. Anything else (lung, vessels, nerves …) only takes a subtle sear / char mark. */
+export const DISSECTABLE = exactly([...manifestWith((s) => s.dissectable), 'parietal_pleura_wall']);
 
-/**
- * T807: structures each procedure step is about (§7.2 node names). Drives the step-focus highlight and the
- * focus-only labels. Curated for teaching (the practice targets also list the lobes the lung retractor holds).
- */
-export const STEP_FOCUS: Readonly<Record<number, readonly string[]>> = {
-  1: ['lung_middle_lobe_right'],
-  2: ['tree_pulm_vein_base', 'V_RML_common'], // the phrenic nerve is outside the cam_2 view
-  3: ['V_RML_common', 'V4_lateral', 'V5_medial', 'V_RML_accessory_2'], // accessory_1: scope-hidden (stripes)
-  4: ['B_RML_common', 'B4_lateral', 'B5_medial', 'LN_11R', 'LN_12R'],
-  5: ['A_RML_common', 'A4_lateral', 'A5_medial', 'A_RML_accessory_1', 'A_RML_accessory_2', 'A_RML_extra_1'],
-  6: ['lung_middle_lobe_right'],
-  7: ['tree_airway_base'], // the stump; LN_4R / LN_7 are behind the re-inflated lobes from the cam_7 fix pose
+/** T831: manifest structures that start invisible (`hidden`, e.g. fat the procedure never needs). */
+export const HIDDEN_AT_LOAD: readonly string[] = manifestWith((s) => s.hidden);
+
+/** T842 heartbeat transmitted to every hilar vessel: weights for structures whose manifest entry has no `pulse` yet
+ *  (veins subtle; the PA tree, RML arteries and pericardium carry theirs). The manifest wins once it lists them.
+ *  Stumps share their parent's material, so they ride the parent's pulse. */
+const PULSE_FALLBACK: Readonly<Record<string, number>> = {
+  pulmonary_vein_tree: 0.25,
+  middle_lobe_vein: 0.15,
+  middle_lobe_vein_V4: 0.1,
+  middle_lobe_vein_V5: 0.1,
 };
+/** T831 heartbeat pulse weight per manifest structure (0..1, × look.pulse.amplitudeM). */
+export const PULSE: Readonly<Record<string, number>> = {
+  ...PULSE_FALLBACK,
+  ...Object.fromEntries(manifestWith((s) => s.pulse).map((n) => [n, STRUCTURES[n]?.pulse ?? 0])),
+};
+
+// Curated additions to the manifest-derived step focus (steps the manifest step fields do not cover).
+const STEP_FOCUS_EXTRA: Readonly<Record<number, readonly string[]>> = {
+  1: ['lung_middle_lobe_right'], // inspect: the lobe to remove
+  2: ['middle_lobe_vein', 'phrenic_nerve_right'], // the pleura opens over the vein; the nerve is protected
+  7: ['lung_middle_lobe_right'], // T844: the fissures around the lobe
+  9: ['bronchial_tree'], // the stump under saline
+};
+const STEPS = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+/**
+ * T807: structures each procedure step is about. Drives the step-focus highlight, the focus-only labels and the scope
+ * aim. T831: manifest structures whose divideStep / dissectStep / clearStep / removedAfterStep is the step, + extras.
+ */
+export const STEP_FOCUS: Readonly<Record<number, readonly string[]>> = Object.fromEntries(
+  STEPS.map((step) => [
+    step,
+    [
+      ...manifestWith((s) => [s.divideStep, s.dissectStep, s.clearStep, s.removedAfterStep].includes(step)),
+      ...(STEP_FOCUS_EXTRA[step] ?? []),
+    ],
+  ]),
+);
 
 export const look = {
   /** Shared procedural noise (built once): RGB = micro-normal, A = cellular distance (speckle/lobules). */
@@ -368,14 +460,6 @@ export const look = {
   detailRange: [0.45, 1.8] as const, // retint detail (map luma / mapLuma) clamp: lifts baked dark lines, caps hot spots
   lumaWeights: [0.2126, 0.7152, 0.0722] as const,
   rimPower: 4,
-  // T807 cartilage rings: grooves on spherical shells around the bbox centre of a branch's parent airway, so they
-  // cut the branch roughly across its axis (it leaves the parent radially). No UV dependence (atlas UVs).
-  rings: {
-    defaultOrigin: 'tree_airway_base',
-    origins: { B4_lateral: 'B_RML_common', B5_medial: 'B_RML_common' } as Readonly<Record<string, string>>,
-    spacingM: 0.003, // T807c: 1.5 mm read as grey stripes on the step-7 stump
-    groove: [0.5, 0.95] as const, // smoothstep on sin(phase): dark groove ≈ a sixth of each period (T807c: a quarter)
-  },
   // T807 step-focus highlight (uniform-driven emissive rim on the step's STEP_FOCUS meshes; fades with the step).
   focus: {
     // A complementary tint (e.g. UI teal on plum) greys the vessel out, so the focus glows in its own colour
@@ -387,19 +471,53 @@ export const look = {
     modes: ['guided'] as readonly string[], // Layers checkbox default on in these modes, off elsewhere (practice, quiz)
   },
   // T807: smoothstep(a, b, dot(vertex normal, derivative normal)): below a the shading uses the derivative normal.
+  // T831: only on meshes without morph normals.
   normalFix: [0.2, 0.5] as const,
   // T807: polygon offset (factor, units) per node: pushes it behind coincident neighbours (z-fighting streaks close
   // up). GL state only, no program change. T807b: the RML entry went (its slope factor stair-stepped the lobe edges).
   depthBias: {
-    tree_pulm_artery_base: [2, 1000], // the base trees lose to the coincident RML branch meshes
-    tree_pulm_vein_base: [2, 1000],
-    tree_airway_base: [2, 1000],
-    mediastinal_fat: [2, 1000], // T807c: pokes through the coincident pericardium as a yellow patch (step 2)
+    pulmonary_artery_tree: [2, 1000], // the trees lose to coincident middle-lobe branch meshes at the joins
+    pulmonary_vein_tree: [2, 1000],
+    bronchial_tree: [2, 1000],
+    // T843 (v8: 0.2–0.5 mm fissure gaps): units-only steps (no slope factor, see T807b) give touching lobes a fixed
+    // depth order instead of z-fighting: RUL in front, then RML, then RLL.
+    lung_middle_lobe_right: [0, 4],
+    lung_lower_lobe_right: [0, 8],
   } as Readonly<Record<string, readonly [number, number]>>,
   // T826: Layers → Colours. `?palette=teaching|realistic` overrides the stored choice (tests).
-  palette: { default: 'realistic' as Palette, storageKey: 'thorascope.palette', param: 'palette' },
-  /** X-ray: every mesh swaps to its transparent variant at this opacity. */
+  palette: {
+    default: 'realistic' as Palette,
+    storageKey: 'thorascope.palette',
+    param: 'palette',
+    labels: { realistic: 'Realistic', teaching: 'Teaching' } as Readonly<Record<Palette, string>>,
+    hint: 'Teaching colours (STS): arteries blue, veins red, bronchus ivory, nerves yellow, nodes grey-purple',
+  },
+  // T831 heartbeat pulse (docs/MODEL_INTEGRATION.md decision 1): radial vertex push along the normal =
+  // manifest `pulse` weight × amplitudeM × state.heartbeat (0 diastole … 1 systole). ponytail: uniform per mesh, no
+  // distal fade along the tree; add a fade if thin intrapulmonary branches poke through the lobes.
+  pulse: { amplitudeM: 0.0006 },
+  /** X-ray: every mesh swaps to its transparent variant at this opacity … */
   xrayOpacity: 0.3,
+  /** … except these classes (T847a: from outside, the chest wall + lung nearly vanish and the hilum stays opaque —
+   *  ≥ 1 keeps the opaque variant — so it reads through the ribs; 0 new programs, only variant swaps). */
+  xrayByClass: {
+    skin: 0.05,
+    muscle: 0.05,
+    pleuraWall: 0.05,
+    fat: 0.05,
+    bone: 0.07,
+    collapsedLung: 0.12,
+    ventilatedLung: 0.12,
+    pleuraHilum: 0.15,
+    connective: 0.15,
+    artery: 1,
+    vein: 1,
+    svc: 1,
+    aorta: 1,
+    bronchus: 1,
+    lymphNode: 1,
+    nerve: 1,
+  } as Partial<Record<TissueClass, number>>,
   headlight: {
     color: '#fff4ea', // warm halogen/xenon
     intensity: 0.05, // candela; inverse-square (decay 2) in metres: ≈ bright at 3–5 cm, dark beyond ~15 cm
@@ -411,6 +529,6 @@ export const look = {
   // outsideIntensity: hemisphere intensity in the outside view (no headlight reaches the body there).
   ambient: { sky: '#ffe0e0', ground: '#401018', intensity: 0.07, outsideIntensity: 0.3 }, // T823 0.04 → 0.07
   // T824 blood staining: tissueTextures 'blood' layer (B = smear, A = clot core) × TissueParams.blood.
-  blood: { scale: 20, color: '#8a1014', clot: '#3a0608', roughness: 0.2 }, // smears are opaque on veils too
+  blood: { scale: 45, color: '#8a1014', clot: '#3a0608', roughness: 0.2 }, // smears are opaque on veils too; T831 20 → 45 (≈ 7 mm smears; 20 missed whole close-up views)
   env: { intensity: 0.4, sigma: 0.04 }, // PMREM RoomEnvironment: reflections only (T111: wet glints via micro-normal)
 } as const;

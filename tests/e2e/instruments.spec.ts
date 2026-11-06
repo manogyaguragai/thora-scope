@@ -14,10 +14,10 @@ const STAPLER_BACK_OFF_M = -0.03; // the 12 mm stapler fills placeTool's 4.5 cm 
 /** Contact-sheet shots show the 3D canvas only: every DOM overlay is hidden for the screenshot. */
 const HIDE_UI = '#app *{visibility:hidden!important}#app canvas{visibility:visible!important}';
 
-const place = (page: Page, id: string, target: string, sub?: string): Promise<string> =>
+const place = (page: Page, id: string, target: string, sub?: string, port?: string): Promise<string> =>
   page.evaluate(
-    ([i, t, s]) => window.__sim.placeTool?.(i as string, t as string, s) ?? 'no helper',
-    [id, target, sub],
+    ([i, t, s, p]) => window.__sim.placeTool?.(i as string, t as string, s, p) ?? 'no helper',
+    [id, target, sub, port],
   );
 
 /** Labelled grid of screenshots rendered in a scratch page (nothing extra in the app). */
@@ -52,20 +52,22 @@ test('T819 instruments: tips in the scope, handles outside, no gloves — no new
   const before = await programs();
   await page.addStyleTag({ content: HIDE_UI });
 
-  const tools: [string, string, string?, number?][] = [
+  const tools: [string, string, string?, number?, string?][] = [
     ['grasper', 'lung_upper_lobe_right', 'retractor'],
     ['grasper', 'LN_11R', 'ring'],
     ['sponge', 'lung_upper_lobe_right'],
     ['peanut', 'hilar_connective_tissue'],
     ['cautery', 'hilar_connective_tissue'],
-    ['clamp', 'V_RML_common'],
-    ['stapler', 'V_RML_common', 'vascular-curved', STAPLER_BACK_OFF_M],
-    ['clip', 'V4_lateral'],
-    ['sucker', 'tree_airway_base'],
+    ['clamp', 'middle_lobe_vein'],
+    // v8 (T844): the vein stapler only has a good angle from the posterior port.
+    ['stapler', 'middle_lobe_vein', 'vascular-curved', STAPLER_BACK_OFF_M, 'port_retraction_8ICS'],
+    ['clip', 'middle_lobe_vein_V4'],
+    ['sucker', 'bronchial_tree'],
   ];
   const scope: [string, Buffer][] = [];
-  for (const [id, target, sub, back] of tools) {
-    expect(await place(page, id, target, sub), `${id} → ${target}`).toBe('ok');
+  for (const [id, target, sub, back, port] of tools) {
+    if (port) await page.evaluate((q) => window.__sim.m4?.withdrawPort(q), port); // an earlier tool left there
+    expect(await place(page, id, target, sub, port), `${id} → ${target}`).toBe('ok');
     if (back)
       await page.evaluate((d) => {
         window.__sim.m3?.scope.insert(d);
@@ -86,8 +88,15 @@ test('T819 instruments: tips in the scope, handles outside, no gloves — no new
   await page.mouse.move(640 + OUTSIDE_ORBIT_PX, 360, { steps: 8 }); // orbit round to the patient's side
   await page.mouse.up();
   await page.mouse.wheel(0, OUTSIDE_ZOOM_IN_PX);
-  for (const [id, target, sub] of [tools[1], tools[4], tools[6]] as [string, string, string?][]) {
-    expect(await place(page, id, target, sub)).toBe('ok');
+  for (const [id, target, sub, , port] of [tools[1], tools[4], tools[6]] as [
+    string,
+    string,
+    string?,
+    number?,
+    string?,
+  ][]) {
+    if (port) await page.evaluate((q) => window.__sim.m4?.withdrawPort(q), port);
+    expect(await place(page, id, target, sub, port)).toBe('ok');
     await page.waitForTimeout(SETTLE_MS);
     outside.push([`${id} (outside)`, await page.screenshot()]);
   }

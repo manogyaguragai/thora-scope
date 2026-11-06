@@ -19,8 +19,8 @@ async function settled(page: Page): Promise<void> {
   );
 }
 
-test('guided mode: Next through steps 1–7, captions match, PageUp/PageDown navigate', async ({ page }) => {
-  test.setTimeout(600_000); // SwiftShader, full size: 7 steps + key/rail navigation (~3 min alone, ~6 contended)
+test('guided mode: Next through steps 1–9, captions match, PageUp/PageDown navigate', async ({ page }) => {
+  test.setTimeout(720_000); // SwiftShader, full size: 9 steps + key/rail navigation (~3 min alone, ~6 contended)
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
@@ -37,10 +37,21 @@ test('guided mode: Next through steps 1–7, captions match, PageUp/PageDown nav
     await settled(page);
     await expect(title).toHaveText(s.title);
     await expect(bar).toContainText(`${i + 1} / ${GUIDED_STEPS.length}`);
-    await expect(page.locator('.guided-step[aria-current=step]')).toContainText(s.title);
+    await expect(page.locator('.guided-step[aria-current=step]')).toHaveAttribute(
+      'aria-label',
+      `${s.step}. ${s.title}`,
+    );
     await page.screenshot({ path: `qa/screenshots/step-${s.step}.png` });
   }
   await expect(bar.getByRole('button', { name: 'Next step' })).toBeDisabled();
+  // T844 step 9 (leak test): in the scope view the lens sits ≥ 5 mm above the full water level.
+  await page.evaluate(() => window.__sim.setView('scope', true));
+  await settled(page);
+  const lens = await page.evaluate(() => ({
+    y: window.__sim.rig?.camera.position.y ?? 0,
+    top: window.__sim.m4?.water.topY ?? 1,
+  }));
+  expect(lens.y - lens.top).toBeGreaterThanOrEqual(0.005);
 
   const last = GUIDED_STEPS.length - 1;
   // Focus away from the buttons (a canvas click lands on the rail at the small test viewport).
@@ -96,5 +107,75 @@ test('guided layout: all rail steps visible and clickable at 1280×720 and 1024�
   await page.locator('.guided-step').last().click();
   await expect(bar.getByRole('heading')).toHaveText(last?.title ?? '');
   await settled(page);
-  await expect(page.locator('.guided-step[aria-current=step]')).toContainText(last?.title ?? '');
+  await expect(page.locator('.guided-step[aria-current=step]')).toContainText(last?.rail ?? '');
+});
+
+test('T844 step 7 "Show me": grasper pulls the middle lobe, stapler fires across the fissures, lobe free', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await page.goto('/?step=7&view=scope');
+  await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
+  const programs = await page.evaluate(() => window.__perf.programs);
+  const bar = page.getByRole('region', { name: 'Guided procedure' });
+  await expect(bar.getByRole('heading')).toHaveText('Complete the fissures');
+  const show = bar.getByRole('button', { name: 'Show me this step' });
+  await expect(show).toBeEnabled();
+  await show.click();
+  await expect(bar.getByRole('button', { name: 'Stop the demonstration' })).toBeVisible();
+  await expect(bar.locator('.guided-demo-text')).not.toBeEmpty();
+  // Runs to the end on its own (2 stapler fires), then offers a replay.
+  await expect(show).toBeVisible({ timeout: 120_000 });
+  await expect(bar.locator('.guided-demo-text')).toBeHidden(); // hidden = finished cleanly (no refusal text)
+  expect(await page.evaluate(() => window.__sim.m4?.finish.lobeFree)).toBe(true);
+  expect(await page.evaluate(() => window.__sim.m4?.finish.fissureFires)).toBe(2);
+  await page.screenshot({ path: 'qa/screenshots/demo-step-7.png' });
+  // Skippable: a replay stops on Stop.
+  await show.click();
+  await bar.getByRole('button', { name: 'Stop the demonstration' }).click();
+  await expect(show).toBeVisible();
+  expect(await page.evaluate(() => window.__perf.programs)).toBe(programs);
+  expect(errors).toEqual([]);
+});
+
+test('T847a: guided steps enter the scope view (a later Outside click holds); caption + toast placement', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  await page.goto('/'); // opens on the theatre (outside)
+  await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
+  const target = () => page.evaluate(() => window.__sim.rig?.target);
+  const bar = page.getByRole('region', { name: 'Guided procedure' });
+  const text = bar.locator('.guided-text');
+  expect(await target()).toBe('outside');
+  await expect(text).toBeHidden(); // the step text describes the scope view
+  await expect(bar.getByRole('button', { name: 'Next step' })).toBeVisible();
+
+  await bar.getByRole('button', { name: 'Next step' }).click();
+  await expect.poll(target).toBe('scope');
+  await expect(text).toBeVisible();
+  // Port hint toast: below the topbar and clear of the compass.
+  const toast = page.locator('#action-toast');
+  await expect(toast).toBeVisible();
+  const [t, top, compass] = await Promise.all(
+    ['#action-toast', '.shell-top', '.scope-compass'].map((s) => page.locator(s).boundingBox()),
+  );
+  expect(t && top && t.y >= top.y + top.height).toBe(true);
+  if (t && compass) expect(t.x + t.width <= compass.x || t.y + t.height <= compass.y).toBe(true);
+
+  await settled(page);
+  await page.getByRole('button', { name: 'Outside (theatre)' }).click();
+  await expect.poll(target).toBe('outside');
+  await page.waitForTimeout(500);
+  expect(await target()).toBe('outside'); // the manual choice holds …
+  await bar.getByRole('button', { name: 'Next step' }).click();
+  await expect.poll(target).toBe('scope'); // … until the next step change
+  await settled(page);
+  await page.getByRole('button', { name: 'Outside (theatre)' }).click();
+  await expect.poll(target).toBe('outside');
+  await page.locator('.guided-step[aria-current=step]').click(); // rail click on the current step
+  await expect.poll(target).toBe('scope');
 });

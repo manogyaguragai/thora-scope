@@ -1,4 +1,4 @@
-// Finish-phase gating (§6.4, PA14–PA19, PA24–PA32): bronchus test, LN 11R/12R removal, fissure completion with
+// Finish-phase gating (§6.4, practice_actions.json steps 4–7): bronchus test, LN 11R/12R removal, fissure completion with
 // underside check, bag extraction, chest tube, re-inflation, water test. Pure: every call mutates only FinishState
 // and returns state-change requests for the caller (T409 wiring) to apply to AppState / scene / effects.
 import type { TweenKey } from '../state';
@@ -81,7 +81,7 @@ const isOptional = (n: string): boolean => (C.optionalNodes as readonly string[]
 export const nodesCleared = (s: FinishState): boolean =>
   C.requiredNodes.every((n) => s.specimens.includes(n));
 
-/** Ring clamp on a lymph node (PA14/15, optional PA30). */
+/** Ring clamp on a lymph node (11R/12R, optional 4R/7 at the end). */
 export function removeNode(s: FinishState, node: string, port: string): FinishResult {
   if (!isRequired(node) && !isOptional(node)) return no('Not a node for removal here');
   if (s.specimens.includes(node)) return no('Node already removed');
@@ -91,7 +91,7 @@ export function removeNode(s: FinishState, node: string, port: string): FinishRe
   return ok({ kind: 'hide', node }, { kind: 'specimen', node });
 }
 
-/** Bronchial stapler closed across B_RML_common without firing (PA17). */
+/** Bronchial stapler closed across the middle lobe bronchus without firing. */
 export function clampBronchus(s: FinishState): FinishResult {
   if (!s.veinDivided) return no('Divide the middle-lobe vein first');
   if (!nodesCleared(s)) return no('Remove nodes 11R and 12R beside the bronchus first');
@@ -107,7 +107,7 @@ export function unclampBronchus(s: FinishState): void {
   s.bronchusTestPassed = false;
 }
 
-/** `A` key: bronchus test while clamped (PA18), water test after irrigation (PA32). */
+/** `A` key: bronchus test while clamped, water test after irrigation. */
 export function ventilate(s: FinishState): FinishResult {
   if (s.fluidFilled) return waterTest(s);
   if (!s.bronchusClamped || s.bronchusDivided)
@@ -124,7 +124,7 @@ export function ventilate(s: FinishState): FinishResult {
   );
 }
 
-/** Fire the bronchial stapler (PA19). Firing without the test is a scored error. */
+/** Fire the bronchial stapler. Firing without the test is a scored error. */
 export function fireBronchus(s: FinishState): FinishResult {
   if (s.bronchusDivided) return no('Bronchus already divided');
   if (!s.bronchusClamped) return no('Close the stapler across the bronchus first');
@@ -133,7 +133,7 @@ export function fireBronchus(s: FinishState): FinishResult {
   return ok({ kind: 'divide', nodes: C.bronchus }, { kind: 'rmlDivided' }, { kind: 'advance', step: 5 });
 }
 
-/** Parenchyma stapler fire along the fissure (PA25, PA27); the final fire needs the underside check. */
+/** Parenchyma stapler fire along the fissure; the final fire needs the underside check. */
 export function fireFissure(s: FinishState, retractFissure: number): FinishResult {
   if (s.lobeFree) return no('Fissure already complete');
   if (!s.bronchusDivided || !s.arteryDivided) return no('Divide the bronchus and artery before the fissure');
@@ -147,7 +147,7 @@ export function fireFissure(s: FinishState, retractFissure: number): FinishResul
   return ok({ kind: 'flag', flag: 'lobe_free' }, { kind: 'advance', step: 7 });
 }
 
-/** Lobe flipped via retraction and viewed from underneath (PA26). */
+/** Lobe flipped via retraction and viewed from underneath. */
 export function confirmUnderside(s: FinishState, retractFissure: number): FinishResult {
   if (s.fissureFires < 1) return no('Make the first fissure fire before checking the underside');
   if (retractFissure < C.minFissureRetract) return no('Flip the lobe with the retractor to see underneath');
@@ -155,7 +155,7 @@ export function confirmUnderside(s: FinishState, retractFissure: number): Finish
   return ok({ kind: 'flag', flag: 'stump_above_stapler_confirmed' });
 }
 
-/** `B`: bag the freed lobe, remove it via the access incision; RUL/RLL re-inflate (PA28). */
+/** `B`: bag the freed lobe, remove it via the access incision; RUL/RLL re-inflate. */
 export function bagExtract(s: FinishState, port: string): FinishResult {
   if (s.lobeRemoved) return no('Lobe already removed');
   if (!(s.veinDivided && s.bronchusDivided && s.arteryDivided && s.lobeFree)) {
@@ -173,7 +173,7 @@ export function bagExtract(s: FinishState, port: string): FinishResult {
   );
 }
 
-/** `T` (optional, PA31): tube through the camera port, scope elsewhere. */
+/** `T` (optional): tube through the camera port, scope elsewhere. */
 export function placeChestTube(s: FinishState, port: string, scopePort: string): FinishResult {
   if (!s.lobeRemoved) return no('Place the chest tube after extraction');
   if (s.chestTube) return no('Chest tube already placed');
@@ -183,7 +183,7 @@ export function placeChestTube(s: FinishState, port: string, scopePort: string):
   return ok({ kind: 'flag', flag: 'chest_tube_placed' });
 }
 
-/** Sucker in irrigation mode: fill fluid over the stump (PA32 part 1). */
+/** Sucker in irrigation mode: fill fluid over the stump (water test part 1). */
 export function irrigate(s: FinishState): FinishResult {
   if (!s.lobeRemoved) return no('Irrigate after the lobe is out');
   s.fluidFilled = true;

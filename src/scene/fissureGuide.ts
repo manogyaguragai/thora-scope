@@ -1,0 +1,331 @@
+// T851 step-7 fissure guide: built ONCE at load from geometry (§6.10). The middle lobe's contact band with each
+// neighbour lobe (collapsed pose) is traced in the step-7 pose as the edge the step-7 scope sees, split into
+// stapler-sized segments and drawn as dots (one InstancedMesh). Each powered-stapler fire on the lobe (finish.ts
+// fissureFires) turns the segment nearest the stapler tip into a staple line (own Staples pool, same program as the
+// M4 staples) and hides its dots; when all are fired the free lobe drifts with the grasper. Runtime = matrix writes
+// at fire time + a few compares per frame; nothing is created after load.
+import { Color, Group, InstancedMesh, Matrix4, MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
+import type { Mesh, Object3D } from 'three';
+import { fissureGuideConfig as C } from './fissureGuide.config';
+import { COLLAPSE_GAIN } from './morphs';
+import { Staples } from './staples';
+import { getStep } from '../sim/steps';
+import { tweenTo } from '../sim/state';
+import type { AppState } from '../sim/state';
+
+/** Pure (unit-tested): indices of `pts` (xyz triplets) within `band` of any point of `other` (hash grid). */
+export function bandIndices(pts: ArrayLike<number>, other: ArrayLike<number>, band: number): number[] {
+  const key = (x: number, y: number, z: number): string => `${x},${y},${z}`;
+  const grid = new Map<string, number[]>();
+  for (let i = 0; i < other.length; i += 3) {
+    const k = key(
+      Math.floor((other[i] as number) / band),
+      Math.floor((other[i + 1] as number) / band),
+      Math.floor((other[i + 2] as number) / band),
+    );
+    const cell = grid.get(k);
+    if (cell) cell.push(i);
+    else grid.set(k, [i]);
+  }
+  const out: number[] = [];
+  const b2 = band * band;
+  for (let i = 0; i < pts.length; i += 3) {
+    const x = pts[i] as number;
+    const y = pts[i + 1] as number;
+    const z = pts[i + 2] as number;
+    const cx = Math.floor(x / band);
+    const cy = Math.floor(y / band);
+    const cz = Math.floor(z / band);
+    let hit = false;
+    for (let dx = -1; dx <= 1 && !hit; dx++)
+      for (let dy = -1; dy <= 1 && !hit; dy++)
+        for (let dz = -1; dz <= 1 && !hit; dz++)
+          for (const j of grid.get(key(cx + dx, cy + dy, cz + dz)) ?? []) {
+            const ex = (other[j] as number) - x;
+            const ey = (other[j + 1] as number) - y;
+            const ez = (other[j + 2] as number) - z;
+            if (ex * ex + ey * ey + ez * ez <= b2) {
+              hit = true;
+              break;
+            }
+          }
+    if (hit) out.push(i / 3);
+  }
+  return out;
+}
+
+/** Pure: the band's visible edge from `eye` — band points projected on the plane ⟂ the view, binned along their
+ *  principal axis there; per bin the point nearest the eye. Ordered along the axis; [] for an empty band. */
+export function tracePath(pts: readonly Vector3[], eye: Vector3, bins: number): Vector3[] {
+  if (pts.length === 0) return [];
+  const c = new Vector3();
+  for (const p of pts) c.add(p);
+  c.divideScalar(pts.length);
+  const v = c.clone().sub(eye).normalize();
+  const flat = pts.map((p) => {
+    const d = p.clone().sub(c);
+    return d.addScaledVector(v, -d.dot(v));
+  });
+  // Principal axis of the projected points (power iteration on the 3×3 covariance).
+  const m = new Float64Array(9);
+  for (const d of flat) {
+    const a = [d.x, d.y, d.z];
+    for (let r = 0; r < 3; r++)
+      for (let k = 0; k < 3; k++) m[r * 3 + k] = (m[r * 3 + k] ?? 0) + (a[r] as number) * (a[k] as number);
+  }
+  const axis = new Vector3(1, 1, 1);
+  for (let it = 0; it < 32; it++) {
+    const { x, y, z } = axis;
+    axis.set(
+      (m[0] as number) * x + (m[1] as number) * y + (m[2] as number) * z,
+      (m[3] as number) * x + (m[4] as number) * y + (m[5] as number) * z,
+      (m[6] as number) * x + (m[7] as number) * y + (m[8] as number) * z,
+    );
+    if (axis.lengthSq() === 0) axis.set(1, 0, 0);
+    axis.normalize();
+  }
+  const t = flat.map((d) => d.dot(axis));
+  const lo = Math.min(...t);
+  const span = Math.max(...t) - lo || 1;
+  const best: (Vector3 | null)[] = new Array<Vector3 | null>(bins).fill(null);
+  const dist = new Array<number>(bins).fill(Infinity);
+  pts.forEach((p, i) => {
+    const b = Math.min(bins - 1, Math.floor((((t[i] as number) - lo) / span) * bins));
+    const d = p.distanceToSquared(eye);
+    if (d < (dist[b] as number)) {
+      dist[b] = d;
+      best[b] = p;
+    }
+  });
+  return best.filter((p): p is Vector3 => p !== null).map((p) => p.clone());
+}
+
+export interface Segment {
+  /** Polyline from start to end (the end points interpolated on the path). */
+  readonly points: readonly Vector3[];
+  readonly mid: Vector3;
+  /** Unit, start → end (the chord). */
+  readonly dir: Vector3;
+  readonly length: number;
+}
+
+/** Pure: split a polyline into `n` segments of equal arc length. */
+export function splitPath(path: readonly Vector3[], n: number): Segment[] {
+  const cum = [0];
+  for (let i = 1; i < path.length; i++)
+    cum.push((cum[i - 1] as number) + (path[i] as Vector3).distanceTo(path[i - 1] as Vector3));
+  const total = cum[cum.length - 1] as number;
+  const at = (s: number): Vector3 => {
+    let i = 1;
+    while (i < path.length - 1 && (cum[i] as number) < s) i++;
+    const a = path[i - 1] as Vector3;
+    const b = path[i] ?? a;
+    const len = (cum[i] as number) - (cum[i - 1] as number);
+    return a.clone().lerp(b, len > 0 ? (s - (cum[i - 1] as number)) / len : 0);
+  };
+  const out: Segment[] = [];
+  if (path.length < 2 || total === 0 || n < 1) return out;
+  for (let k = 0; k < n; k++) {
+    const s0 = (total * k) / n;
+    const s1 = (total * (k + 1)) / n;
+    const points = [at(s0)];
+    for (let i = 0; i < path.length; i++)
+      if ((cum[i] as number) > s0 && (cum[i] as number) < s1) points.push((path[i] as Vector3).clone());
+    points.push(at(s1));
+    const a = points[0] as Vector3;
+    const b = points[points.length - 1] as Vector3;
+    out.push({ points, mid: at((s0 + s1) / 2), dir: b.clone().sub(a).normalize(), length: a.distanceTo(b) });
+  }
+  return out;
+}
+
+/** Pure: dot centres along a segment, `spacing` apart, `gap` left free at both ends. */
+export function dotPoints(seg: Segment, spacing: number, gap: number): Vector3[] {
+  const out: Vector3[] = [];
+  let carry = gap;
+  for (let i = 1; i < seg.points.length; i++) {
+    const a = seg.points[i - 1] as Vector3;
+    const b = seg.points[i] as Vector3;
+    const len = a.distanceTo(b);
+    let s = carry;
+    for (; s <= len; s += spacing) out.push(a.clone().lerp(b, s / len));
+    carry = s - len;
+  }
+  const end = seg.points[seg.points.length - 1] as Vector3;
+  while (out.length > 1 && (out[out.length - 1] as Vector3).distanceTo(end) < gap) out.pop();
+  return out;
+}
+
+export interface FissureGuide {
+  readonly group: Group;
+  readonly segments: readonly Segment[];
+  /** Segments fired so far (e2e). */
+  readonly fired: number;
+  /** Segment i stapled? */
+  isFired(i: number): boolean;
+  /** Midpoint of the next unfired segment (demo / stapler snap); false when all are fired. */
+  next(out: Vector3): boolean;
+  /** Per frame (after M4): mirror finish.fissureFires onto the segments, step visibility. Allocation-free. */
+  update(state: AppState, f: GuideFinish, tip: Vector3): void;
+}
+
+/** The finish.ts fields the guide reads. */
+export interface GuideFinish {
+  readonly fissureFires: number;
+  readonly lobeFree: boolean;
+  readonly lobeRemoved: boolean;
+}
+
+const COLLAPSE = 'collapse_';
+/** World vertex positions of every mesh under `node`, morphed to step `n`'s state (influences restored after). */
+function posedPositions(node: Object3D, n: number): Vector3[] {
+  const s = getStep(n).state as Readonly<Record<string, number | undefined>>;
+  const out: Vector3[] = [];
+  node.traverse((o) => {
+    const mesh = o as Mesh;
+    if (!mesh.isMesh) return;
+    const inf = mesh.morphTargetInfluences;
+    const saved = inf ? [...inf] : [];
+    for (const [name, i] of Object.entries(mesh.morphTargetDictionary ?? {})) {
+      if (!inf) break;
+      const key = name.startsWith(COLLAPSE) ? `deflate_${name.slice(COLLAPSE.length)}` : name;
+      inf[i] = (s[key] ?? 0) * (name.startsWith(COLLAPSE) ? COLLAPSE_GAIN : 1);
+    }
+    const count = mesh.geometry.getAttribute('position').count;
+    for (let i = 0; i < count; i++) out.push(mesh.getVertexPosition(i, new Vector3()).applyMatrix4(mesh.matrixWorld));
+    if (inf) saved.forEach((v, i) => (inf[i] = v));
+  });
+  return out;
+}
+
+const flatten = (v: readonly Vector3[]): Float32Array => {
+  const a = new Float32Array(v.length * 3);
+  v.forEach((p, i) => p.toArray(a, i * 3));
+  return a;
+};
+
+const ZERO = new Matrix4().makeScale(0, 0, 0);
+const _m = new Matrix4();
+const _n = new Vector3();
+const CONTACT_STEP = 1; // collapsed lobes, no retraction: the fissure surfaces touch
+
+/** Load time, before the compile stage (the caller adds `group` to the scene + registerWarmupObject). */
+export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
+  model.updateMatrixWorld();
+  const lobe = model.getObjectByName(C.lobe);
+  const restLobe = lobe ? posedPositions(lobe, CONTACT_STEP) : [];
+  const poseLobe = lobe ? posedPositions(lobe, C.step) : [];
+  const restFlat = flatten(restLobe);
+  const lobeCentre = new Vector3();
+  for (const p of poseLobe) lobeCentre.add(p);
+  lobeCentre.divideScalar(Math.max(1, poseLobe.length));
+
+  const segments: Segment[] = [];
+  const normals: Vector3[] = []; // per segment: middle lobe → neighbour, ⟂ the segment (staple rows either side)
+  for (const f of C.fissures) {
+    const nb = model.getObjectByName(f.neighbour);
+    if (!nb) continue;
+    const band = bandIndices(restFlat, flatten(posedPositions(nb, CONTACT_STEP)), C.bandM);
+    const path = tracePath(
+      band.map((i) => poseLobe[i] as Vector3),
+      eye,
+      C.bins,
+    );
+    const nbCentre = new Vector3();
+    const nbPose = posedPositions(nb, C.step);
+    for (const p of nbPose) nbCentre.add(p);
+    nbCentre.divideScalar(Math.max(1, nbPose.length));
+    for (const seg of splitPath(path, f.segments)) {
+      segments.push(seg);
+      const n = nbCentre.clone().sub(lobeCentre);
+      normals.push(n.addScaledVector(seg.dir, -n.dot(seg.dir)).normalize());
+    }
+  }
+
+  // Dots: one InstancedMesh, contiguous range per segment.
+  const D = C.dot;
+  const ranges: [number, number][] = [];
+  const centres: Vector3[] = [];
+  for (const seg of segments) {
+    const dots = dotPoints(seg, D.spacingM, D.segmentGapM / 2);
+    ranges.push([centres.length, centres.length + dots.length]);
+    for (const p of dots) centres.push(p.addScaledVector(_n.subVectors(eye, p).normalize(), D.liftM));
+  }
+  const dots = new InstancedMesh(
+    new SphereGeometry(D.radiusM, 8, 6),
+    new MeshBasicMaterial({ color: new Color(D.color), name: 'fissureGuide:dots' }),
+    Math.max(1, centres.length),
+  );
+  dots.name = 'fissure_guide_dots';
+  dots.count = centres.length;
+  centres.forEach((p, i) => dots.setMatrixAt(i, _m.makeTranslation(p.x, p.y, p.z)));
+  dots.computeBoundingSphere();
+  dots.matrixAutoUpdate = false;
+  dots.frustumCulled = false;
+  const staples = new Staples(); // fired segments: real staple rows on both sides of the cut
+  const group = new Group();
+  group.name = 'fissure_guide';
+  group.add(dots, staples.group);
+  group.matrixAutoUpdate = false;
+  group.visible = false;
+
+  const fired = new Uint8Array(segments.length);
+  let nFired = 0;
+  let seen = 0;
+  let drifted = false;
+  const fire = (i: number): void => {
+    const seg = segments[i];
+    const r = ranges[i];
+    if (!seg || !r || fired[i]) return;
+    fired[i] = 1;
+    nFired++;
+    for (let k = r[0]; k < r[1]; k++) dots.setMatrixAt(k, ZERO);
+    dots.instanceMatrix.needsUpdate = true;
+    staples.addLine(seg.mid, normals[i] as Vector3, seg.dir, seg.length, 2);
+  };
+  const nearest = (tip: Vector3): number => {
+    let best = -1;
+    let d = Infinity;
+    for (let i = 0; i < segments.length; i++) {
+      if (fired[i]) continue;
+      const e = (segments[i] as Segment).mid.distanceToSquared(tip);
+      if (e < d) {
+        d = e;
+        best = i;
+      }
+    }
+    return best;
+  };
+
+  return {
+    group,
+    segments,
+    get fired() {
+      return nFired;
+    },
+    isFired: (i) => fired[i] === 1,
+    next(out) {
+      const i = fired.indexOf(0);
+      const seg = segments[i];
+      if (i < 0 || !seg) return false;
+      out.copy(seg.mid);
+      return true;
+    },
+    update(state, f, tip) {
+      if (f.fissureFires < seen) seen = f.fissureFires; // a fresh case
+      for (; seen < f.fissureFires && nFired < segments.length; seen++) fire(nearest(tip));
+      if (f.lobeFree && nFired < segments.length) {
+        for (let i = 0; i < segments.length; i++) fire(i); // freed elsewhere (a reload into a later step)
+        drifted = true;
+      }
+      if (!drifted && nFired > 0 && nFired === segments.length && state.step === C.step) {
+        drifted = true;
+        tweenTo(state, C.drift.key, C.drift.to, C.drift.ms);
+      }
+      const show = (state.step === C.step || state.step === C.step + 1) && !f.lobeRemoved;
+      if (group.visible !== show) group.visible = show;
+      const showDots = state.step === C.step && nFired < segments.length;
+      if (dots.visible !== showDots) dots.visible = showDots;
+    },
+  };
+}

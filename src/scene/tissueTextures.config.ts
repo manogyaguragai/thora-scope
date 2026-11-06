@@ -12,7 +12,7 @@ export const FAMILY_MASK: Record<Family, string> = {
   fat: 'capillaries along the lobule septa',
   pleura: 'sparse capillary network',
   lung: 'anthracotic dots (clustered on lobule borders)',
-  bronchus: 'cartilage-ring band profile along v (1D lookup, not for triplanar)',
+  bronchus: 'pinkish membranous patches with fine vessels (the rings are model geometry)',
   blood: 'dark clotted core of the smears',
 };
 
@@ -62,32 +62,32 @@ export const tissueTex = {
   lung: {
     cells: 9, // secondary lobules per tile
     edgePx: 0.06, // lobule border half-width in F2−F1
-    edgeDark: 0.35,
+    edgeDark: 0.18, // T831: 0.35 outlined every lobule (honeycomb tiles)
     bulge: 0.25,
-    mottleAmp: 0.2,
+    mottleAmp: 0.35, // T831: 0.2; dusky mottling of the collapsed lobe
     mottleCells: 4,
     mottleOctaves: 2,
     dotCells: 32, // anthracotic dot candidate grid (8 texels per cell at size 256)
-    dotKeep: 0.35, // candidates kept on a border (× dotFloor away from borders)
+    dotKeep: 0.5, // candidates kept on a border (× dotFloor away from borders); T831 0.35
     dotFloor: 0.15,
-    dotRadius: [0.12, 0.3] as const, // cell units
+    dotRadius: [0.08, 0.22] as const, // cell units; T831 [0.12, 0.3] read as blurry blobs close up
     dotBorderPx: 0.2, // F2−F1 range counted as "near a border" for clustering
   },
   bronchus: {
-    grainCells: 32,
+    grainCells: 32, // ivory cartilage grain
     grainOctaves: 3,
     grainAmp: 0.2,
-    rings: 6, // ring bands per tile along v (A channel)
-    ringSharp: [0.2, 0.75] as const, // smoothstep of 0.5 + 0.5·cos → band profile
-    ringJitter: 0.08, // noise wobble of the ring phase (tile units)
-    jitterCells: 4,
+    caps: { cells: 8, octaves: 2, widthPx: 1.0 } satisfies Capillaries,
+    patchCells: 3,
+    patch: [0.45, 0.65] as const, // smoothstep of a low-frequency fBm → membranous patch mask
+    patchTint: 0.35, // patch tint strength without a vessel (vessels: 1)
   },
   blood: {
     cells: 3,
     octaves: 3,
     warp: 0.15, // domain warp (tile units) → smeared streaks
-    smear: [0.56, 0.66] as const, // smoothstep → soft smear/pool mask (B)
-    clot: [0.64, 0.74] as const, // smoothstep → dark core (A)
+    smear: [0.5, 0.62] as const, // smoothstep → soft smear/pool mask (B); T831 [0.56, 0.66] barely showed
+    clot: [0.62, 0.72] as const, // smoothstep → dark core (A)
     height: 0.15,
   },
 };

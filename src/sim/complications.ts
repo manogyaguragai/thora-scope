@@ -3,7 +3,8 @@
 // timed log for the debrief. No scene access: effect requests are returned for the wiring (T505).
 // Clinical thresholds/rates are placeholders, pending clinician review.
 import { config } from '../core/config';
-import { DANGER_STRUCTURES, TARGET_BY_ID } from '../content/targets';
+import { ANATOMY } from '../content/anatomy';
+import { TARGET_BY_ID, dangerLevel } from '../content/targets';
 import { cauteryConfig } from '../scene/cautery.config';
 import type { PointLike } from './portOccupancy';
 import type { ActionKind, PracticeTool } from './practiceActions';
@@ -28,7 +29,7 @@ export interface ComplicationInput {
   suction: boolean;
   /** Sponge-stick held pressing on the bleed. */
   pressure: boolean;
-  /** Current max(retract_posterior, retract_fissure). */
+  /** Current max of the retract_* keys. */
   retract: number;
   /** T822: energised cautery touching tissue here (null = not); seals a minor bleed within coag.radiusM. */
   coagAt?: PointLike | null;
@@ -36,14 +37,20 @@ export interface ComplicationInput {
 
 /** `t` = injected clock (seconds). */
 export type ComplicationEvent =
-  /** Stapler/cautery on a CONTEXT §6.4 danger structure. */
-  | { readonly type: 'danger-hit'; readonly t: number; readonly target: string; readonly tool: PracticeTool }
+  /** Stapler/cautery on a CONTEXT §6.4 danger structure (manifest `danger` severity). */
+  | {
+      readonly type: 'danger-hit';
+      readonly t: number;
+      readonly target: string;
+      readonly tool: PracticeTool;
+      readonly severity: Severity;
+    }
   | {
       readonly type: 'bleed';
       readonly t: number;
       readonly target: string;
       readonly severity: Severity;
-      readonly cause: 'injury' | 'over-traction';
+      readonly cause: BleedCause;
     }
   | { readonly type: 'bleed-controlled'; t: number; target: string; severity: Severity }
   /** Injurious hit on a non-vascular structure. */
@@ -62,6 +69,7 @@ export type ComplicationRequest =
 
 export type ToastKey =
   | 'complication.danger'
+  | 'complication.dangerMinor'
   | 'complication.bleed'
   | 'complication.tear'
   | 'complication.injury'
@@ -82,12 +90,20 @@ interface Bleed {
   done: { type: 'bleed-controlled'; t: number; target: string; severity: Severity };
 }
 
-const DANGER = new Set<string>(DANGER_STRUCTURES);
-/** Vessels by §7.2 node naming: RML V/A branches, trees, caval/azygos/aorta/brachiocephalic/left PA. */
-const VASCULAR = /^[AV](\d|_)|artery|vein|vena|aorta|brachio|^pa_/;
-const ARTERY = /^A(\d|_)/;
+/** T844 'node-bed': the expected ooze after lymph node removal (step 4), sealed with the cautery; not scored. */
+export type BleedCause = 'injury' | 'over-traction' | 'node-bed';
 
-export const isVascular = (id: string): boolean => VASCULAR.test(id);
+/** Manifest blood-carrying tissue classes; scene vessels outside the manifest by name (aorta, cavae, brachiocephalic). */
+const VASCULAR_TISSUE = new Set(['artery', 'vein', 'svc']);
+const VASCULAR = /artery|vein|vena|aorta|brachio/;
+
+export const isVascular = (id: string): boolean => {
+  const e = ANATOMY.structures[id];
+  return e ? VASCULAR_TISSUE.has(e.tissue) : VASCULAR.test(id);
+};
+/** Divided arteries (manifest artery with a divideStep): pulling while one is encircled tears it. */
+const isDividedArtery = (id: string): boolean =>
+  ANATOMY.structures[id]?.tissue === 'artery' && ANATOMY.structures[id]?.divideStep !== undefined;
 
 /** Stapler fire or cautery on a structure that doesn't list that tool (TARGETS). */
 function injurious(a: ComplicationAction): boolean {
@@ -154,7 +170,7 @@ export class ComplicationController {
   onAction(a: ComplicationAction): ComplicationRequest[] {
     const out: ComplicationRequest[] = [];
     const point = a.point ?? (a.target ? pointOf(a.target) : null);
-    if (a.kind === 'encircle' && a.target && ARTERY.test(a.target)) {
+    if (a.kind === 'encircle' && a.target && isDividedArtery(a.target)) {
       if (this.passage?.target !== a.target) this.torn = false;
       this.passage = { target: a.target, point };
     } else {
@@ -163,18 +179,27 @@ export class ComplicationController {
     if (!injurious(a) || a.target === null) return out;
     const t = this.clock();
     const target = a.target;
-    if (DANGER.has(target)) {
-      this.push({ type: 'danger-hit', t, target, tool: a.tool });
-      out.push({ type: 'toast', key: 'complication.danger' });
+    const danger = dangerLevel(target);
+    if (danger) {
+      this.push({ type: 'danger-hit', t, target, tool: a.tool, severity: danger });
+      out.push({
+        type: 'toast',
+        key: danger === 'major' ? 'complication.danger' : 'complication.dangerMinor',
+      });
     }
     if (isVascular(target)) {
       out.push(this.startBleed(target, point, 'major', 'injury', t));
-      if (!DANGER.has(target)) out.push({ type: 'toast', key: 'complication.bleed' });
-    } else if (!DANGER.has(target)) {
+      if (!danger) out.push({ type: 'toast', key: 'complication.bleed' });
+    } else if (!danger) {
       this.push({ type: 'injury', t, target, tool: a.tool });
       out.push({ type: 'toast', key: 'complication.injury' });
     }
     return out;
+  }
+
+  /** T844: small expected ooze from a node bed at `point` (the wiring calls it once the node is out). */
+  startOoze(target: string, point: PointLike | null): ComplicationRequest {
+    return this.startBleed(target, point, 'minor', 'node-bed', this.clock());
   }
 
   /**
@@ -233,7 +258,7 @@ export class ComplicationController {
     target: string,
     point: PointLike | null,
     severity: Severity,
-    cause: 'injury' | 'over-traction',
+    cause: BleedCause,
     t: number,
   ): ComplicationRequest {
     const i = this.head;

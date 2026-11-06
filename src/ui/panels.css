@@ -131,7 +131,8 @@
   grid-area: top;
   justify-self: stretch;
   display: flex;
-  flex-wrap: wrap; /* narrow windows: buttons wrap instead of pushing Help off-screen */
+  overflow-x: auto; /* narrow windows: one row that scrolls sideways (wrapping squeezed the inspector) */
+  scrollbar-width: none;
   align-items: center;
   gap: var(--space-2);
   padding: var(--space-1) var(--space-2);
@@ -143,6 +144,19 @@
 .shell-name {
   font-weight: 600;
   margin-right: auto;
+}
+
+@media (max-width: 800px) {
+  .shell-name {
+    display: none;
+  }
+  .shell-modes:first-of-type {
+    margin-right: auto;
+  }
+}
+
+.shell-top > * {
+  flex-shrink: 0;
 }
 
 .shell-modes {
@@ -164,6 +178,19 @@
 .shell-help:hover,
 .shell-toggle:hover {
   border-color: var(--color-accent);
+}
+
+.shell-vents {
+  align-items: center;
+}
+
+.shell-vents-title {
+  color: var(--color-muted);
+}
+
+/* T843: the ventilation switch belongs to the procedure modes (the Physiology lab has its own controls). */
+.shell:is([data-mode='quiz'], [data-mode='physiology']) .shell-vents {
+  display: none;
 }
 
 .shell-mode[aria-pressed='true'] {
@@ -433,6 +460,11 @@
   gap: var(--space-1);
 }
 
+/* T847a: the shared action toast (wireM4, inline-styled) sits below the topbar, clear of it and the compass. */
+#action-toast {
+  top: calc(var(--space-6) + var(--space-5)) !important;
+}
+
 .guided-details:not([hidden]) {
   display: flex;
   flex-direction: column;
@@ -483,6 +515,13 @@
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
+}
+
+/* T847a: the step caption describes the scope view; outside (theatre) the title, controls and More stay
+   (after the clamp rule: same specificity). */
+.shell[data-view='outside'] .guided-body .guided-text,
+.shell[data-view='outside'] .guided-caption .guided-demo-text {
+  display: none;
 }
 
 .guided-points {

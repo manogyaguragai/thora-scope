@@ -4,7 +4,6 @@
 // Clipping: every variant has the same fixed-length clippingPlanes = [shared cut-away, ...per-mesh division planes],
 // parked far away until used; moving a plane only mutates its values, so programs never change.
 import {
-  Box3,
   Color,
   DataArrayTexture,
   DataTexture,
@@ -31,36 +30,51 @@ import type {
 } from 'three';
 import { config } from '../core/config';
 import { cauteryConfig } from './cautery.config';
-import type { CutUniforms } from './effects';
+import { addOpenedAttribute, BLUNT_ATTR, OPEN_THRESHOLD, OPENED_ATTR } from './effects';
 import { setupLights } from './lights';
-import { DISSECTABLE, FALLBACK_TISSUE, TISSUES, TISSUE_RULES, look, paletteParams } from './materials.config';
+import {
+  DISSECTABLE,
+  FALLBACK_TISSUE,
+  HIDDEN_AT_LOAD,
+  PULSE,
+  TISSUES,
+  TISSUE_RULES,
+  look,
+  paletteParams,
+} from './materials.config';
 import type { Palette, TissueClass, TissueParams } from './materials.config';
 import { TISSUE_DETAIL_PARS, buildTissueDetailTexture, hash } from './tissueTextures';
 import { FAMILIES } from './tissueTextures.config';
+import { WATER_TISSUE_FRAG, waterUniforms } from './water';
+import { waterConfig } from './water.config';
 
 interface Variants {
   opaque: MeshPhysicalMaterial; // default look (keeps the glTF's own BLEND for pleura/pericardium/connective)
   transparent: MeshPhysicalMaterial; // X-ray / opacity < 1
   baseOpacity: number;
+  xray: number; // X-ray opacity cap (look.xrayByClass, else look.xrayOpacity)
   opacity: number; // user opacity (layer panel)
   fade: number; // transient multiplier (guided visibility fades), × opacity
   division: readonly Plane[]; // clippingPlanes[1..N] of both variants
   own: MeshUniforms; // shared by both variants
 }
-/** T807 per-mesh uniforms: step-focus highlight weight (0..1); ring origin (xyz world, w = 2π / spacing).
- *  T822: uCutOn = 1 on DISSECTABLE layers (the cautery openings apply), fixed at load. */
+/** T807 per-mesh uniforms: step-focus highlight weight (0..1).
+ *  T822/T842: uCutOn = 1 on DISSECTABLE layers (they carry the per-vertex opened attribute), fixed at load. */
 interface MeshUniforms {
   uFocus: { value: number };
-  uRingOrigin: { value: Vector4 };
   uCutOn: { value: number };
   uRestScale: { value: Vector3 }; // T824: world scale of the mesh (quantised glb positions → metres)
+  uPulse: { value: number }; // T831: heartbeat pulse amplitude in metres (manifest weight × look.pulse; 0 = still)
+  uNormalFix: { value: Vector2 }; // T807/T831: normal-fix smoothstep edges (0, 0 = off, e.g. meshes with morph normals)
+  uWaterOn: { value: number }; // T842: 1 = inside the right pleural cavity (irrigation tint / caustics apply)
+  uPushOn: { value: number }; // T850: 1 = lung tissue classes (the instrument tip indents them, pushUniforms)
 }
 interface TissueUniforms {
   uTissueMap: { value: Vector4 }; // retint, mapLuma, speckle, lobular
   uTissueWrap: { value: number };
   uTissueScatter: { value: Color }; // colour × strength
   uTissueRim: { value: Color }; // colour × strength
-  uTissueExtra: { value: Vector4 }; // T807: env-reflection scale, ring-groove strength; T818: normal-fix edges (0,0 = off)
+  uTissueExtra: { value: Vector2 }; // T807: env-reflection scale; T831: membrane veil (grazing alpha boost)
   uTissueDetailA: { value: Vector4 }; // T824: family, scale (0 = off), bump, albedo
   uTissueDetailB: { value: Vector4 }; // T824: mask colour (linear rgb), mask strength
   uTissueBlood: { value: number }; // T824: blood-staining strength (0 = off)
@@ -75,6 +89,7 @@ declare global {
       setCutaway: (normal: readonly [number, number, number], constant: number) => void;
       parkCutaway: () => void;
       setPalette: (p: Palette) => void;
+      setHeartbeat: (v: number) => void;
     };
   }
 }
@@ -83,8 +98,6 @@ const variants = new Map<Mesh, Variants>();
 /** T826: per tissue class, its uniforms + every variant material (setPalette writes their colour values). */
 const byClass = new Map<TissueClass, { u: TissueUniforms; mats: MeshPhysicalMaterial[] }>();
 let palette: Palette = look.palette.default;
-const _box = new Box3();
-const _o = new Vector3();
 let xray = false;
 
 const PARK_NORMAL = new Vector3(0, 0, 1);
@@ -106,13 +119,12 @@ export function getDivisionPlanes(mesh: Mesh): readonly Plane[] | undefined {
 
 const N = look.noise;
 const CUT = cauteryConfig.dissect;
-/** T822: the cautery openings (effects.ts CutPool writes them), one array shared by every tissue program from load:
- *  only values + the count change, never the program. ponytail: one shared buffer (overlapping dissectable layers
- *  open together); per-layer buffers if layers must open independently. */
-export const cutUniforms: CutUniforms = {
-  uCuts: { value: new Float32Array(CUT.maxPoints * 4) },
-  uCutCount: { value: 0 },
-};
+/** T842: dissectable meshes, each with its zeroed opened attribute from load (effects.ts CutPool writes it). */
+export const openedLayers: Mesh[] = [];
+// Opened-field bands (effects.ts: field = 1 − d / (falloff × radius)) of the coagulated rim / browned edge.
+const RIM_BAND = CUT.rimWidth / CUT.falloff;
+const BURN_BAND = CUT.burnWidth / CUT.falloff;
+const TORN = CUT.blunt;
 const f = (x: number): string => x.toFixed(4);
 const vec3 = (v: readonly number[]): string => `vec3(${v.map(f).join(', ')})`;
 const BLOOD = look.blood;
@@ -130,13 +142,17 @@ uniform vec4 uTissueMap;
 uniform float uTissueWrap;
 uniform vec3 uTissueScatter;
 uniform vec3 uTissueRim;
-uniform vec4 uTissueExtra;
-uniform vec4 uRingOrigin;
+uniform vec2 uTissueExtra;
+uniform vec2 uNormalFix;
 uniform float uFocus;
 uniform vec3 uFocusColor;
-uniform vec4 uCuts[ ${CUT.maxPoints} ];
-uniform int uCutCount;
 uniform float uCutOn;
+uniform float uWaterLevel;
+uniform float uWaterTime;
+uniform vec3 uWaterDisc;
+uniform float uWaterOn;
+varying float vOpened;
+varying float vBlunt;
 uniform vec4 uTissueDetailA;
 uniform vec4 uTissueDetailB;
 uniform float uTissueBlood;
@@ -165,17 +181,37 @@ uniform vec3 uGraspPoint;
 uniform vec3 uGraspOffset;
 uniform float uGraspRadius;
 uniform vec3 uRestScale;
+uniform float uPulse;
+uniform float uHeartbeat;
+uniform float uCutOn;
+uniform float uPushOn;
+uniform vec3 uPushPoint;
+uniform vec3 uPushDir;
+uniform float uPushRadius;
+attribute float ${OPENED_ATTR};
+attribute float ${BLUNT_ATTR};
+varying float vOpened;
+varying float vBlunt;
 varying vec3 vTissueWorld;
 varying vec3 vTissueRestPos;
 varying vec3 vTissueRestN;
 void main() {
+	vOpened = uCutOn > 0.0 ? ${OPENED_ATTR} : 0.0; // only dissectable layers carry the attribute
+	vBlunt = uCutOn > 0.0 ? ${BLUNT_ATTR} : 0.0;
 	// T824: PRE-morph rest pose (metres, object axes) so the procedural detail stays glued to the tissue.
 	vTissueRestPos = position * uRestScale;
 	vTissueRestN = normal / uRestScale;`;
 const GRASP_VERTEX = /* glsl */ `
+	// T831 heartbeat pulse: radial push along the (morphed) normal, world metres → object units via uRestScale.
+	if ( uPulse * uHeartbeat > 0.0 ) transformed += normalize( objectNormal ) * ( uPulse * uHeartbeat ) / uRestScale;
 	if ( dot( uGraspOffset, uGraspOffset ) > 0.0 ) {
 		float graspK = 1.0 - smoothstep( 0.0, uGraspRadius, distance( ( modelMatrix * vec4( transformed, 1.0 ) ).xyz, uGraspPoint ) );
 		transformed += inverse( mat3( modelMatrix ) ) * ( uGraspOffset * graspK );
+	}
+	// T850 lung push: the instrument tip indents the lung (world offset uPushDir = depth × direction, smooth falloff).
+	if ( uPushOn * dot( uPushDir, uPushDir ) > 0.0 ) {
+		float pushK = 1.0 - smoothstep( 0.0, uPushRadius, distance( ( modelMatrix * vec4( transformed, 1.0 ) ).xyz, uPushPoint ) );
+		transformed += inverse( mat3( modelMatrix ) ) * ( uPushDir * pushK );
 	}
 	vTissueWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
 #include <project_vertex>`;
@@ -183,24 +219,31 @@ const GRASP_VERTEX = /* glsl */ `
 // T807: focus rim colour, shared by every tissue program.
 const sharedLook = {
   uFocusColor: { value: new Color(look.focus.color).multiplyScalar(look.focus.strength) },
+  uHeartbeat: { value: 0 }, // T831: state.heartbeat (0 diastole … 1 systole), setHeartbeat
 };
+/** T831: per-frame heartbeat (state.heartbeat) for the manifest `pulse` meshes; a uniform write, never a program change. */
+export function setHeartbeat(v: number): void {
+  sharedLook.uHeartbeat.value = v;
+}
 const FOCUS = /* glsl */ `
 #include <emissivemap_fragment>
 	if ( uFocus > 0.0 ) {
 		float focusRim = pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), ${f(look.focus.rimPower)} );
 		totalEmissiveRadiance += uFocus * ( uFocusColor * focusRim + diffuseColor.rgb * ${f(look.focus.self)} );
 	}
+	// T831 membrane veil: a thin sheet reads denser (milky) toward grazing angles; transparent variants only.
+	if ( uTissueExtra.y > 0.0 ) diffuseColor.a = mix( diffuseColor.a, 1.0, uTissueExtra.y * pow( 1.0 - saturate( dot( normal, normalize( vViewPosition ) ) ), ${f(look.rimPower)} ) );
 `;
-// T807: the glb morphs are POSITION-only, so collapsed/retracted surfaces keep rest-pose normals; where such a
-// normal turns away from the true (screen-derivative) surface normal it lit as dark blotches. Blend toward the
-// derivative normal there, before three builds its tangent frames from it.
+// T807: POSITION-only glb morphs leave collapsed/retracted surfaces with rest-pose normals; where such a normal
+// turns away from the true (screen-derivative) surface normal it lit as dark blotches. Blend toward the derivative
+// normal there, before three builds its tangent frames from it. T831: per mesh, off when it ships morph normals.
 const TBN_ANCHOR =
   '#if defined( USE_NORMALMAP_TANGENTSPACE ) || defined( USE_CLEARCOAT_NORMALMAP ) || defined( USE_ANISOTROPY )';
 const NORMAL_BEGIN = ShaderChunk.normal_fragment_begin.replace(
   TBN_ANCHOR,
   /* glsl */ `
 	vec3 tissueFlat = normalize( cross( dFdx( vViewPosition ), dFdy( vViewPosition ) ) );
-	if ( uTissueExtra.w > 0.0 ) normal = normalize( mix( tissueFlat, normal, smoothstep( uTissueExtra.z, uTissueExtra.w, dot( normal, tissueFlat ) ) ) );
+	if ( uNormalFix.y > 0.0 ) normal = normalize( mix( tissueFlat, normal, smoothstep( uNormalFix.x, uNormalFix.y, dot( normal, tissueFlat ) ) ) );
 	if ( uTissueDetailA.z > 0.0 ) normal = tissueBump( - vViewPosition, normal, tissueTd.xy, uTissueDetailA.z );
 ${TBN_ANCHOR}`,
 );
@@ -209,6 +252,9 @@ const ENV = /* glsl */ `
 	radiance *= uTissueExtra.x;
 	clearcoatRadiance *= uTissueExtra.x;
 `;
+// T842 irrigation: below the saline surface (uWaterLevel, world Y) depth tint + caustics (water.ts).
+const WATER = `${WATER_TISSUE_FRAG}
+#include <opaque_fragment>`;
 
 export interface GraspUniforms {
   uGraspPoint: { value: Vector3 };
@@ -221,6 +267,15 @@ export const graspUniforms: GraspUniforms = {
   uGraspOffset: { value: new Vector3() },
   uGraspRadius: { value: 1 },
 };
+
+/** T850: the one lung-push uniform set (tip indent: world centre, depth × direction, radius); mutate `.value`s only.
+ *  Applied where the per-mesh uPushOn is 1 (PUSHED classes), compiled at load like the grasp. */
+export const pushUniforms = {
+  uPushPoint: { value: new Vector3() },
+  uPushDir: { value: new Vector3() },
+  uPushRadius: { value: 1 },
+};
+const PUSHED: readonly TissueClass[] = ['collapsedLung', 'ventilatedLung'];
 
 const MAP = /* glsl */ `
 #ifdef USE_MAP
@@ -239,8 +294,6 @@ const MAP = /* glsl */ `
 		diffuseColor.rgb *= ( 1.0 - uTissueMap.z * dots ) * ( 1.0 - uTissueMap.w * border );
 	}
 #endif
-	if ( uTissueExtra.y > 0.0 )
-		diffuseColor.rgb *= 1.0 - uTissueExtra.y * smoothstep( ${f(look.rings.groove[0])}, ${f(look.rings.groove[1])}, sin( distance( vTissueWorld, uRingOrigin.xyz ) * uRingOrigin.w ) );
 	// T824 procedural triplanar detail (sampled before the cut discard; uniform-gated, so derivatives stay valid).
 	vec4 tissueTd = vec4( 0.0, 0.0, 0.5, 0.0 );
 	float tissueWet = 0.0;
@@ -256,30 +309,40 @@ const MAP = /* glsl */ `
 		diffuseColor.rgb = mix( diffuseColor.rgb, ${vec3(CLOT_RGB)}, uTissueBlood * tissueBl.w );
 		diffuseColor.a = mix( diffuseColor.a, 1.0, tissueWet ); // blood on a translucent veil is opaque
 	}
-	// T822 cautery openings: inside a sphere the layer is gone (what lies beneath shows); just outside it a thin
-	// browned edge, then a pale, opaque, slightly glossy coagulated rim.
+	// T842 persistent cautery openings: where the interpolated opened field passes the threshold the layer is gone
+	// (what lies beneath shows); just outside a thin browned edge, then a pale, opaque, slightly glossy coagulated rim.
+	// T852 blunt (peanut) openings (vBlunt): no coagulum; a soft, moist, thinning torn fringe instead.
 	float tissueCutRim = 0.0;
+	float tissueTorn = 0.0;
 	if ( uCutOn > 0.0 ) {
-		float cutBurn = 0.0;
-		for ( int i = 0; i < ${CUT.maxPoints}; i++ ) {
-			if ( i >= uCutCount ) break;
-			float cutD = distance( vTissueWorld, uCuts[ i ].xyz ) / uCuts[ i ].w;
-			if ( cutD < 1.0 ) discard;
-			tissueCutRim = max( tissueCutRim, 1.0 - smoothstep( 1.0, ${f(1 + CUT.rimWidth)}, cutD ) );
-			cutBurn = max( cutBurn, 1.0 - smoothstep( 1.0, ${f(1 + CUT.burnWidth)}, cutD ) );
-		}
+		if ( vOpened > ${f(OPEN_THRESHOLD)} ) discard;
+		float cutBand = smoothstep( ${f(OPEN_THRESHOLD - RIM_BAND)}, ${f(OPEN_THRESHOLD)}, vOpened );
+		tissueCutRim = cutBand * ( 1.0 - vBlunt );
+		tissueTorn = cutBand * vBlunt;
+		float cutBurn = smoothstep( ${f(OPEN_THRESHOLD - BURN_BAND)}, ${f(OPEN_THRESHOLD)}, vOpened ) * ( 1.0 - vBlunt );
 		diffuseColor.rgb = mix( mix( diffuseColor.rgb, ${vec3(CUT.rimRgb)}, tissueCutRim ), ${vec3(CUT.burnRgb)}, cutBurn );
-		diffuseColor.a = mix( diffuseColor.a, 1.0, tissueCutRim );
+		diffuseColor.rgb = mix( diffuseColor.rgb, ${vec3(TORN.tornRgb)}, ${f(TORN.tornMix)} * tissueTorn );
+		diffuseColor.a = mix( diffuseColor.a, 1.0, tissueCutRim ) * ( 1.0 - ${f(TORN.tornThin)} * tissueTorn );
 	}
 `;
 const ROUGH = /* glsl */ `
 #include <roughnessmap_fragment>
 	roughnessFactor = mix( roughnessFactor, ${f(BLOOD.roughness)}, tissueWet );
 	roughnessFactor = mix( roughnessFactor, ${f(CUT.rimRoughness)}, tissueCutRim );
+	roughnessFactor = mix( roughnessFactor, ${f(TORN.tornRoughness)}, tissueTorn );
 `;
 
 function patch(shader: WebGLProgramParametersWithUniforms, u: TissueUniforms, own: MeshUniforms): void {
-  Object.assign(shader.uniforms, u, graspUniforms, sharedLook, cutUniforms, detailUniforms, own);
+  Object.assign(
+    shader.uniforms,
+    u,
+    graspUniforms,
+    pushUniforms,
+    sharedLook,
+    waterUniforms,
+    detailUniforms,
+    own,
+  );
   shader.vertexShader = shader.vertexShader
     .replace('void main() {', GRASP_PARS)
     .replace('#include <project_vertex>', GRASP_VERTEX);
@@ -289,7 +352,8 @@ function patch(shader: WebGLProgramParametersWithUniforms, u: TissueUniforms, ow
     .replace('#include <roughnessmap_fragment>', ROUGH)
     .replace('#include <normal_fragment_begin>', NORMAL_BEGIN)
     .replace('#include <emissivemap_fragment>', FOCUS)
-    .replace('#include <lights_fragment_maps>', ENV);
+    .replace('#include <lights_fragment_maps>', ENV)
+    .replace('#include <opaque_fragment>', WATER);
 }
 const cacheKey = (): string => 'tissue-v1'; // one patch for all tissues → programs differ only by three's own params
 
@@ -397,10 +461,8 @@ function makeMaterial(
   return m;
 }
 
-/** TissueParams.detail / blood → the T824 per-class uniforms (scale 0 / blood 0 = off, no fetches). */
-function detailOf(
-  t: TissueParams,
-): Pick<TissueUniforms, 'uTissueDetailA' | 'uTissueDetailB' | 'uTissueBlood'> {
+/** TissueParams.detail → the T824 per-class uniforms (scale 0 = off, no fetches). Blood: per palette. */
+function detailOf(t: TissueParams): Pick<TissueUniforms, 'uTissueDetailA' | 'uTissueDetailB'> {
   const d = t.detail;
   const c = new Color(d?.maskColor ?? '#000000');
   return {
@@ -408,19 +470,18 @@ function detailOf(
       value: new Vector4(d ? FAMILIES.indexOf(d.family) : 0, d?.scale ?? 0, d?.bump ?? 0, d?.albedo ?? 0),
     },
     uTissueDetailB: { value: new Vector4(c.r, c.g, c.b, d?.mask ?? 0) },
-    uTissueBlood: { value: t.blood ?? 0 },
   };
 }
 
-/** TissueParams.normalFix → smoothstep edges (true = look.normalFix; off = 0, 0). */
-function normalFixEdges(n: TissueParams['normalFix']): [number, number] {
-  if (!n) return [0, 0];
-  const [a, b] = n === true ? look.normalFix : n;
-  return [a, b];
+/** TissueParams.normalFix → smoothstep edges (true = look.normalFix; off = 0, 0). T831: off for meshes whose morphs
+ *  carry normals (the rest-normal problem it fixes does not exist there; it would only facet a correct normal). */
+function normalFixEdges(n: TissueParams['normalFix'], mesh: Mesh): Vector2 {
+  if (!n || mesh.geometry.morphAttributes.normal) return new Vector2();
+  return new Vector2(...(n === true ? look.normalFix : n));
 }
 
 function apply(mesh: Mesh, v: Variants): void {
-  const a = (xray ? Math.min(v.opacity, look.xrayOpacity) : v.opacity) * v.fade;
+  const a = (xray ? Math.min(v.opacity, v.xray) : v.opacity) * v.fade;
   if (a >= 1) {
     mesh.material = v.opaque;
     return;
@@ -437,6 +498,8 @@ export function setPalette(p: Palette): void {
     for (const m of mats) m.color.set(c.color);
     u.uTissueMap.value.x = c.retint;
     u.uTissueRim.value.set(c.rim).multiplyScalar(TISSUES[cls].rimStrength);
+    u.uTissueScatter.value.set(TISSUES[cls].scatter).multiplyScalar(c.scatterStrength);
+    u.uTissueBlood.value = c.blood;
   }
 }
 export const getPalette = (): Palette => palette;
@@ -477,12 +540,6 @@ export function applyMaterials(root: Object3D): Group {
   detailUniforms.uTissueDetail.value ??= buildTissueDetailTexture();
   const replaced = new Set<Material>();
   root.updateMatrixWorld(true);
-  /** Ring origin of a mesh: bbox centre of its configured parent airway (rings ⟂ the branch leaving it). */
-  const ringOrigin = (name: string): Vector4 => {
-    const from = root.getObjectByName(look.rings.origins[name] ?? look.rings.defaultOrigin);
-    if (from) _box.setFromObject(from).getCenter(_o);
-    return new Vector4(_o.x, _o.y, _o.z, (2 * Math.PI) / look.rings.spacingM);
-  };
   root.traverse((o) => {
     const mesh = o as Mesh;
     if (!mesh.isMesh || Array.isArray(mesh.material)) return;
@@ -495,10 +552,11 @@ export function applyMaterials(root: Object3D): Group {
       const u: TissueUniforms = {
         uTissueMap: { value: new Vector4(c.retint, t.mapLuma, t.speckle, t.lobular) },
         uTissueWrap: { value: t.wrap },
-        uTissueScatter: { value: new Color(t.scatter).multiplyScalar(t.scatterStrength) },
+        uTissueScatter: { value: new Color(t.scatter).multiplyScalar(c.scatterStrength) },
         uTissueRim: { value: new Color(c.rim).multiplyScalar(t.rimStrength) },
-        uTissueExtra: { value: new Vector4(t.env ?? 1, t.rings ?? 0, ...normalFixEdges(t.normalFix)) },
+        uTissueExtra: { value: new Vector2(t.env ?? 1, t.veil ?? 0) },
         ...detailOf(t),
+        uTissueBlood: { value: c.blood }, // T824 blood-staining strength, per palette (T846b)
       };
       entry = { u, mats: [] };
       byClass.set(cls, entry);
@@ -508,12 +566,21 @@ export function applyMaterials(root: Object3D): Group {
     const division = Array.from({ length: config.clipping.divisionPlanes }, parked);
     const planes = [cutaway, ...division];
     const blend = src.transparent && baseOpacity < 1; // a config opacity of 1 makes a glTF BLEND mesh truly opaque
+    const dissectable = DISSECTABLE.test(mesh.name);
+    if (dissectable) {
+      addOpenedAttribute(mesh);
+      openedLayers.push(mesh);
+    }
     const own: MeshUniforms = {
       uFocus: { value: 0 },
-      uRingOrigin: { value: t.rings ? ringOrigin(mesh.name) : new Vector4() },
-      uCutOn: { value: DISSECTABLE.test(mesh.name) ? 1 : 0 },
+      uCutOn: { value: dissectable ? 1 : 0 },
       uRestScale: { value: new Vector3().setFromMatrixScale(mesh.matrixWorld) },
+      uPulse: { value: (PULSE[mesh.name] ?? 0) * look.pulse.amplitudeM },
+      uNormalFix: { value: normalFixEdges(t.normalFix, mesh) },
+      uWaterOn: { value: waterConfig.dryMeshes.test(mesh.name) ? 0 : 1 },
+      uPushOn: { value: PUSHED.includes(cls) ? 1 : 0 },
     };
+    if (HIDDEN_AT_LOAD.includes(mesh.name)) mesh.visible = false; // T831 manifest `hidden` (warm-up still compiles it)
     const opaque = makeMaterial(src, cls, u, own, noise, blend, baseOpacity, planes);
     if (blend) opaque.depthWrite = src.depthWrite;
     const transparent = makeMaterial(src, cls, u, own, noise, true, baseOpacity, planes);
@@ -524,7 +591,8 @@ export function applyMaterials(root: Object3D): Group {
         [m.polygonOffsetFactor, m.polygonOffsetUnits] = bias;
       }
     entry.mats.push(opaque, transparent);
-    variants.set(mesh, { opaque, transparent, baseOpacity, opacity: 1, fade: 1, division, own });
+    const xr = look.xrayByClass[cls] ?? look.xrayOpacity;
+    variants.set(mesh, { opaque, transparent, baseOpacity, xray: xr, opacity: 1, fade: 1, division, own });
     mesh.material = opaque;
     replaced.add(src);
     proxies.add(new Mesh(mesh.geometry, transparent));
@@ -551,6 +619,7 @@ export function applyRealism(scene: Scene, renderer: WebGLRenderer, camera: Came
     setCutaway: (normal, constant) => setCutawayPlane(n.set(...normal).normalize(), constant),
     parkCutaway,
     setPalette,
+    setHeartbeat,
   };
   return proxies;
 }

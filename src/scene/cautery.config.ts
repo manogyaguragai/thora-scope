@@ -1,6 +1,7 @@
 // Electrocautery (T817, T822 user feedback 2026-11-05): energy only acts where the tip touches tissue. Contact on a
 // soft overlying layer opens it (shader openings with a coagulated rim, materials.ts); on lung / other tissue it
-// leaves a thin seared line (char decals along the path); energised contact near a small bleed seals it. Smoke pool
+// leaves a thin seared line (char decals along the path); energised contact near a small bleed seals it. T842: smoke
+// accumulates with energy time, the sucker clears it; node-bed ooze. Smoke pool
 // size/colour/life stay in config.effects.smoke; these are the cautery-specific numbers. Pending clinician review.
 export const cauteryConfig = {
   /** Contact gating: the tip's nearest visible surface (BVH) within distM, sampled sampleHz while energised. */
@@ -11,19 +12,28 @@ export const cauteryConfig = {
   smoke: {
     ratePerSec: 40, // wisps/s at the contact point while energised in contact + one perPuff burst on touch-down
   },
-  /** Dissection openings (one shared ring buffer of world spheres, uniform array in every tissue program). */
+  /** T842 persistent dissection: a per-vertex "opened" field on each dissectable layer (attribute built at load,
+   *  only ever raised until a step / mode reset). Field = 1 − d / (falloff × radius): discarded above 1 − 1/falloff. */
   dissect: {
-    maxPoints: 48, // GLSL array length, fixed at load (§6.10: never resized)
-    spacingM: 0.0014, // a new opening once the tip moved this far from the newest one
-    maxStepsPerSample: 6, // fast sweeps: openings interpolated along the jump, at most this many per sample
+    spacingM: 0.0014, // the tip within this of the stroke anchor = dwell (the opening widens)
     startRadiusM: 0.0016,
-    maxRadiusM: 0.0034, // dwell on one spot widens the newest opening up to this
+    maxRadiusM: 0.0034, // dwell on one spot widens the opening up to this
     growPerSec: 0.0012,
+    edgeFactor: 0.75, // coarse layers (chest-wall pleura ≈ 7 mm edges): radius ≥ this × the layer's mean edge
+    falloff: 2, // field reaches 0 at falloff × radius (the rim band lives in between)
     rimWidth: 0.6, // coagulated rim outside the opening, share of its radius
     burnWidth: 0.15, // thin browned edge right at the opening, share of its radius
     rimRgb: [0.6, 0.47, 0.33] as const, // pale tan coagulum (linear albedo)
     burnRgb: [0.14, 0.08, 0.045] as const, // browned edge (linear albedo)
     rimRoughness: 0.32, // slightly glossy
+    /** T852 peanut blunt dissection: same field, a little wider; a soft moist torn fringe instead of the rim. */
+    blunt: {
+      radiusScale: 1.35,
+      tornRgb: [0.42, 0.16, 0.13] as const, // raw areolar tissue under the torn pleura (linear albedo)
+      tornMix: 0.35, // share of tornRgb at the opening's edge
+      tornThin: 0.45, // the torn fringe thins (alpha) toward the opening
+      tornRoughness: 0.25, // moist
+    },
   },
   /** Char / sear marks (one InstancedMesh, ring-buffer slots, capacity = round(preset.particleCap × capScale)).
    *  Subtle and secondary: a thin dark centre, pinkish-white coagulated edge; laid along the path on lung etc. */
@@ -50,10 +60,37 @@ export const cauteryConfig = {
     radiusM: 0.008,
     sec: 1.5, // continuous contact to seal a minor bleed (ooze falls off linearly meanwhile); major: never
   },
-  /** Smoke haze in the post-FX pass (uFog): builds slowly while energy touches tissue, clears slowly after. */
+  /** T842 smoke density in the closed cavity (post-FX uFog): cumulative energised-contact time builds it and it
+   *  stays (slow passive clearing) until the sucker aspirates it. */
   haze: {
-    max: 0.16,
-    riseRate: 0.05, // per second while active
-    decayRate: 0.04, // per second after release (the sucker clears it at once)
+    max: 0.7, // murky view after ~30 s of cumulative energy
+    riseRate: 0.025, // per second of energised tissue contact
+    decayRate: 0.002, // per second, passive (port leak)
+    /** Drifting smoke in the cavity around the last contact point; spawn rate ∝ density / max. */
+    particles: {
+      capScale: 0.5,
+      color: [0.8, 0.79, 0.76] as const,
+      size: 0.02, // m, size-attenuated
+      opacity: 0.22,
+      lifeSec: 4,
+      ratePerSec: 24, // at max density
+      radiusM: 0.035, // spawn sphere around the field
+      driftSpeed: 0.003, // m/s random
+    },
+  },
+  /** T842 sucker held (sub-option Suction): aspirates smoke, saline and pooled blood near the tip. */
+  suction: {
+    hazeClearPerSec: 0.2, // uFog units per second
+    radiusM: 0.03, // particles within this flow to the tip
+    flowSpeed: 0.05, // m/s toward the tip
+    swirl: 0.025, // m/s tangential (small vortex round the tip)
+    captureM: 0.003, // aspirated within this
+    bloodShrinkPerSec: 0.004, // m of decal radius per second within radiusM
+    bloodMinShare: 0.3, // a still-bleeding decal keeps this share of its size
+  },
+  /** T842 lymph-node bed ooze (startOoze): small decal + drip; energised contact seals it (coag rule above). */
+  nodeBed: {
+    radiusM: 0.005,
+    max: 4, // simultaneous node-bed oozes (fixed slots)
   },
 } as const;

@@ -4,6 +4,8 @@
 export interface GuidedStep {
   step: number;
   title: string;
+  /** Short label for the steps rail (one line at the rail width, so all 9 steps fit); the caption shows `title`. */
+  rail: string;
   caption: string;
   points: readonly string[];
   video: { from: string; to: string; text: string };
@@ -13,18 +15,18 @@ export interface GuidedStep {
 
 const CAMERA_PORT = 'Camera port (8th space)';
 const ACCESS_INCISION = 'Access incision (5th space)';
-const WORKING_PORT = 'Anterior working port';
 
 export const GUIDED_STEPS: readonly GuidedStep[] = [
   {
     step: 1,
+    rail: 'Inspect',
     title: 'Inspect the chest',
     caption:
-      'Looking in from the camera port with the right lung collapsed. Survey the cavity and confirm all three right lobes are down before any dissection.',
+      'The scope goes in through the camera port. With only the left lung ventilated the right lung is down: find the upper, middle and lower lobes, the two fissures and the phrenic nerve before touching anything.',
     points: [
       'The patient lies on the left side, right side up. Only the left lung is ventilated, so the right lung falls away from the chest wall.',
-      'Check that the upper, middle and lower lobes are all flat. A half-inflated lung crowds the view and makes every later step harder.',
-      'Free any adhesions first, then look around the whole cavity so the plan can be confirmed before dissection starts.',
+      'Try the ventilation switch: with both lungs ventilated the right lung fills the cavity and hides the hilum, which is why surgery runs on one lung.',
+      'Name the landmarks: three right lobes, the horizontal fissure above the middle lobe, the oblique one below it, and the phrenic nerve on the pericardium.',
       'Ports: camera port low in the 8th space, access incision higher and further forward in the 5th, plus one more 1 cm port. Roles can swap.',
       'A 30° angled telescope lets you look around structures by rotating the optic rather than moving the port.',
     ],
@@ -37,74 +39,93 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
   },
   {
     step: 2,
-    title: 'Open the anterior hilum',
+    rail: 'Hilum',
+    title: 'Expose the hilum',
     caption:
-      'The upper and middle lobes are pushed backwards to open the front of the hilum. Under the mediastinal pleura you can now see the phrenic nerve running down the pericardium and, behind it, the superior pulmonary vein.',
+      'A grasper lifts the collapsed lung backwards and outwards, opening a window onto the front of the hilum. Cautery then opens the thin mediastinal pleura over the superior pulmonary vein and the middle lobe vein, well clear of the phrenic nerve.',
     points: [
-      'Pushing the lobes backwards stretches the mediastinal pleura over the hilum, so it can be cleared with a blunt peanut swab.',
-      'The phrenic nerve runs across the anterior face of the upper vein. Move it medially out of the field and keep cautery well away.',
-      'Near the phrenic nerve, stop small bleeding points with clips rather than diathermy: heat spread can paralyse the diaphragm.',
-      'Name the landmarks: superior pulmonary vein, superior vena cava above it, and the azygos vein arching over the top of the hilum.',
-      'In the video the scope moves to another port so the retractors can use the former camera port. Any port can change job.',
+      'Lifting the lung away from the mediastinum tents the pleura over the hilum, so it can be opened in a shallow, controlled line.',
+      'The phrenic nerve runs down the pericardium in front of the hilum. Keep the energised tip away from it; heat spread can paralyse the diaphragm.',
+      'Open the pleura along the front of the superior pulmonary vein and over the middle lobe vein, not across the vein itself.',
+      'Name the landmarks before going deeper: superior pulmonary vein, superior vena cava above it and the azygos vein arching over the top of the hilum.',
+      'The scope now sits in the access incision and looks straight onto the hilum; any port can change job during the case.',
     ],
     video: {
       from: '0:46',
       to: '1:13',
       text: 'In the reference video: the scope changes port, two retractors hold the upper and middle lobes back and the pleura over the SVC is cleared bluntly.',
     },
-    portLabel: CAMERA_PORT,
+    portLabel: ACCESS_INCISION,
   },
   {
     step: 3,
+    rail: 'Vein',
     title: 'Middle lobe vein (V4/V5)',
     caption:
-      'A closer view of the superior pulmonary vein. Find the middle lobe branches (V4/V5), make a passage behind them and divide them, leaving the upper lobe drainage alone.',
+      'Divide the fine strands that still tie the middle lobe vein down, follow V4 and V5 into the middle lobe, open a passage behind the vein with the peanut, then pass the stapler through it and fire. The upper lobe vein stays.',
     points: [
-      'The superior pulmonary vein drains both the upper and middle lobes. Follow each branch into its lobe before deciding what to divide.',
-      'Divide only the middle lobe branches. Narrowing the upper lobe vein risks a clot and loss of blood supply to the upper lobe.',
-      'Venous patterns vary: check them on the CT before surgery and again in theatre. The upper lobe vein joins the same trunk, so protect it.',
-      'Pass a blunt angled clamp all the way around the vein first, so the stapler anvil follows a track already proven to be open.',
-      'The pulmonary artery lies just behind the vein. Keep the clamp tip hugging the vein and pointed away from the artery.',
+      'The superior pulmonary vein drains both the upper and the middle lobe. Trace each branch into its own lobe before deciding what to divide.',
+      'Divide the loose strands around the middle lobe vein close to the vein wall, so a clean passage opens behind it.',
+      'The passage is made bluntly with a peanut or a grasper; the clamp is for clamping, not for tunnelling behind a thin-walled vein.',
+      'Take only the middle lobe branches. Narrowing the upper lobe vein risks a clot and congestion of the upper lobe.',
+      'The pulmonary artery lies just behind the vein: keep the dissector hugging the vein and pointing away from the artery.',
     ],
     video: {
       from: '1:13',
       to: '2:17',
       text: 'In the reference video: two vein branches are freed, retraction moves to the access incision and a curved-tip stapler divides both branches in one fire.',
     },
-    portLabel: WORKING_PORT,
-    note: 'Model limitation: the middle lobe branches run straight into a lobe whose fissure has not been opened, so they look simpler than in a real dissection.',
+    portLabel: ACCESS_INCISION,
   },
   {
     step: 4,
-    title: 'Nodes and middle lobe bronchus',
+    rail: 'Nodes',
+    title: 'Lymph nodes 11R/12R',
     caption:
-      'With the vein divided, the middle lobe bronchus lies just behind it. Clear nodes 11R/12R, encircle the bronchus and prove it is the right airway before stapling.',
+      'With the vein gone, nodes 11R and 12R sit in the angle at the root of the middle lobe bronchus. Grasp each with the ring forceps and lift it out; the small ooze from the node bed is sealed with the cautery.',
     points: [
-      'The middle lobe bronchus sits right behind its vein. Its arteries run just above it, so stay close to the upper edge of the bronchus.',
-      'Nodes 11R/12R lie between the middle and lower lobe bronchi. Taking them out improves the view; seal the small bronchial arteries beside them.',
-      'Before firing: suction the airway, close the clamp, then give a breath. Upper and lower lobes should inflate while the middle lobe stays flat.',
-      'Divide the bronchus close to where it leaves the bronchus intermedius, keeping the intermedius and lower lobe bronchus out of the jaws.',
-      'Use whichever port gives the straightest line onto the bronchus. In the video that was the access incision.',
+      'Interlobar (11R) and lobar (12R) nodes are sent for staging and, once out, the bronchus and its arteries are much easier to see.',
+      'Grasp the node itself, not the vessels around it, and tease it free with gentle traction rather than tearing it out.',
+      'Small bronchial arteries feed the nodes, so the bed usually oozes a little. A short touch of cautery on the bleeding point seals it.',
+      'Keep the energy off the bronchus wall and off the pulmonary artery just above it.',
     ],
     video: {
-      from: '2:17',
-      to: '3:41',
-      text: 'In the reference video: the upper lobe is pulled to tension the bronchus, a node beside it is removed, then a blunt clamp goes around it and it is stapled.',
+      from: '2:44',
+      to: '3:04',
+      text: 'In the reference video: a node beside the bronchus is grasped and removed, improving the view of the airway.',
     },
     portLabel: ACCESS_INCISION,
-    note: 'This guided view is authored with a 44° optic offset; the hands-on scope is a 30° telescope.',
   },
   {
     step: 5,
+    rail: 'Bronchus',
+    title: 'Middle lobe bronchus',
+    caption:
+      'The middle lobe is drawn outwards to put its bronchus on stretch. Clamp it, ask for a breath to prove it is the right airway (upper and lower lobes inflate, the middle lobe stays flat), then staple it.',
+    points: [
+      'Pulling the middle lobe outwards straightens its bronchus and opens the angle with the bronchus intermedius.',
+      'The clamp closes on the bronchus; it does not make passages around vessels.',
+      'Before firing: clamp, then give a breath. The upper and lower lobes should inflate while the middle lobe stays flat.',
+      'Staple close to the origin, keeping the bronchus intermedius and the lower lobe bronchus out of the jaws.',
+    ],
+    video: {
+      from: '3:04',
+      to: '3:41',
+      text: 'In the reference video: the lobe is pulled to tension the bronchus, a blunt clamp goes around it and it is stapled.',
+    },
+    portLabel: ACCESS_INCISION,
+  },
+  {
+    step: 6,
+    rail: 'Arteries',
     title: 'Middle lobe arteries (A4/A5)',
     caption:
-      'Cutting the bronchus brings the one or two middle lobe arteries (A4/A5) into view just above it. Make a passage behind them and staple them, together or one by one.',
+      'Dividing the bronchus uncovers the one or two middle lobe arteries (A4/A5) coming off the interlobar artery above its stump. Open a passage behind them with the peanut and staple them.',
     points: [
-      'Once the bronchus is divided, the one or two middle lobe artery branches become easy to see just above the bronchial stump.',
-      'Artery branches are thin-walled. Avoid pulling on them, and steer the clamp tip away from the main pulmonary artery as it passes.',
-      'A long, curving tunnel can be followed with a soft leader on the stapler tip, so the anvil slips through without stretching the tissue.',
-      'The branches can be stapled together or one by one; make sure the lower lobe arteries are clear of the jaws before firing.',
-      'Retraction is swapped again in the video so the stapler can come through the camera port, which gives the best angle here.',
+      'Once the bronchus is cut, the middle lobe artery branches are easy to see just above the bronchial stump.',
+      'These branches are thin-walled. Avoid traction on them while the passage is open and steer away from the main pulmonary artery.',
+      'A soft leader on the stapler tip can follow a long, curving tunnel without stretching the tissue.',
+      'Staple them together or one by one, or clip a small branch; check that no lower lobe artery is inside the jaws.',
     ],
     video: {
       from: '3:41',
@@ -112,19 +133,18 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
       text: 'In the reference video: two artery branches appear, a silicone leader guides the stapler through a long tunnel and both branches are divided together.',
     },
     portLabel: ACCESS_INCISION,
-    note: 'Model limitation: the artery branches run into the lobe without an opened fissure, so the tunnel looks shorter and cleaner than in the video.',
   },
   {
-    step: 6,
+    step: 7,
+    rail: 'Fissures',
     title: 'Complete the fissures',
     caption:
-      'Back at the camera port, the middle lobe is lifted while the upper lobe goes up and the lower lobe down. The remaining horizontal and oblique fissures are stapled last.',
+      'Back at the camera port, a grasper holds the middle lobe and pulls it away. The powered stapler is laid across the horizontal and then the oblique fissure and fired until the lobe is free.',
     points: [
-      'Doing the fissure last means no searching for arterial branches through fused lung, a smaller raw surface and fewer air leaks.',
+      'Doing the fissure last avoids hunting for arteries through fused lung and leaves a smaller raw surface with fewer air leaks.',
       'A short breath shows where the aerated upper and lower lobes meet the flat middle lobe, marking the line to staple along.',
-      'View the lobe from above, then flip it and look from below: the cut bronchus must sit above the stapler, not inside the staple line.',
-      'Stapling across the fissure usually seals sooner than tearing or burning it apart. Expect about two or three fires.',
-      'Keep the bronchus intermedius, the lower lobe bronchus and the lower lobe arteries well clear of the stapler.',
+      'Look at the lobe from above, then turn it and look from below: the divided bronchus must lie outside the staple line.',
+      'Use the parenchyma reload; expect two or three fires. Keep the lower lobe arteries and bronchus clear of the jaws.',
     ],
     video: {
       from: '5:14',
@@ -135,21 +155,39 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
     note: 'Not modelled: the video patient had a middle lobe tumour, so an extra strip of upper lobe was taken with the specimen. Neither is in this model.',
   },
   {
-    step: 7,
-    title: 'Lobe out, leak test',
+    step: 8,
+    rail: 'Lobe out',
+    title: 'Lobe out in a bag',
     caption:
-      'The middle lobe has been removed and the upper and lower lobes re-inflated. Check the bronchial stump and staple lines under water for air leaks.',
+      'The free middle lobe goes into a retrieval bag inside the chest, and the closed bag is drawn out through the access incision.',
     points: [
-      'Put the lobe in a bag before pulling it out through the access incision, so tumour cells are not left behind in the wound.',
-      'Fill the chest with warm saline and ventilate at about 20 cmH₂O. Bubbles from the stump or lung surface mean an air leak.',
-      'Small surface leaks usually settle on their own. A leaking stump should be re-stapled or sealed before closing.',
-      'Finish the node clearance (paratracheal 4R, subcarinal 7), check for bleeding and place one chest drain through the lowest port.',
-      'Intercostal nerve blocks can be given under direct vision before closing to help with pain afterwards.',
+      'Bagging the specimen keeps tumour cells off the wound edges and stops the lobe tearing on the way out.',
+      'Open the bag fully, then guide the lobe in with a grasper before closing the neck.',
+      'Pull steadily, rocking the bag through the incision; widen the incision rather than tear the specimen.',
     ],
     video: {
       from: '6:11',
+      to: '6:23',
+      text: 'In the reference video: the lobe is placed in a bag and pulled out through the access incision.',
+    },
+    portLabel: CAMERA_PORT,
+  },
+  {
+    step: 9,
+    rail: 'Leak test',
+    title: 'Irrigate and leak test',
+    caption:
+      'Warm saline fills the right chest until the hilum and the stumps are under water. A breath at about 20 cmH₂O tests the stumps: no bubbles, no air leak. Suction then clears the fluid.',
+    points: [
+      'Bubbles rising from the bronchial stump or a staple line mean an air leak; a leaking stump is re-stapled or sealed before closing.',
+      'Small surface leaks usually settle on their own once the lung is expanded.',
+      'Suction the saline back out and check the stumps and the node beds once more for bleeding.',
+      'Finish the node clearance (paratracheal 4R, subcarinal 7) if planned, then place one chest drain through the lowest port.',
+    ],
+    video: {
+      from: '6:23',
       to: '6:46',
-      text: 'In the reference video: the lobe is bagged and removed, nodes are cleared, a chest tube goes in and the stump is checked under saline while ventilating.',
+      text: 'In the reference video: nodes are cleared, a chest tube goes in and the stump is checked under saline while ventilating.',
     },
     portLabel: CAMERA_PORT,
   },
@@ -157,9 +195,10 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
 
 // Short paraphrase of CONTEXT §7.6 for an "About this model" panel.
 export const MODEL_LIMITATIONS: readonly string[] = [
-  'The middle lobe vessels and bronchus branch inside the lobe; the fissure is not pre-opened in the model.',
+  'The lobes collapse and retract by fixed shape blends, not by tissue physics; the fissure opens along one preset path.',
+  'Divided vessels and the bronchus end in a stump cap generated by the app; the model itself has no stump ends.',
   'Wet shine and tissue translucency are added by the renderer, not stored in the model.',
-  'Nerve paths, retraction amounts and the mediastinal shift are approximations.',
+  'Nerve paths and retraction amounts are approximations; vessels look longer than in life when the lung is fully lifted.',
   'Vessel trees stop just inside the lung, so with the lungs hidden you see the hilar vessels only.',
   'See-through pleura can occasionally draw in the wrong order.',
   'The tumour in the reference video, and the extra upper lobe margin taken for it, are not modelled.',

@@ -1,8 +1,13 @@
 // Encircle + staple-divide logic (CONTEXT §6.4). Pure: no scene objects; all state preallocated at construction.
 // The scene side (division planes, staple-line caps, clips) lives in src/scene/staples.ts.
+// T841: the fire runs close → compression pause → staples form heel → tip → knife; jaws stop on the compressed
+// structure (closedJaw); jawPose() orients stapler / clamp / clip jaws across a structure's local axis.
+import { Matrix4, Vector3 } from 'three';
+import type { Quaternion } from 'three';
 import { TARGET_BY_ID, type ToolId } from '../../content/targets';
 import type { PointLike } from '../portOccupancy';
 import { config } from '../../core/config';
+import { instrumentAnim, instrumentGeom } from '../../scene/instruments.config';
 
 export const STAPLE_CONFIG = config.staple; // values in src/core/config.ts
 
@@ -30,7 +35,7 @@ export class Encircle {
     const t = TARGET_BY_ID.get(targetId);
     if (!t) return false;
     const ok =
-      (tool === 'clamp' && t.tools.clamp !== undefined) ||
+      ((tool === 'clamp' || tool === 'peanut') && t.tools.clamp !== undefined) || // T844: peanut passage
       (tool === 'stapler' && sub === 'vascular-leader' && t.tools.stapler?.includes(sub) === true);
     if (ok) this.passed.add(targetId);
     return ok;
@@ -105,8 +110,26 @@ export class StapleFire {
     normal: { x: 0, y: 0, z: 0 },
     hide: false,
   };
+  /** T841: jaw value the closing stops at (the compressed structure between the jaws); set before close(). */
+  closedJaw = 0;
   private t = 0;
   private armed = false;
+
+  /** T841: firing sub-progress, 0 … 1 each: compression pause, staples formed (heel → tip), knife travel. */
+  get compress(): number {
+    return this.sub(0, FIRE.compress);
+  }
+  get form(): number {
+    return this.sub(FIRE.compress, FIRE.compress + FIRE.form);
+  }
+  get knife(): number {
+    return this.sub(FIRE.compress + FIRE.form, 1);
+  }
+  private sub(a: number, b: number): number {
+    if (this.phase === 'opening' || this.phase === 'idle') return this.phase === 'opening' ? 1 : 0;
+    if (this.phase !== 'firing') return 0;
+    return Math.min(1, Math.max(0, (this.t / STAPLE_CONFIG.fireMs - a) / (b - a)));
+  }
 
   /** Close the jaws across the target (no fire yet — e.g. bronchus test). */
   close(targetId: string, cartridge: string | null, encircle: Encircle, point?: PointLike): StapleCheck {
@@ -141,7 +164,7 @@ export class StapleFire {
     let divided = false;
     switch (this.phase) {
       case 'closing':
-        this.jaw = Math.max(0, 1 - this.t / C.closeMs);
+        this.jaw = Math.max(this.closedJaw, 1 - ((1 - this.closedJaw) * this.t) / C.closeMs);
         if (this.t >= C.closeMs) this.enter(this.armed ? 'firing' : 'closed');
         break;
       case 'firing':
@@ -151,7 +174,7 @@ export class StapleFire {
         }
         break;
       case 'opening':
-        this.jaw = Math.min(1, this.t / C.openMs);
+        this.jaw = Math.min(1, this.closedJaw + ((1 - this.closedJaw) * this.t) / C.openMs);
         if (this.t >= C.openMs) this.enter('idle');
         break;
       default:
@@ -165,6 +188,119 @@ export class StapleFire {
     this.t = 0;
     this.armed = false;
     // Release mid-close opens from closed (ponytail: tiny jaw snap, fine at 400 ms).
-    this.jaw = p === 'idle' ? 1 : 0;
+    this.jaw = p === 'idle' ? 1 : this.closedJaw;
   }
+}
+
+const FIRE = instrumentAnim.staplerFire;
+const ENG = instrumentAnim.engage;
+
+/** T841 clip applier: close on the structure (the clip is crimped and left there), then open. */
+export class ClipFire {
+  phase: 'idle' | 'closing' | 'opening' = 'idle';
+  jaw = 1;
+  closedJaw = 0;
+  private t = 0;
+  start(): boolean {
+    if (this.phase !== 'idle') return false;
+    this.phase = 'closing';
+    this.t = 0;
+    return true;
+  }
+  /** Advance; true exactly once, on the frame the clip is crimped (jaws closed). */
+  update(dtMs: number): boolean {
+    const C = STAPLE_CONFIG;
+    if (this.phase === 'idle') return false;
+    this.t += dtMs;
+    const k = this.phase === 'closing' ? 1 - this.t / C.closeMs : this.t / C.openMs;
+    this.jaw = Math.min(1, Math.max(this.closedJaw, this.closedJaw + (1 - this.closedJaw) * k));
+    if (this.phase === 'closing' && this.t >= C.closeMs) {
+      this.phase = 'opening';
+      this.t = 0;
+      return true;
+    }
+    if (this.phase === 'opening' && this.t >= C.openMs) {
+      this.phase = 'idle';
+      this.jaw = 1;
+    }
+    return false;
+  }
+}
+
+export type JawTool = 'stapler' | 'clamp' | 'clip';
+const SG = instrumentGeom.stapler;
+const insertTop = SG.insertInset / 2;
+/** Stapler: depth along the jaws (from the head hinge) where a structure of `radius` sits with `clearance` × its
+ *  diameter of anvil gap at full opening, within the jaw's usable span. */
+export function staplerDepth(radius: number): number {
+  const need = (ENG.clearance * 2 * radius - SG.jawGap) / Math.tan(SG.open);
+  return Math.min(ENG.staplerSpan[1], Math.max(ENG.staplerSpan[0], need / SG.headLength)) * SG.headLength;
+}
+/** Jaw value (0 closed … 1 open) whose gap at the structure is `compress` × its diameter (it is squeezed, not cut). */
+export function closedJawFor(tool: JawTool, radius: number): number {
+  const gap = ENG.compress * 2 * radius;
+  if (tool === 'stapler') {
+    const s = Math.min(1, Math.max(0, (gap - SG.jawGap) / staplerDepth(radius)));
+    return Math.asin(s) / SG.open;
+  }
+  const [reach, open] =
+    tool === 'clip'
+      ? [instrumentGeom.clip.jawLength, instrumentGeom.clip.open]
+      : [instrumentGeom.rightAngle.bendLength, instrumentGeom.rightAngle.open];
+  return Math.min(1, Math.asin(Math.min(1, gap / (2 * reach))) / (open / 2));
+}
+
+const _d = new Vector3();
+const _x = new Vector3();
+const _y = new Vector3();
+const _h = new Vector3();
+const _ax = new Vector3();
+const _m4 = new Matrix4();
+/**
+ * T841 alignment: tool root pose (`pos` = tip, `quat` +Z = shaft) that puts a structure of `radius` centred at
+ * `centre`, running along `axis`, between the jaws and PERPENDICULAR to them, the shaft still through the port
+ * fulcrum `pivot`. Roll: tool +X ∥ the axis component ⟂ the shaft (`quat` in = current pose, for the axis sign).
+ * Stapler: the head articulates (≤ maxArticulation) so its jaws are ⟂ the axis too. Writes `outJaw` (world jaw
+ * direction, heel → tip) and returns the articulation (rad). Allocation-free.
+ */
+export function jawPose(
+  tool: JawTool,
+  pivot: PointLike,
+  centre: Vector3,
+  axis: Vector3,
+  radius: number,
+  pos: Vector3,
+  quat: Quaternion,
+  outJaw: Vector3,
+): number {
+  _x.set(1, 0, 0).applyQuaternion(quat);
+  _ax.copy(axis).normalize();
+  if (_ax.dot(_x) < 0) _ax.negate(); // least roll from the current pose
+  pos.copy(centre);
+  let art = 0;
+  for (let k = 0; k < ENG.iterations; k++) {
+    _d.set(pos.x - pivot.x, pos.y - pivot.y, pos.z - pivot.z).normalize();
+    const beta = _ax.dot(_d);
+    _x.copy(_ax).addScaledVector(_d, -beta);
+    const alpha = _x.length();
+    if (alpha < 1e-6) _x.set(1, 0, 0).applyQuaternion(quat).addScaledVector(_d, -_x.dot(_d));
+    _x.normalize();
+    _y.crossVectors(_d, _x);
+    quat.setFromRotationMatrix(_m4.makeBasis(_x, _y, _d));
+    art =
+      tool === 'stapler'
+        ? Math.max(-SG.maxArticulation, Math.min(SG.maxArticulation, Math.atan2(-beta, alpha)))
+        : 0;
+    if (tool === 'stapler') {
+      const zc = staplerDepth(radius);
+      _h.set(zc * Math.sin(art), insertTop + radius, -SG.headLength + zc * Math.cos(art));
+    } else if (tool === 'clamp')
+      _h.set(0, -Math.max(radius * ENG.clampHoldR, instrumentGeom.rightAngle.bendLength * ENG.clampHold), 0);
+    else _h.set(0, 0, -instrumentGeom.clip.clipLength * ENG.clipHold);
+    pos.copy(centre).sub(_h.applyQuaternion(quat));
+  }
+  if (tool === 'stapler') outJaw.set(Math.sin(art), 0, Math.cos(art)).applyQuaternion(quat);
+  else if (tool === 'clamp') outJaw.set(0, 1, 0).applyQuaternion(quat);
+  else outJaw.set(0, 0, 1).applyQuaternion(quat);
+  return art;
 }

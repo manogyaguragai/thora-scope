@@ -1,7 +1,9 @@
 // Guided procedure UI (§6.1 item 1): step list in the left rail + caption bar above the hotbar dock.
 // Plain DOM (ADR-007). Event-driven: the DOM is rewritten only on 'stepchange', never per frame.
+type Demo = typeof import('../app/guidedDemo');
 import type { GuidedStep } from '../content/steps';
 import { keybindings, matchesKey } from '../core/keybindings';
+import { onModeChange } from '../sim/modes';
 import type { Shell } from './shell';
 import './panels.css';
 
@@ -40,8 +42,10 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
       'button',
       { type: 'button', className: 'guided-step' },
       h('span', { className: 'guided-step-num' }, String(s.step)),
-      s.title,
+      s.rail,
     );
+    b.setAttribute('aria-label', `${s.step}. ${s.title}`);
+    b.title = s.title;
     b.addEventListener('click', () => guided.goTo(s.step));
     return b;
   });
@@ -55,6 +59,56 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
   const points = h('ul', { className: 'guided-points' });
   const video = h('p', { className: 'guided-video' });
   const note = h('p', { className: 'guided-note' });
+  // T844 "Show me": the step's scripted demonstration (Guided here, Explore in its own small bar); Stop skips it.
+  const demoText = h('p', { className: 'guided-demo-text', hidden: true });
+  demoText.setAttribute('aria-live', 'polite');
+  const exploreText = h('p', { className: 'guided-demo-text', hidden: true });
+  exploreText.setAttribute('aria-live', 'polite');
+  let demoRunning = false;
+  let demo: Demo | null = null; // lazy chunk (keeps the scripts out of the initial bundle)
+  const showMe = [
+    h('button', { type: 'button', className: 'panel-button guided-demo', textContent: 'Show me' }),
+    h('button', { type: 'button', className: 'panel-button guided-demo', textContent: 'Show me' }),
+  ];
+  const setDemo = (running: boolean, text = ''): void => {
+    demoRunning = running;
+    for (const b of showMe) {
+      b.textContent = running ? 'Stop' : b === showMe[1] ? `Show me step ${guided.current}` : 'Show me';
+      b.setAttribute('aria-label', running ? 'Stop the demonstration' : 'Show me this step');
+      b.disabled = !running && !demo?.hasDemo(guided.current);
+    }
+    for (const t of [demoText, exploreText]) {
+      t.textContent = text;
+      t.hidden = !text;
+    }
+  };
+  const toggleDemo = (): void => {
+    if (!demo) return;
+    if (demoRunning) {
+      demo.stopDemo();
+      return setDemo(false);
+    }
+    setDemo(true);
+    void demo
+      .runDemo(guided.current, (t) => setDemo(true, t))
+      .then((r) => {
+        if (r !== 'stopped') setDemo(false, r === 'done' ? '' : `Demonstration stopped: ${r}`);
+      });
+  };
+  for (const b of showMe) b.addEventListener('click', toggleDemo);
+  const exploreBar = h('section', { className: 'guided-demo-bar' }, showMe[1] as HTMLElement, exploreText);
+  exploreBar.setAttribute('aria-label', 'Demonstration');
+  exploreBar.style.cssText =
+    'display:flex;gap:var(--space-1);align-items:center;padding:var(--space-1) var(--space-2);background:var(--color-surface-overlay);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-lg)';
+  const showExplore = (mode: string | undefined): void => {
+    exploreBar.hidden = mode !== 'explore';
+    exploreBar.style.display = exploreBar.hidden ? 'none' : 'flex'; // inline display beats [hidden]
+  };
+  onModeChange((m) => {
+    if (demoRunning) demo?.stopDemo();
+    setDemo(false);
+    showExplore(m);
+  });
   const prev = navButton('Prev', 'Previous step', () => guided.prev());
   const next = navButton('Next', 'Next step', () => guided.next());
   // Learning points, video note and model note sit behind "More" so the bar stays short (T205).
@@ -82,8 +136,9 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
       { className: 'guided-head' },
       title,
       port,
-      h('div', { className: 'guided-controls' }, more, prev, counter, next),
+      h('div', { className: 'guided-controls' }, showMe[0] as HTMLElement, more, prev, counter, next),
     ),
+    demoText,
     body,
   );
   bar.setAttribute('aria-label', 'Guided procedure');
@@ -106,6 +161,8 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     video.textContent = `${s.video.text} (${s.video.from}–${s.video.to})`;
     note.textContent = s.note ?? '';
     note.hidden = !s.note;
+    if (demoRunning) demo?.stopDemo();
+    setDemo(false);
     prev.disabled = i === 0;
     next.disabled = i === steps.length - 1;
     // Restart the enter animation (opacity/transform; 0 ms under reduced motion via tokens.css).
@@ -128,11 +185,17 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
   guided.on('stepchange', render);
   window.addEventListener('keydown', onKey);
   shell.rail.append(list);
-  shell.caption.append(bar);
+  shell.caption.append(bar, exploreBar);
+  showExplore(shell.root.dataset.mode);
+  void import('../app/guidedDemo').then((d) => {
+    demo = d;
+    if (!demoRunning) setDemo(false);
+  });
   return () => {
     guided.off('stepchange', render);
     window.removeEventListener('keydown', onKey);
     list.remove();
     bar.remove();
+    exploreBar.remove();
   };
 }

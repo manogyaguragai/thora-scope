@@ -6,8 +6,9 @@
 // toggles; the step helper must AND `isUserVisible` when it re-applies a step (wiring pass).
 import { Mesh, Vector3 } from 'three';
 import type { Box3, Object3D } from 'three';
-import procedure from '../content/procedure_steps.json';
+import procedure from '../content/procedure_steps.json' with { type: 'json' };
 import { labelFor } from '../content/labels';
+import { ANATOMY } from '../content/anatomy';
 import { config } from '../core/config';
 import * as realMaterials from '../scene/materials';
 import { PALETTES, look } from '../scene/materials.config';
@@ -16,17 +17,36 @@ import { getMode, onModeChange } from '../sim/modes';
 import './panels.css';
 import './viewing.css';
 
-export const LAYER_GROUPS: Readonly<Record<string, readonly string[]>> = procedure.layer_groups;
+/** procedure_steps.json layer group → manifest group it merges into (src/content/anatomy.json `group`). */
+const GROUP_ALIAS: Readonly<Record<string, string>> = {
+  Lobes: 'lungs',
+  Pulmonary_arteries: 'arteries',
+  Lymph_nodes: 'nodes',
+  Mediastinum: 'mediastinum',
+  Soft_tissue: 'softTissue',
+};
 
-/** Display names for the layer_groups ids; unknown ids fall back to the id with spaces. */
+/** Layer groups: manifest structures by their manifest `group` (hidden ones left out), then the remaining scene
+ *  nodes from procedure_steps.json layer_groups (aliased into a manifest group where one fits). */
+export const LAYER_GROUPS: Readonly<Record<string, readonly string[]>> = (() => {
+  const out: Record<string, string[]> = {};
+  const add = (g: string, n: string): void => void (out[g] ??= []).push(n);
+  for (const [n, e] of Object.entries(ANATOMY.structures)) if (!e.hidden) add(e.group, n);
+  for (const [g, names] of Object.entries(procedure.layer_groups as Record<string, string[]>))
+    for (const n of names) if (!(n in ANATOMY.structures)) add(GROUP_ALIAS[g] ?? g, n);
+  return out;
+})();
+
+/** Display names for the group ids; unknown ids fall back to the id with spaces. */
 const GROUP_LABELS: Readonly<Record<string, string>> = {
+  lungs: 'Lungs',
+  arteries: 'Arteries',
+  veins: 'Veins',
+  airway: 'Airway',
+  nodes: 'Lymph nodes',
+  softTissue: 'Soft tissue',
+  mediastinum: 'Mediastinum',
   ChestWall: 'Chest wall',
-  Hilar_vessels_airway: 'Hilar vessels & airway',
-  Lymph_nodes: 'Lymph nodes',
-  Pulmonary_arteries: 'Pulmonary arteries',
-  Pulmonary_veins_LA: 'Pulmonary veins & left atrium',
-  RML_hilum: 'Middle lobe hilum',
-  Soft_tissue: 'Soft tissue',
 };
 export const groupLabel = (id: string): string => GROUP_LABELS[id] ?? id.replace(/_/g, ' ');
 
@@ -48,7 +68,7 @@ export function cutawayPlane(axis: CutAxis, pos: number, flip: boolean, outNorma
 
 export type ViewingMaterials = Pick<
   typeof realMaterials,
-  'setXray' | 'setOpacity' | 'setCutawayPlane' | 'parkCutaway' | 'setFocusHighlight'
+  'setXray' | 'setOpacity' | 'setCutawayPlane' | 'parkCutaway' | 'setFocusHighlight' | 'setPalette'
 >;
 
 export interface LayersDeps {
@@ -191,8 +211,6 @@ function slider(
 }
 
 const isPalette = (v: string | null): v is Palette => PALETTES.includes(v as Palette);
-const PALETTE_LABELS: Readonly<Record<Palette, string>> = { realistic: 'Realistic', teaching: 'Teaching' };
-const PALETTE_HINT = 'Teaching colours: arteries blue, veins purple, bronchus ivory, nerves yellow';
 
 /** T826: `?palette=` override, else the stored choice, else the default. */
 function initialPalette(): Palette {
@@ -208,30 +226,30 @@ function initialPalette(): Palette {
 }
 
 /** "Colours: Realistic / Teaching" radio pair (native fieldset: arrow keys move between options). */
-function paletteControl(): HTMLElement {
+function paletteControl(mat: Pick<typeof realMaterials, 'setPalette'>): HTMLElement {
   const current = initialPalette();
-  realMaterials.setPalette(current);
+  mat.setPalette(current);
   const hintId = `layers-${uid++}`;
   const name = `layers-${uid++}`;
   const options = PALETTES.map((p) => {
     const input = h('input', { type: 'radio', name, value: p, checked: p === current });
     input.addEventListener('change', () => {
       if (!input.checked) return;
-      realMaterials.setPalette(p);
+      mat.setPalette(p);
       try {
         localStorage.setItem(look.palette.storageKey, p);
       } catch {
         /* storage blocked: the choice still applies this session */
       }
     });
-    return h('label', { className: 'panel-toggle' }, input, PALETTE_LABELS[p]);
+    return h('label', { className: 'panel-toggle' }, input, look.palette.labels[p]);
   });
   const set = h(
     'fieldset',
     { className: 'viewing-palette' },
     h('legend', {}, 'Colours'),
     ...options,
-    h('p', { id: hintId, className: 'viewing-hint' }, PALETTE_HINT),
+    h('p', { id: hintId, className: 'viewing-hint' }, look.palette.hint),
   );
   set.setAttribute('aria-describedby', hintId);
   return set;
@@ -263,7 +281,15 @@ export function mountLayersPanel(
     focusInput.checked = modeDefault();
     layers.setHighlight(focusInput.checked);
   });
-  root.append(h('div', { className: 'panel-group' }, xray, focusToggle, paletteControl()));
+  root.append(
+    h(
+      'div',
+      { className: 'panel-group' },
+      xray,
+      focusToggle,
+      paletteControl(deps.materials ?? realMaterials),
+    ),
+  );
 
   // Cut-away plane
   let enabled = false;

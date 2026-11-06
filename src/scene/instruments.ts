@@ -2,10 +2,13 @@
 // afterwards (§6.10). T819: real VATS proportions — lathed ferrules, bevelled extruded jaws (toothed ring rims,
 // serrated Maryland jaws, stapler channel/insert/anvil), tube-swept hooks and blades, crumpled gauze, handles for the
 // outside view. Parts are merged at load into one geometry per tool part × material (few draw calls). Jaws animate by
-// pivot rotation only. T825: every opaque material binds the same three texture slots (instrumentTextures.ts, built
+// pivot rotation only. T841: powered stapler (steel shaft, coloured reload, white pistol), fine right-angle clamp
+// opening in its bend plane, clip applier with a loaded clip; articulation / knife / clip via transforms only.
+// T825: every opaque material binds the same three texture slots (instrumentTextures.ts, built
 // at load) + one shared soil hook (uniforms only) → one opaque program + the translucent leader. No clipping planes.
 // Local frame: tip at origin, +Z toward the tip.
 import {
+  BoxGeometry,
   CatmullRomCurve3,
   Color,
   CurvePath,
@@ -60,6 +63,12 @@ export interface InstrumentSet {
   setGlow(glow: number): void;
   /** T825: blood/tissue soil on the steel tips or soak of the gauze swabs, 0 … 1 (uniform only). */
   setSoil(kind: 'steel' | 'gauze', amount: number): void;
+  /** T841: stapler head articulation about the knuckle (rad, + swings the jaws toward +X). */
+  setArticulation(rad: number): void;
+  /** T841: stapler knife travel heel → tip, 0 … 1 (hidden outside (0, 1)). */
+  setKnife(k: number): void;
+  /** T841: the clip applier carries a clip (false once crimped on a vessel; reload = true). */
+  setClipLoaded(on: boolean): void;
 }
 
 interface Jaw {
@@ -558,90 +567,139 @@ export function buildInstruments(): InstrumentSet {
     flush(bag, cauteryTool.group);
   }
 
-  // 6 · right-angle / Maryland clamp: tapered serrated jaws, 90° bend up to the tip, open sideways
+  // 6 · right-angle vascular / bronchial clamp (T841): two fine nested jaws run along the shaft, bend 90° up (+Y) to
+  //     the tip and open in the bend plane (about X at the hinge): the bent tips hook behind a vessel, close across it.
   const clamp = newTool('clamp');
   {
     const c = G.rightAngle;
-    const straight = c.jawLength - c.bendLength;
-    const rb = c.bendRadius;
-    const path = new CurvePath<Vector3>();
-    path.add(new LineCurve3(new Vector3(), new Vector3(0, 0, straight - rb)));
-    path.add(
-      new QuadraticBezierCurve3(
-        new Vector3(0, 0, straight - rb),
-        new Vector3(0, 0, straight),
-        new Vector3(0, rb, straight),
-      ),
-    );
-    path.add(new LineCurve3(new Vector3(0, rb, straight), new Vector3(0, c.bendLength, straight)));
-    const r = c.jawThick / 2;
-    const sx = c.jawWidth / c.jawThick;
-    jawPair(clamp, clamp.group, -straight, -c.bendLength, c.open, 'y', (s) => {
-      const g = tube(path, 32, r, seg / 2 + 2, (t, off) => {
+    const R = c.bendRadius;
+    const zH = -(c.reach + R);
+    const yH = -(R + c.bendLength);
+    const r = c.jawWidth / 2;
+    const sy = c.jawThick / c.jawWidth;
+    const tan = new Vector3();
+    const nrm = new Vector3();
+    jawPair(clamp, clamp.group, zH, yH, c.open, 'x', (s) => {
+      const h = (s * c.jawThick) / 2; // + = inner jaw (inside of the bend)
+      const path = new CurvePath<Vector3>();
+      path.add(new LineCurve3(new Vector3(0, h, 0), new Vector3(0, h, c.reach)));
+      path.add(
+        new QuadraticBezierCurve3(
+          new Vector3(0, h, c.reach),
+          new Vector3(0, h, c.reach + R - h),
+          new Vector3(0, R, c.reach + R - h),
+        ),
+      );
+      path.add(
+        new LineCurve3(new Vector3(0, R, c.reach + R - h), new Vector3(0, R + c.bendLength, c.reach + R - h)),
+      );
+      const g = tube(path, c.segments, r, seg / 2 + 2, (t, off) => {
         let k = 1 - (1 - c.taper) * t;
-        if (off.x * s < 0)
-          k *= 1 - (c.serrationDepth * Math.abs(Math.sin(t * c.serrations * Math.PI)) * (-off.x * s)) / r;
+        // In-plane normal (tangent turned +90° about X): flatten the jaw to jawThick there; the face toward the
+        // other jaw (−s side) is serrated.
+        path.getTangentAt(t, tan);
+        nrm.set(0, tan.z, -tan.y);
+        const on = off.dot(nrm);
+        off.addScaledVector(nrm, on * (sy - 1));
+        if (-s * on > 0)
+          k *= 1 - (c.serrationDepth * Math.abs(Math.sin(t * c.serrations * Math.PI)) * -s * on) / r;
         off.multiplyScalar(k);
       });
-      const cap = new SphereGeometry(r * c.taper, seg / 2, seg / 4).translate(0, c.bendLength, straight);
-      return [g, cap].map((p) => p.scale(sx, 1, 1).translate((s * c.jawWidth) / 2, 0, 0));
+      const end = path.getPoint(1);
+      const cap = new SphereGeometry(r * c.taper, seg / 2, seg / 4)
+        .scale(1, sy, sy)
+        .translate(end.x, end.y, end.z);
+      return [g, cap];
     });
-    put(bag, steel, pin(-straight, -c.bendLength, 'y'));
-    stem(bag, -straight, -c.bendLength, { handle: 'scissor' });
+    put(bag, steel, pin(zH, yH, 'x'));
+    stem(bag, zH, yH, { handle: 'scissor' });
     flush(bag, clamp.group);
   }
 
-  // 7 · stapler (03:36): black 12 mm shaft, articulating knuckle, steel channel + coloured split insert, opening
-  //     anvil, curved tip (sub 0) / silicone leader (sub 1), pistol handle
+  // 7 · powered stapler (T841, user's reference photos): brushed-steel 12 mm shaft, dark ridged articulation knuckle,
+  //     long jaws (steel anvil with a curved tapered tip / silicone leader, over a steel channel holding the coloured
+  //     reload: staple-pocket deck + printed depth marks), a knife on the sled, white pistol handle + rotation knob.
   const stapler = newTool('stapler');
+  const head = new Group();
+  head.name = 'stapler_head';
+  const S7 = G.stapler;
+  const insertTop = S7.insertInset / 2;
+  const knife = new Mesh(new BoxGeometry(S7.knife.thick, S7.knife.height, S7.knife.length), steel);
+  knife.name = 'stapler_knife';
   {
-    const s = G.stapler;
+    const s = S7;
     const r = s.shaftRadius;
-    const head = new Group();
     head.position.z = -s.headLength;
     head.rotation.y = s.articulation;
     stapler.group.add(head);
     const zJ = -s.headLength - s.jointLength;
     const zShaft = zJ - s.shaftLength;
-    const kp: Pts = [
-      [r, zJ],
-      [r * 0.82, zJ + s.jointLength * 0.3],
-      [r * 0.9, zJ + s.jointLength * 0.5],
-      [r * 0.82, zJ + s.jointLength * 0.7],
-      [r * 0.7, -s.headLength],
-    ];
-    put(bag, steel, lathe(kp));
-    put(bag, shaftMat, cylZ(r, s.shaftLength, zShaft, true));
-    bands(bag, r, zJ, 0);
+    const kp: [number, number][] = [[r, zJ]];
+    const step = s.jointLength / s.knuckleRidges;
+    for (let i = 0; i < s.knuckleRidges; i++)
+      kp.push(
+        [r * 0.86, zJ + step * (i + 0.2)],
+        [r * 0.98, zJ + step * (i + 0.5)],
+        [r * 0.86, zJ + step * (i + 0.8)],
+      );
+    kp.push([r * 0.8, -s.headLength]);
+    put(bag, shaftMat, lathe(kp)); // dark knuckle
+    put(bag, steel, cylZ(r, s.shaftLength, zShaft, true)); // brushed-steel shaft
     const P = G.handle.pistol;
+    const K = P.knob;
+    const zB = zShaft - K.length;
+    put(
+      bag,
+      white,
+      lathe(
+        [
+          [K.radius * 0.9, zB],
+          [K.radius, zB + K.length * 0.2],
+          [K.radius, zB + K.length * 0.75],
+          [r * 1.1, zShaft],
+        ],
+        K.flutes,
+      ),
+      cylZ(P.bodyRadius, P.bodyLength, zB - P.bodyLength),
+      new SphereGeometry(P.bodyRadius, seg, seg / 2).scale(1, 1, 0.6).translate(0, 0, zB - P.bodyLength),
+    );
+    for (const o of [P.grip, P.trigger]) {
+      const g = plate(shape(o.map(([yy, z]) => [yy, zB + z] as const)), P.thick * (o === P.grip ? 1 : 0.4));
+      put(bag, white, g.rotateZ(HALF_PI));
+    }
+    const g0 = P.grip[0] ?? [0, 0];
     put(
       bag,
       shaftMat,
-      cylZ(P.bodyRadius, P.bodyLength, zShaft - P.bodyLength),
-      lathe([
-        [P.bodyRadius, zShaft - 0.004],
-        [r, zShaft],
-      ]),
+      new SphereGeometry(P.button, seg / 2, seg / 4).translate(0, g0[0] - P.button, zB + g0[1]),
     );
-    for (const o of [P.grip, P.trigger]) {
-      const g = plate(
-        shape(o.map(([yy, z]) => [yy, zShaft + z] as const)),
-        P.thick * (o === P.grip ? 1 : 0.4),
-      );
-      put(bag, shaftMat, g.rotateZ(HALF_PI));
-    }
     flush(bag, stapler.group);
-    // Head (articulated): hinge drum, cartridge channel + insert.
-    const top = s.insertInset / 2 + s.jawGap + s.anvilThick; // anvil top above the insert's mid-plane
+    // Head (articulated): hinge drum, steel channel, coloured reload (plain body + nose, pocket deck, depth marks).
+    const top = insertTop + s.jawGap + s.anvilThick; // anvil top above the deck mid-plane
     const hinge = new CylinderGeometry(r * 0.7, r * 0.7, s.cartridgeThick + top, seg);
     put(bag, steel, hinge.translate(0, (top - s.cartridgeThick) / 2, 0));
+    const yBody = insertTop - s.cartridgeThick; // reload bottom
+    const deckDrop = s.insertInset * 0.25; // the pocket deck stands this proud of the reload body
     put(
       bag,
       steel,
-      extrudeZ(roundRect(s.jawWidth, s.cartridgeThick, s.corner, 0, -s.cartridgeThick / 2), s.headLength),
-      new SphereGeometry(1, seg, seg / 2) // rounded cartridge nose
-        .scale(s.jawWidth / 2, s.cartridgeThick / 2, s.nose)
-        .translate(0, -s.cartridgeThick / 2, s.headLength),
+      extrudeZ(roundRect(s.jawWidth * 1.04, s.channelThick, s.corner / 2, 0, yBody), s.headLength),
+    );
+    const flatUv = (g: Geo): Geo => {
+      const uv = g.getAttribute('uv');
+      for (let i = 0; i < uv.count; i++) uv.setXY(i, 0, 0); // a pocket-free texel: plain coloured plastic
+      return g;
+    };
+    const bodyH = s.cartridgeThick - deckDrop;
+    put(
+      bag,
+      cartridge,
+      flatUv(extrudeZ(roundRect(s.jawWidth, bodyH, s.corner, 0, yBody + bodyH / 2), s.headLength)),
+      flatUv(
+        new SphereGeometry(1, seg, seg / 2)
+          .scale(s.jawWidth / 2, bodyH / 2, s.nose)
+          .translate(0, yBody + bodyH / 2, s.headLength),
+      ),
     );
     const insertW = s.jawWidth - 2 * s.insertInset;
     const strip = (insertW - s.knifeSlot) / 2;
@@ -657,10 +715,25 @@ export function buildInstruments(): InstrumentSet {
         uv.setXY(i, (pos.getX(i) - xc) / strip + 0.5, pos.getZ(i) / T.cartridge.pitch);
       put(bag, cartridge, g);
     }
+    const M = s.marks;
+    for (let k = 1; k * M.pitch < s.headLength; k++) {
+      const len = k % M.longEvery ? M.short : M.long;
+      for (const x of [1, -1]) {
+        const tick = new BoxGeometry(M.lift * 2, len, M.width);
+        put(
+          bag,
+          shaftMat,
+          tick.translate(x * (s.jawWidth / 2 + M.lift), insertTop - deckDrop - len / 2, k * M.pitch),
+        );
+      }
+    }
     flush(bag, head);
+    knife.position.set(0, insertTop + s.jawGap - s.knife.height / 2, 0);
+    knife.visible = false;
+    head.add(knife);
     const anvil = new Group();
     head.add(anvil);
-    const yA = s.insertInset / 2 + s.jawGap + s.anvilThick / 2;
+    const yA = insertTop + s.jawGap + s.anvilThick / 2;
     const aw = s.jawWidth * s.anvilWidth;
     put(bag, steel, extrudeZ(roundRect(aw, s.anvilThick, s.corner, 0, yA), s.headLength));
     flush(bag, anvil);
@@ -673,8 +746,8 @@ export function buildInstruments(): InstrumentSet {
     const end = tipCurve.getPoint(1);
     const sx = aw / s.anvilThick;
     const tipGeo = [
-      tube(tipCurve, 12, s.anvilThick / 2, seg, taper(0.5)),
-      new SphereGeometry(s.anvilThick / 4, seg, seg / 2).translate(end.x, end.y, end.z),
+      tube(tipCurve, 12, s.anvilThick / 2, seg, taper(0.45)),
+      new SphereGeometry(s.anvilThick / 4.4, seg, seg / 2).translate(end.x, end.y, end.z),
     ].map((g) => g.scale(sx, 1, 1));
     const tip = new Mesh(merge(tipGeo), steel);
     const ld = s.leader;
@@ -693,22 +766,42 @@ export function buildInstruments(): InstrumentSet {
     };
   }
 
-  // 8 · clip applier: tapered jaws holding the two legs of a titanium clip
+  // 8 · clip applier: slim tapered jaws, each with a groove holding one leg of the loaded titanium clip
   const clip = newTool('clip');
+  const clipLegs: Mesh[] = [];
   {
     const c = G.clip;
-    jawPair(clip, clip.group, -c.jawLength, 0, c.open, 'x', (s) => {
+    const pivots = jawPair(clip, clip.group, -c.jawLength, 0, c.open, 'x', (s) => {
       const jaw = shape([
         [-c.jawWidth / 2, 0],
         [c.jawWidth / 2, 0],
-        [c.jawWidth * 0.35, c.jawLength],
-        [-c.jawWidth * 0.35, c.jawLength],
+        [c.jawWidth * 0.3, c.jawLength],
+        [-c.jawWidth * 0.3, c.jawLength],
       ]);
-      const leg = roundRect(c.clipWidth, c.clipLength, c.clipWidth / 3, 0, c.jawLength - c.clipLength / 2);
+      // Groove lips either side of the clip leg on the inner face.
+      const lip = roundRect(
+        c.jawWidth * 0.18,
+        c.clipLength,
+        c.jawWidth * 0.05,
+        0,
+        c.jawLength - c.clipLength / 2,
+      );
+      const y = (s * c.jawThick) / 2;
+      const ly = -s * (c.groove / 2);
+      const off = (c.clipWidth + c.jawWidth * 0.18) / 2;
       return [
-        plate(jaw, c.jawThick).translate(0, (s * c.jawThick) / 2, 0),
-        plate(leg, c.clipThick).translate(0, (-s * c.clipThick) / 2, 0),
+        plate(jaw, c.jawThick).translate(0, y, 0),
+        plate(lip, c.groove).translate(off, ly, 0),
+        plate(lip, c.groove).translate(-off, ly, 0),
       ];
+    });
+    pivots.forEach((pv, k) => {
+      const s = k === 0 ? 1 : -1;
+      const leg = roundRect(c.clipWidth, c.clipLength, c.clipWidth / 3, 0, c.jawLength - c.clipLength / 2);
+      const m = new Mesh(plate(leg, c.clipThick).translate(0, (-s * c.clipThick) / 2, 0), steel);
+      m.name = 'clip_loaded';
+      pv.add(m);
+      clipLegs.push(m);
     });
     put(bag, steel, pin(-c.jawLength, 0, 'x'));
     stem(bag, -c.jawLength, 0, { handle: 'ring' });
@@ -800,6 +893,20 @@ export function buildInstruments(): InstrumentSet {
       if (v === glow) return;
       glow = v;
       cautery.emissiveIntensity = L.cauteryGlow * v;
+    },
+    setArticulation(rad) {
+      if (head.rotation.y !== rad) head.rotation.y = rad;
+    },
+    setKnife(k) {
+      const on = k > 0 && k < 1;
+      knife.visible = on;
+      if (!on) return;
+      const K = S7.knife;
+      knife.position.z = K.length + k * (S7.headLength - 2 * K.length);
+      knife.updateMatrix();
+    },
+    setClipLoaded(on) {
+      for (const m of clipLegs) m.visible = on;
     },
     setSoil(kind, amount) {
       const v = Math.min(1, Math.max(0, amount));

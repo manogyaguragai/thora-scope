@@ -84,6 +84,11 @@ test('ports: chips + Shift+P move the scope through every port in Explore; refus
   expect(await scopePort(page)).toBe(kept);
 
   // Refusal: an instrument in a 1-instrument port blocks the scope there, with the reason in the toast.
+  // T840: placed instruments persist across tool switches — withdraw everything left from the steps above first.
+  await page.evaluate(() => {
+    const m4 = window.__sim.m4;
+    for (const p of window.__sim.m3?.scope.ports ?? []) m4?.withdrawPort(p.id);
+  });
   await page.keyboard.press('Digit2');
   // Wait until the tool is actually in hand, then step it one port per poll until it sits in the retraction port.
   await page.waitForFunction(() => window.__sim.m4?.tool != null);

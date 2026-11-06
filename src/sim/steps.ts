@@ -1,10 +1,11 @@
 // Procedure steps (CONTEXT §7.4): apply a step's state targets, hidden set and camera/port.
-// Visibility: the step's `hidden` list (default_hidden before any step), plus config.scope.hidden and the step's
-// config.scope.stepHidden occluders while the scope view is in effect. A step's list replaces default_hidden rather than adding to it: steps 1–2 list exactly the
-// default (the `_window` tissue variants), steps 3+ hide the intact tissue instead so the `_window` cut-outs show.
+// Visibility: the step's hidden set = its JSON `hidden` extras + the manifest-derived hilum set (src/content/anatomy.ts
+// hiddenAtStep: always-hidden structures and everything divided / cleared / dissected / removed in an earlier step),
+// plus config.scope.hidden and the step's config.scope.stepHidden occluders while the scope view is in effect.
 // The morph controller skips hidden meshes and compares against each mesh's stored influences, so a shown
 // mesh catches up on its next frame — no extra dirty flag needed here.
-import procedure from '../content/procedure_steps.json';
+import procedure from '../content/procedure_steps.json' with { type: 'json' };
+import { hiddenAtStep } from '../content/anatomy';
 import { config } from '../core/config';
 import { TWEEN_KEYS, tweenTo } from './state';
 import type { AppState, TweenKey } from './state';
@@ -15,12 +16,18 @@ export interface Step {
   camera: string;
   port: string;
   scope_angle_deg: number; // informational (the sim optic is 30°, VIDEO_STEP_MAP conflict 6)
-  state: Record<TweenKey, number>;
+  /** Targets per tween key; missing keys tween to 0. */
+  state: Partial<Record<TweenKey, number>>;
   hidden: string[];
+  /** Scope view aimed from `port` at the reference camera's hilar target (cameras.ts aimStepPoses). */
+  aimAtHilum?: boolean;
 }
 
-export const STEPS: readonly Step[] = procedure.steps;
-const DEFAULT_HIDDEN: readonly string[] = procedure.default_hidden;
+export const STEPS: readonly Step[] = procedure.steps.map((s) => ({
+  ...s,
+  hidden: [...new Set([...s.hidden, ...hiddenAtStep(s.step)])],
+}));
+const DEFAULT_HIDDEN: readonly string[] = [...new Set([...procedure.default_hidden, ...hiddenAtStep(0)])];
 const SCOPE_HIDDEN: readonly string[] = config.scope.hidden;
 const SCOPE_STEP_HIDDEN = config.scope.stepHidden;
 const NONE: readonly string[] = [];
@@ -77,7 +84,7 @@ export function applyVisibility(vis: StepVisibility, s: AppState): void {
 export function applyStep(vis: StepVisibility, s: AppState, n: number, instant = false): Step {
   const step = getStep(n);
   const ms = instant ? 0 : config.steps.stateMs;
-  for (const key of TWEEN_KEYS) tweenTo(s, key, step.state[key], ms);
+  for (const key of TWEEN_KEYS) tweenTo(s, key, step.state[key] ?? 0, ms);
   s.step = n;
   s.camera = step.camera;
   s.port = step.port;

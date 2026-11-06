@@ -2,9 +2,9 @@
 // runs a scripted sequence (orbit, guided steps, X-ray, M4 phases) then 3 full practice runs with a complication,
 // and asserts 0 new shader programs after "ready" on every page + < 10 % practice heap growth run 1 → 3 (CONTEXT §6.10).
 // Writes qa/perf.json and appends a summary to the end of docs/PERF.md ("## Probe log (history)").
-/* global URL, window, PerformanceObserver, requestAnimationFrame */
+/* global URL, window, document, PointerEvent, PerformanceObserver, requestAnimationFrame */
 import { spawn, spawnSync } from 'node:child_process';
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:net';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { chromium } from '@playwright/test';
@@ -154,25 +154,41 @@ function watchErrors(page, errors) {
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 }
 
-// ── Practice run: the reference sequence PA01→PA32 (same as tests/e2e/practice.spec.ts) + one complication ──
-const CAM = 'port_camera_8ICS';
+// ── Practice run: the reference sequence PA01→PA26 (same as tests/e2e/practice.spec.ts) + one complication ──
 const RET = 'port_retraction_8ICS';
 const UTIL = 'port_utility_5ICS';
 const RUL = 'lung_upper_lobe_right';
 const RML = 'lung_middle_lobe_right';
+const RLL = 'lung_lower_lobe_right';
 const FIRE_MS = 2500; // stapler close + fire + open + margin
-const PEANUT_MS = 4500; // dissection window + margin
+// Layer dissection (needs tip contact): held until the engine accepts it. Progress is dt-capped (config.actions
+// .maxDtMs), so a fixed hold (practice.spec's 3.5 s) is too short on the slower ?perf SwiftShader page.
+const CAUTERY_TIMEOUT_MS = 30_000;
 const TWEEN_MS = 1800; // practice result tween + margin
 const SHORT_MS = 400;
 const BLEED_MS = 3000; // complication phase: ooze + view reddening on screen
 const DANGER = 'superior_vena_cava';
+// Hilum names from the model manifest (src/content/anatomy.json), never literals.
+const ANATOMY = JSON.parse(readFileSync(new URL('../src/content/anatomy.json', import.meta.url), 'utf8'));
+const hilum = (group, pred) =>
+  Object.entries(ANATOMY.structures).find(([, s]) => s.group === group && pred(s))?.[0] ?? '';
+const VEIN = hilum('veins', (s) => s.divideStep !== undefined);
+const VEIN_TREE = hilum('veins', (s) => s.danger === 'major');
+const BRONCHUS = hilum('airway', (s) => s.divideStep !== undefined);
+const AIRWAY_TREE = hilum('airway', (s) => s.danger === 'major');
+const ARTERY = hilum('arteries', (s) => s.divideStep !== undefined);
+const PLEURA = hilum('softTissue', (s) => s.dissectStep === 2);
+const STRANDS = hilum('softTissue', (s) => s.dissectStep === 3);
 
 function practiceSteps(page) {
-  const place = (id, target, sub, port) =>
-    page.evaluate(
+  // Same helpers/flow as tests/e2e/practice.spec.ts: every placement must return 'ok'.
+  const place = async (id, target, sub, port) => {
+    const r = await page.evaluate(
       ([i, t, s, p]) => window.__sim.placeTool?.(i, t, s, p) ?? 'no helper',
       [id, target, sub, port],
     );
+    if (r !== 'ok') throw new Error(`placeTool ${id} → ${target} via ${port}: ${r}`);
+  };
   const press = async (ms = 0) => {
     const r = await page.evaluate(() => window.__sim.m4?.press(true) ?? 'not wired');
     if (ms) await sleep(ms);
@@ -181,25 +197,31 @@ function practiceSteps(page) {
   };
   const retract = async (target, port) => {
     await place('grasper', target, 'retractor', port);
-    await page.evaluate(() => window.__sim.m4?.press(true));
+    await page.evaluate(() => {
+      const c = document.querySelector('canvas');
+      c.dispatchEvent(
+        new PointerEvent('pointermove', { clientX: c.clientWidth / 2, clientY: c.clientHeight / 2 }),
+      );
+    });
+    const r = await page.evaluate(() => window.__sim.m4?.press(true));
+    if (r !== 'ok') throw new Error(`grasper press on ${target}: ${r}`);
     await page.keyboard.press('KeyG');
   };
   const inspect = (n) => page.evaluate((x) => window.__sim.m5?.inspect(x), n);
-  const moveScope = async (port) => {
-    await page.evaluate((p) => {
-      const m3 = window.__sim.m3;
-      m3?.hotbar.select(0);
-      m3?.scope.switchPort(p);
-      m3?.syncScope();
-    }, port);
-    await sleep(SHORT_MS);
-  };
   const fire = async (target, sub, port) => (
     await place('stapler', target, sub, port),
     press(),
     sleep(FIRE_MS)
   );
   const dissect = async (tool, target, ms, sub) => (await place(tool, target, sub, UTIL), press(ms));
+  const cauterise = async (id, target) => {
+    await place('cautery', target, undefined, UTIL);
+    await page.evaluate(() => window.__sim.m4?.press(true));
+    await page
+      .waitForFunction((a) => window.__sim.m5?.engine?.isDone(a), id, { timeout: CAUTERY_TIMEOUT_MS })
+      .catch(() => {}); // not accepted → reported by practiceRun with the engine errors
+    await page.evaluate(() => window.__sim.m4?.press(false));
+  };
   // One complication (after the vein fire, stapler still in hand): a fire on a danger structure → bleed.
   const complication = async () => {
     const r = await page.evaluate((n) => window.__sim.m5?.strike(n), DANGER);
@@ -208,43 +230,70 @@ function practiceSteps(page) {
     await sleep(BLEED_MS);
     await setPhase(page, 'practice');
   };
+  // T844 step 4: the node-bed ooze sealed by energised cautery contact (as tests/e2e/practice.spec.ts).
+  const coagulate = async () => {
+    const sealed = await page.evaluate(() => window.__sim.m5?.complications?.coagulated ?? 0);
+    await page.evaluate(() => {
+      const { m3, m4 } = window.__sim;
+      const bed =
+        window.__bed && m3?.picker.nearest(m4.control.tipPos.clone().fromArray(window.__bed), 0.008);
+      m3?.hotbar.select(4);
+      return bed ? m4?.snapTo(bed.nodeName, bed.point) : 'no bed';
+    });
+    await page.waitForFunction(() => window.__sim.m4?.control.phase !== 'inserting', null, {
+      timeout: 10_000,
+    });
+    await page.evaluate(() => window.__sim.m4?.press(true));
+    await page.waitForFunction((n) => (window.__sim.m5?.complications?.coagulated ?? 0) > n, sealed, {
+      timeout: 30_000,
+    });
+    await page.evaluate(() => window.__sim.m4?.press(false));
+  };
   return [
-    ['PA01', () => inspect(RML)],
-    ['PA02', () => moveScope(RET)],
-    ['PA03', () => retract(RUL, CAM)],
-    ['PA04', () => dissect('peanut', 'mediastinal_fat', PEANUT_MS)],
-    ['PA05', () => dissect('peanut', 'phrenic_nerve_right', SHORT_MS)],
-    ['PA06', () => dissect('peanut', 'hilar_connective_tissue', PEANUT_MS)],
-    ['PA07', async () => (await inspect('V_RML_common'), inspect('tree_pulm_vein_base'))],
-    ['PA08', () => dissect('clamp', 'V_RML_common')],
-    ['PA09', () => retract(RUL, UTIL)],
-    ['PA10', async () => (await fire('V_RML_common', 'vascular-curved', CAM), complication())],
-    ['PA11', () => retract(RUL, CAM)],
-    ['PA12', () => dissect('peanut', 'hilar_connective_tissue', SHORT_MS)],
-    ['PA13', () => dissect('cautery', 'hilar_connective_tissue', SHORT_MS)],
-    ['PA14', () => dissect('grasper', 'LN_11R', 0, 'ring')],
-    ['PA15', () => dissect('grasper', 'LN_12R', 0, 'ring')],
-    ['PA16', () => dissect('clamp', 'B_RML_common')],
-    ['PA17', async () => (await place('stapler', 'B_RML_common', 'bronchial'), press(), sleep(SHORT_MS))],
-    ['PA18', () => page.keyboard.press('KeyA')],
-    ['PA19', async () => (await press(), sleep(FIRE_MS))],
+    // T844: the 9 guided steps.
+    ['PA01', async () => (await inspect(RUL), await inspect(RML), inspect(RLL))],
+    ['PA02', () => retract(RUL, RET)],
+    ['PA03', () => dissect('peanut', 'phrenic_nerve_right', SHORT_MS)],
+    ['PA04', () => cauterise('PA04', PLEURA)],
+    ['PA05', () => cauterise('PA05', STRANDS)],
+    ['PA06', async () => (await inspect(VEIN), inspect(VEIN_TREE))],
+    ['PA07', () => dissect('peanut', VEIN)],
+    ['PA08', () => retract(RUL, UTIL)], // retraction swap: frees the posterior port
+    ['PA09', async () => (await fire(VEIN, 'vascular-curved', RET), complication())],
     [
-      'PA20',
+      'PA10',
       async () => {
-        await page.waitForFunction(() => window.__sim.state.deflate_RUL >= 0.95, null, { timeout: 15_000 });
-        await retract(RUL, UTIL);
+        await page.evaluate(() =>
+          window.__sim.m4?.onNodeRemoved.push((_n, p) => (window.__bed = p.toArray())),
+        );
+        await dissect('grasper', 'LN_11R', 0, 'ring');
+        await dissect('grasper', 'LN_12R', 0, 'ring');
+        await page.evaluate(() => window.__sim.m4?.withdraw()); // the node comes out with the forceps (T840)
       },
     ],
-    ['PA21', () => dissect('clamp', 'A_RML_common')],
-    ['PA22', () => fire('A_RML_common', 'vascular-leader', CAM)],
-    ['PA23', () => moveScope(CAM)],
-    ['PA24', async () => (await retract(RML, UTIL), sleep(TWEEN_MS))],
-    ['PA25', () => fire(RML, 'parenchyma', RET)],
-    ['PA26', () => inspect('tree_airway_base')],
-    ['PA27', () => fire(RML, 'parenchyma', RET)],
-    ['PA28', () => page.keyboard.press('KeyB')],
-    ['PA29', () => moveScope(RET)],
-    ['PA32', () => dissect('sucker', 'tree_airway_base', 0, 'irrigation')],
+    ['PA11', () => coagulate()],
+    ['PA12', async () => (await page.keyboard.press('Shift+KeyG'), retract(RML, UTIL))],
+    ['PA13', () => dissect('clamp', BRONCHUS)],
+    ['PA14', async () => (await place('stapler', BRONCHUS, 'bronchial', RET), press(), sleep(SHORT_MS))],
+    ['PA15', () => page.keyboard.press('KeyA')],
+    ['PA16', async () => (await press(), sleep(FIRE_MS))],
+    ['PA17', () => dissect('peanut', ARTERY)],
+    ['PA18', () => fire(ARTERY, 'vascular-leader', RET)],
+    [
+      'PA19',
+      async () => {
+        await page.waitForFunction(() => window.__sim.state.deflate_RUL >= 0.95, null, { timeout: 15_000 });
+        await retract(RML, UTIL);
+        await sleep(TWEEN_MS);
+      },
+    ],
+    ['PA20', () => fire(RML, 'parenchyma', RET)],
+    ['PA21', () => inspect(AIRWAY_TREE)],
+    ['PA22', () => fire(RML, 'parenchyma', RET)],
+    ['PA23', () => page.keyboard.press('KeyB')],
+    ['PA24', () => page.evaluate(() => window.__sim.m4?.irrigate())],
+    ['PA25', () => page.keyboard.press('KeyA')],
+    ['PA26', () => dissect('sucker', AIRWAY_TREE, SHORT_MS, 'suction')],
   ];
 }
 
@@ -265,7 +314,15 @@ async function practiceRun(page, cdp) {
     const done = await page.evaluate((a) => window.__sim.m5?.engine?.isDone(a) ?? false, id);
     if (!done)
       throw new Error(
-        `practice ${id} not accepted (toast "${await page.evaluate(() => window.__sim.m4?.lastToast)}")`,
+        `practice ${id} not accepted: ${await page.evaluate(() =>
+          (window.__sim.m5?.engine?.log ?? [])
+            .flatMap((e) =>
+              e.type === 'error'
+                ? [`${e.error} ${e.actionId ?? ''} ${e.attempt.tool}→${e.attempt.target}`]
+                : [],
+            )
+            .join('; '),
+        )} · toast "${await page.evaluate(() => window.__sim.m4?.lastToast)}"`,
       );
   }
   if (!(await page.evaluate(() => window.__sim.m5?.engine?.finished)))
@@ -368,7 +425,7 @@ async function main() {
       gl: GL,
       note: NOTE,
       script:
-        'orbit + window.__sim.probeScript (guided steps 1–7, rig, outside, OLV, clamp, X-ray, M4) + 3 practice runs (PA01→PA32 + 1 complication)',
+        'orbit + window.__sim.probeScript (guided steps 1–9, rig, outside, OLV, clamp, X-ray, M4) + 3 practice runs (PA01→PA33 + 1 complication)',
       preset: after.preset,
       viewport: VIEWPORT,
       fcpMs: Math.round(probe.fcp),

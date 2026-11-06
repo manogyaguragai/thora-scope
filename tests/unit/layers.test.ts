@@ -12,7 +12,13 @@ import type { Material } from 'three';
 import { describe, expect, it } from 'vitest';
 import { applyMaterials } from '../../src/scene/materials';
 import { pickNearest, projectLabel } from '../../src/ui/labels3d';
-import { combineVisible, createLayers, cutawayPlane, groupLabel } from '../../src/ui/layersPanel';
+import {
+  LAYER_GROUPS,
+  combineVisible,
+  createLayers,
+  cutawayPlane,
+  groupLabel,
+} from '../../src/ui/layersPanel';
 import type { CutAxis, ViewingMaterials } from '../../src/ui/layersPanel';
 
 function scene(names: string[]): Group {
@@ -33,6 +39,7 @@ function fakes() {
     setCutawayPlane: (n, c) => calls.push(`plane:${n.toArray().join(',')}:${c}`),
     parkCutaway: () => calls.push('park'),
     setFocusHighlight: (mesh, k) => calls.push(`focus:${mesh.name}:${k}`),
+    setPalette: (p) => calls.push(`palette:${p}`),
   };
   return { calls, mat };
 }
@@ -66,7 +73,7 @@ describe('visibility combine rule: visible = stepVisible && userVisible', () => 
     expect(layers.isUserVisible('lung_middle_lobe_right')).toBe(false);
     layers.setVisible('lung_middle_lobe_right', true);
     expect(rml.visible).toBe(true);
-    expect(layers.groups.get('Lobes')).toEqual(LOBES.slice().sort());
+    expect(layers.groups.get('lungs')).toEqual(['lung_upper_lobe_right', 'lung_middle_lobe_right']); // manifest order
   });
 });
 
@@ -223,8 +230,16 @@ describe('label budget + group names', () => {
     expect([...d.y]).toEqual([24, 76]);
   });
   it('groupLabel maps ids to readable names', () => {
-    expect(groupLabel('Hilar_vessels_airway')).toBe('Hilar vessels & airway');
-    expect(groupLabel('Lobes')).toBe('Lobes');
+    expect(groupLabel('softTissue')).toBe('Soft tissue');
+    expect(groupLabel('Some_group')).toBe('Some group');
+  });
+  it('LAYER_GROUPS: manifest structures by manifest group, hidden ones left out, scene extras aliased in', () => {
+    expect(LAYER_GROUPS.softTissue).toContain('mediastinal_pleura_hilum');
+    expect(LAYER_GROUPS.softTissue).toContain('diaphragm'); // procedure Soft_tissue → softTissue
+    expect(LAYER_GROUPS.lungs).toContain('lung_upper_lobe_left'); // procedure Lobes → lungs
+    expect(Object.values(LAYER_GROUPS).flat()).not.toContain('mediastinal_fat'); // manifest hidden
+    const all = Object.values(LAYER_GROUPS).flat();
+    expect(new Set(all).size).toBe(all.length);
   });
 });
 
@@ -251,7 +266,7 @@ describe('step-focus highlight (T807)', () => {
     layers.setFocus(['lung_upper_lobe_right']);
     layers.update(0);
     layers.update(T);
-    expect(calls).toEqual(['focus:lung_middle_lobe_right:0', 'focus:lung_upper_lobe_right:1']);
+    expect(calls).toEqual(['focus:lung_upper_lobe_right:1', 'focus:lung_middle_lobe_right:0']);
     layers.setHighlight(false);
     layers.update(0);
     layers.update(T);

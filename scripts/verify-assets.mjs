@@ -1,6 +1,10 @@
-// Contract check: optimised glb vs source. Exit 1 on any mismatch.
-// Usage: node scripts/verify-assets.mjs <src.glb> <opt.glb> [--md docs/ASSETS.md]
+// Contract check: optimised glb vs its sources (v3 scene minus the dropped nodes, plus every hilum-model node;
+// same-name model nodes replace v3 ones) and vs src/content/anatomy.json (every manifest structure + morph key).
+// Exit 1 on any mismatch.
+// Usage: node scripts/verify-assets.mjs <v3.glb> <model.glb> <opt.glb> [--drop a,b,…] [--md docs/ASSETS.md]
 import { readFileSync, statSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import { gzipSync } from 'node:zlib';
 import { ImageUtils, NodeIO } from '@gltf-transform/core';
@@ -10,11 +14,17 @@ import { MeshoptDecoder } from 'meshoptimizer';
 import { format, resolveConfig } from 'prettier';
 
 const args = process.argv.slice(2);
-const mdIdx = args.indexOf('--md');
-const mdPath = mdIdx >= 0 ? args[mdIdx + 1] : null;
-const [srcPath, optPath] = args.filter((_, i) => mdIdx < 0 || (i !== mdIdx && i !== mdIdx + 1));
-if (!srcPath || !optPath) {
-  console.error('Usage: node scripts/verify-assets.mjs <src.glb> <opt.glb> [--md docs/ASSETS.md]');
+const flag = (name) => {
+  const i = args.indexOf(name);
+  return i >= 0 ? args.splice(i, 2)[1] : null;
+};
+const mdPath = flag('--md');
+const dropped = new Set((flag('--drop') ?? '').split(',').filter(Boolean));
+const [srcPath, modelPath, optPath] = args;
+if (!srcPath || !modelPath || !optPath) {
+  console.error(
+    'Usage: node scripts/verify-assets.mjs <v3.glb> <model.glb> <opt.glb> [--drop a,b,…] [--md docs/ASSETS.md]',
+  );
   process.exit(2);
 }
 const BOUNDS_TOL_M = 5e-4; // 0.5 mm: quantisation error allowed on world-space AABBs (base + each morph)
@@ -64,15 +74,18 @@ async function summarize(path) {
     const cam = n.getCamera();
     let morphs = null;
     let bounds = null;
+    let nodeTris = 0;
     if (mesh) {
       const names = mesh.getExtras()?.targetNames ?? [];
       morphs = new Map(names.map((name, i) => [name, i]));
       bounds = { base: worldBounds(n, -1) };
       for (const [name, i] of morphs) bounds[name] = worldBounds(n, i);
       for (const prim of mesh.listPrimitives())
-        tris += (prim.getIndices()?.getCount() ?? prim.getAttribute('POSITION').getCount()) / 3;
+        nodeTris += (prim.getIndices()?.getCount() ?? prim.getAttribute('POSITION').getCount()) / 3;
+      tris += nodeTris;
     }
     nodes.set(n.getName(), {
+      tris: nodeTris,
       extras: n.getExtras(),
       morphs,
       nTargets: mesh?.listPrimitives()[0]?.listTargets().length ?? 0,
@@ -96,8 +109,25 @@ async function summarize(path) {
   return { count: root.listNodes().length, nodes, tris, textures, extensions };
 }
 
-const src = await summarize(srcPath);
+const v3 = await summarize(srcPath);
+const model = await summarize(modelPath);
+const anatomy = JSON.parse(
+  readFileSync(join(dirname(fileURLToPath(import.meta.url)), '../src/content/anatomy.json'), 'utf8'),
+);
 const opt = await summarize(optPath);
+// Expected merge: v3 minus dropped/replaced names, then every model node.
+const renamed = anatomy.renamedFromBase ?? {};
+const nodes = new Map(
+  [...v3.nodes].map(([n, v]) => [renamed[n] ?? n, v]).filter(([n]) => !dropped.has(n) && !model.nodes.has(n)),
+);
+for (const [n, v] of model.nodes) nodes.set(n, v);
+const src = {
+  count: nodes.size,
+  nodes,
+  tris: [...nodes.values()].reduce((t, n) => t + n.tris, 0),
+  textures: [...v3.textures, ...model.textures],
+  extensions: [...new Set([...v3.extensions, ...model.extensions])],
+};
 const errors = [];
 const err = (msg) => errors.push(msg);
 const near = (a, b, tol) => a.length === b.length && a.every((v, i) => Math.abs(v - b[i]) <= tol);
@@ -105,6 +135,17 @@ const near = (a, b, tol) => a.length === b.length && a.every((v, i) => Math.abs(
 if (src.count !== opt.count) err(`node count ${src.count} → ${opt.count}`);
 for (const name of src.nodes.keys()) if (!opt.nodes.has(name)) err(`node missing: ${name}`);
 for (const name of opt.nodes.keys()) if (!src.nodes.has(name)) err(`unexpected node: ${name}`);
+// Manifest contract: every structure present; each morphed model mesh carries exactly the manifest keys.
+for (const name of Object.keys(anatomy.structures))
+  if (!opt.nodes.has(name)) err(`manifest structure missing: ${name}`);
+for (const name of anatomy.referenceCameras ?? [])
+  if (!opt.nodes.get(name)?.camera) err(`reference camera missing: ${name}`);
+const manifestKeys = [...anatomy.morphs].sort();
+for (const name of model.nodes.keys()) {
+  const m = opt.nodes.get(name)?.morphs;
+  if (m?.size && !isDeepStrictEqual([...m.keys()].sort(), manifestKeys))
+    err(`morph keys on ${name} ≠ manifest morphs`);
+}
 
 let morphChecks = 0;
 for (const [name, a] of src.nodes) {
@@ -117,7 +158,8 @@ for (const [name, a] of src.nodes) {
     const bn = [...b.morphs.keys()].sort();
     if (!isDeepStrictEqual(an, bn)) err(`morph names differ on ${name}: [${an}] vs [${bn}]`);
     if (b.nTargets !== bn.length) err(`targetNames/targets count mismatch on ${name}`);
-    for (const key of Object.keys(a.bounds)) {
+    // trimFromBase meshes (T846c) lose triangles by design: their AABBs shrink, so only names/targets are checked.
+    for (const key of anatomy.trimFromBase?.[name] ? [] : Object.keys(a.bounds)) {
       if (!b.bounds[key]) continue;
       morphChecks++;
       if (!near(a.bounds[key], b.bounds[key], BOUNDS_TOL_M))
@@ -133,11 +175,12 @@ for (const [name, a] of src.nodes) {
     if (!near(world, wb, NUM_TOL)) err(`camera transform differs: ${name}`);
   }
 }
-if (opt.textures.length !== src.textures.length)
+// Textures of dropped meshes are pruned, so the merged file may hold fewer than its sources (never more).
+if (opt.textures.length > src.textures.length)
   err(`texture count ${src.textures.length} → ${opt.textures.length}`);
 
 // --- Report
-const srcBytes = statSync(srcPath).size;
+const srcBytes = statSync(srcPath).size + statSync(modelPath).size;
 const optBytes = statSync(optPath).size;
 const gzBytes = gzipSync(readFileSync(optPath), { level: 9 }).length;
 const mib = (b) => `${(b / 1048576).toFixed(2)} MiB (${b} B)`;
@@ -174,9 +217,11 @@ if (mdPath) {
 
 Generated by \`npm run assets:optimize\` (\`scripts/optimize-assets.mjs\` → \`scripts/verify-assets.mjs\`). Do not hand-edit.
 
-| Metric | Source | \`public/models/thorax_sim.opt.glb\` |
+| Metric | Sources (v3 + ${anatomy.version}) | \`public/models/thorax_sim.opt.glb\` |
 |---|---|---|
 ${rows.map((r) => `| ${r.join(' | ')} |`).join('\n')}
+
+Merge (manifest \`src/content/anatomy.json\`, ${anatomy.version}): \`${basename(srcPath)}\` minus ${dropped.size} removed / manifest-structure nodes and the same-name v3 nodes, plus all ${model.count} \`${basename(modelPath)}\` nodes at the scene root, identity transforms (docs/MODEL_INTEGRATION.md). Reference camera(s) ${(anatomy.referenceCameras ?? []).join(', ')} kept as non-step cameras. Source triangles = the kept nodes only.
 
 Verify: **${result}** — identical node-name set (${opt.count}), node extras deep-equal (incl. port \`skin_point\`/\`pleura_point\`/\`axis_into_chest\`), camera params + transforms equal, morph target names per mesh equal (by name), ${morphChecks} world-space AABB checks of base pose and each morph at full influence within ${BOUNDS_TOL_M * 1000} mm.
 

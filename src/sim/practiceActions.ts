@@ -1,6 +1,7 @@
 // Practice action table (CONTEXT §6.4, docs/VIDEO_STEP_MAP.md (d), ADR-004/005): typed loader + validator.
 // Validation runs once at load; any problem throws with the full list so a bad table never ships silently.
-import raw from '../content/practice_actions.json';
+import raw from '../content/practice_actions.json' with { type: 'json' };
+import procedure from '../content/procedure_steps.json' with { type: 'json' };
 import { STRUCTURE_LABELS } from '../content/labels';
 import { SUB_IDS, TARGET_BY_ID, type ToolId } from '../content/targets';
 import { CONTEXT_ACTIONS, SLOTS } from './hotbar';
@@ -23,6 +24,10 @@ export const ACTION_KINDS = [
   'bag',
   'chest-tube',
   'irrigate',
+  /** T844: cautery seals a bleed (the node-bed ooze); reported by the wiring when a bleed is sealed. */
+  'coagulate',
+  /** T844: sucker (suction) held: clears the irrigation fluid. */
+  'suction',
 ] as const;
 export type ActionKind = (typeof ACTION_KINDS)[number];
 
@@ -73,7 +78,7 @@ export interface PracticeAction {
   readonly note: string;
 }
 
-const STEP_COUNT = 7;
+const STEP_COUNT = procedure.steps.length; // practice mirrors the guided steps 1:1 (T844)
 const VIDEO_RE = /^~?\d+:\d{2}(-\d+:\d{2})?$/;
 const FLAG_RE = /^[a-z][A-Za-z0-9_]*$/;
 const TOOL_IDS = new Set<string>([...SLOTS.map((s) => s.id), ...CONTEXT_ACTIONS.map((c) => c.id)]);
@@ -195,6 +200,10 @@ export function practiceActionErrors(data: unknown): string[] {
     }
   });
 
+  // T844: practice mirrors guided 1:1, so every guided step has required work.
+  for (let n = 1; n <= STEP_COUNT; n++)
+    if (!list.some((a: unknown) => isObj(a) && a.step === n && a.optional === false))
+      err.push(`step ${n}: no required action`);
   // Prerequisites: known, not later in the procedure, required actions never wait on optional ones; DAG acyclic.
   for (const [id, a] of byId) {
     if (!strArr(a.prerequisites)) continue;

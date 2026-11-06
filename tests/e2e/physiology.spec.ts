@@ -47,3 +47,49 @@ test('physiology lab: one-lung ventilation, then the RML bronchus clamp test', a
   await expect(panel.getByRole('status')).toContainText('RML stays collapsed');
   expect(errors).toEqual([]);
 });
+
+test('T843 ventilation switch in guided, practice and explore (hidden in the Physiology lab)', async ({
+  page,
+}) => {
+  test.setTimeout(300_000);
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(e.message));
+  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+  await page.goto('/?view=scope&step=1');
+  await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
+  const programs = await page.evaluate(() => window.__perf?.programs ?? -1);
+  await tweensDone(page, 0);
+  const one = page.getByRole('button', { name: 'One-lung ventilation' });
+  const two = page.getByRole('button', { name: 'Two-lung ventilation' });
+  const lobes = () =>
+    page.evaluate(() => {
+      const s = window.__sim.state;
+      return [s.deflate_RUL, s.deflate_RLL];
+    });
+
+  await expect(one).toHaveAttribute('aria-pressed', 'true'); // guided steps default to one-lung ventilation
+  for (const mode of ['guided', 'practice', 'explore'] as const) {
+    await page.click(`button[data-mode=${mode}]`);
+    await tweensDone(page, 0);
+    if ((await one.getAttribute('aria-pressed')) !== 'true') {
+      await one.click();
+      await tweensDone(page, OLV_WAIT_MS);
+    }
+    expect(await lobes()).toEqual([1, 1]);
+    await two.focus();
+    await page.keyboard.press('Enter'); // keyboard accessible
+    await expect(two).toHaveAttribute('aria-pressed', 'true');
+    await expect(one).toHaveAttribute('aria-pressed', 'false');
+    await tweensDone(page, OLV_WAIT_MS);
+    expect(await lobes()).toEqual([0, 0]);
+    expect(await page.evaluate(() => window.__sim.m3?.twoLung())).toBe(true);
+    await one.click();
+    await expect(one).toHaveAttribute('aria-pressed', 'true');
+    await tweensDone(page, OLV_WAIT_MS);
+    expect(await lobes()).toEqual([1, 1]);
+  }
+  await page.click('button[data-mode=physiology]');
+  await expect(two).toBeHidden();
+  expect(await page.evaluate(() => window.__perf?.programs ?? -1)).toBe(programs);
+  expect(errors).toEqual([]);
+});

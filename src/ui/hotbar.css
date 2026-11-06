@@ -145,3 +145,64 @@
   text-overflow: ellipsis;
   color: var(--color-text);
 }
+/* T840: per-port withdraw, right after its chip. */
+.port-chip-row {
+  display: flex;
+  gap: 2px;
+}
+.port-chip-withdraw {
+  padding: 4px var(--space-1);
+  font: inherit;
+  color: inherit;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.port-chip-withdraw:hover {
+  border-color: var(--color-muted);
+}
+.port-chip-withdraw[hidden] {
+  display: none;
+}
+/* T850 "Insert via" picker (instrument in hand): greyed ports keep their tooltip (aria-disabled, not disabled). */
+.port-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-1);
+  margin-top: var(--space-1);
+  font-size: var(--font-size-small);
+}
+.port-picker[hidden],
+.retraction-btn[hidden] {
+  display: none;
+}
+.port-picker-head {
+  color: var(--color-muted);
+}
+.port-pick {
+  padding: 4px var(--space-1);
+  font: inherit;
+  color: inherit;
+  white-space: nowrap;
+  background: var(--color-surface);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.port-pick:hover {
+  border-color: var(--color-muted);
+}
+.port-pick[data-recommended='true'] {
+  border-style: dashed;
+  border-color: var(--color-accent);
+}
+.port-pick[aria-pressed='true'] {
+  border-style: solid;
+  border-color: var(--color-accent);
+}
+.port-pick[aria-disabled='true'] {
+  color: var(--color-muted);
+  cursor: not-allowed;
+}

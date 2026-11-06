@@ -1,9 +1,6 @@
 import { Box3, LoaderUtils, Sphere, Vector3 } from 'three';
 import type { BufferAttribute, CompressedTexture, Material, Mesh, Object3D, WebGLRenderer } from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import type { GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { KTX2Loader } from 'three/examples/jsm/loaders/KTX2Loader.js';
-import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { config } from '../core/config';
 
 const RIGHT_LOBES = ['lung_upper_lobe_right', 'lung_middle_lobe_right', 'lung_lower_lobe_right'];
@@ -47,11 +44,17 @@ export async function loadModel(
   onDecode: () => void,
   textureDownscale = false,
 ): Promise<LoadedModel> {
+  // Decoders are a lazy chunk fetched in parallel with the glb (keeps ~40 KB gz out of the initial JS budget).
+  const [data, { GLTFLoader }, { KTX2Loader }, { MeshoptDecoder }] = await Promise.all([
+    fetchModel(config.modelUrl, onProgress),
+    import('three/examples/jsm/loaders/GLTFLoader.js'),
+    import('three/examples/jsm/loaders/KTX2Loader.js'),
+    import('three/examples/jsm/libs/meshopt_decoder.module.js'),
+  ]);
   const ktx2 = new KTX2Loader().setTranscoderPath(config.decoderPath).detectSupport(renderer);
   const loader = new GLTFLoader().setKTX2Loader(ktx2).setMeshoptDecoder(MeshoptDecoder);
   MeshoptDecoder.useWorkers(ktx2.workerPool.pool);
   try {
-    const data = await fetchModel(config.modelUrl, onProgress);
     onDecode();
     const gltf = await loader.parseAsync(data, LoaderUtils.extractUrlBase(config.modelUrl));
     if (textureDownscale) {
