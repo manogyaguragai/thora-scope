@@ -37,7 +37,7 @@ export interface TissueParams {
   /** Base albedo. With a baked map, retint ∈ [0,1] blends the map's hue toward this colour (map luminance kept as detail). */
   color: string;
   retint: number;
-  mapLuma: number; // mean linear luminance of this class's baked maps (measured offline); detail = luma / mapLuma
+  mapLuma: number; // mean linear luminance of the class's baked maps / vertex colours (measured); detail = luma / mapLuma
   roughness: number;
   clearcoat: number; // §8: 0.7–1.0 for wet tissue
   clearcoatRoughness: number; // §8: 0.05–0.15
@@ -139,8 +139,9 @@ export const TISSUES = {
     ...wet,
     ...subsurface,
     color: '#b09098', // T807b: greyer + lighter than the plum vein / pleura (3-way luma gap at the step-3 pose)
-    // T854: v3 lobe colour/roughness maps transferred onto the v8 lobes at build time (anatomy.json textureTransfer);
-    // measured by scripts/optimize-assets.mjs (0.362 all three lobes), so the palette colour stays the mean.
+    // T854: the v3 lobe colour maps baked into the v8 lobes' vertex colours at build time (anatomy.json
+    // textureTransfer); their mean linear luma as printed by scripts/optimize-assets.mjs (0.36–0.37), so the palette
+    // colour stays the lobe mean and the bake adds the v3 mottling / lobular detail.
     mapLuma: 0.36,
     roughness: 0.4,
     microNormal: 0.8, // T111: breaks the env reflection into wet glints (frames: many small sharp highlights)
@@ -152,7 +153,9 @@ export const TISSUES = {
     clearcoatRoughness: 0.06, // T831: glossy visceral pleura
     rim: '#ffd0e0',
     rimStrength: 0.1,
-    detail: { ...lungDetail, mask: 0.55 }, // lobules + anthracotic dots (UV-free, unlike speckle/lobular)
+    // Lobules + anthracotic dots (UV-free, unlike speckle/lobular). T854: subtler (mask 0.55, albedo 0.15) on top of
+    // the baked v3 vertex colours, which now carry the mottling + coarse lobular pattern.
+    detail: { ...lungDetail, mask: 0.45, albedo: 0.25 },
   },
   ventilatedLung: { ...wet, ...subsurface, color: '#e0a098', roughness: 0.45, detail: lungDetail },
   fat: {

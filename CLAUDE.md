@@ -10,6 +10,7 @@ Vite + TypeScript (strict) + three.js (pinned) + three-mesh-bvh. Static site, no
    + `docs/WIRING.md` — APIs + wiring steps for built-but-unwired modules (`[w]`)
 4. As the brief says: `docs/REFERENCE_FRAMES.md`, `docs/VIDEO_STEP_MAP.md`, `docs/BOOK_NOTES.md`, `docs/ASSETS.md`, `docs/PERF.md`, `docs/DECISIONS.md`
 5. Last lines of `docs/PROGRESS.md` (append-only log; resume notes live here)
+6. Model integration: `src/content/anatomy.json` (manifest — single source of truth for the hilum model) + `docs/MODEL_INTEGRATION.md`; user feedback specs `docs/FEEDBACK_v7_LIVE.md`, `docs/FEEDBACK_v8_LIVE.md`; Blender contract `docs/BLENDER_PROMPT_v8.md`
 
 ## Hard rules
 - NEVER deploy anywhere. Deployment = notes only (`docs/DEPLOY_HOSTINGER_KVM.md`).

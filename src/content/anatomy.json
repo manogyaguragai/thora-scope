@@ -24,7 +24,7 @@
     }
   },
   "textureTransfer": {
-    "$comment": "T854 build-time (scripts/optimize-assets.mjs): model mesh ← base mesh UVs (closest point, rest pose) + its colour/roughness maps. Delete an entry, or ship textures in the model, to skip.",
+    "$comment": "T854 build-time (scripts/optimize-assets.mjs transferColors): model mesh ← base mesh colour map baked into COLOR_0 (point along the normal, rest pose). Delete an entry, or ship COLOR_0 / a colour map in the model, to skip.",
     "lung_upper_lobe_right": "lung_upper_lobe_right",
     "lung_middle_lobe_right": "lung_middle_lobe_right",
     "lung_lower_lobe_right": "lung_lower_lobe_right"

@@ -26,7 +26,7 @@ import { MeshoptEncoder } from 'meshoptimizer';
 import sharp from 'sharp';
 import { BufferAttribute, BufferGeometry, Vector3 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
-import { dilate, transferUVs, uvCoverage } from './texture-transfer.mjs';
+import { contrast, dilate, projectUVs, sampleBilinear, uvCoverage } from './texture-transfer.mjs';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST = join(root, 'src/content/anatomy.json');
@@ -42,8 +42,10 @@ const BASIS_DIR = join(root, 'node_modules/three/examples/jsm/libs/basis');
 const MAX_BYTES = 12_000_000; // CONTEXT §6.10: glb ≤ ~12 MB
 const NORMAL_CAP = 512; // UASTC normals at 1024 overshoot the 12 MB budget (ADR-006)
 const NORMAL_SLOTS = /normal/i;
-const TRANSFER_RAY_M = 0.015; // T854 UV-transfer ray reach along the normal (v8 lobes sit 3–7 mm inside v3's)
-const TRANSFER_SMOOTH = 20; // T854 UV Laplacian passes (v3 CT wrinkles ≈ 5 mm apart, v8 edges ≈ 1–2 mm)
+// T854 colour transfer (transferColors): ray reach along the normal (v8 lobes sit 3–7 mm inside v3's); lobular
+// contrast gain on the base map (the prefilter + vertex sampling soften the v3 network; 1 = as baked); prefilter σ per
+// model edge length (½ = alias-free but washes the network out, T854 screenshots) with a floor in texels.
+const TRANSFER = { rayM: 0.015, contrast: 2, blurPerEdge: 1 / 3, minBlurPx: 0.5 };
 const KTX = {
   version: '4.4.2',
   sha1: 'c6b08c817f8c8dd299deccae4f2fbb8d55e9acd2',
@@ -171,13 +173,12 @@ function trimFromBase(base, src) {
   }
 }
 
-// T854: manifest `textureTransfer` {modelMesh: baseMesh} — the model mesh (no UVs) takes the base mesh's UVs at the
-// closest base point (rest pose, world space; scripts/texture-transfer.mjs) + its colour and roughness maps (v3 lung
-// normal maps are flat: not transferred, T824 procedural relief stays). The maps are dilated over the empty atlas
-// (seam triangles extrapolate past island rims). Skipped for a model mesh that ships its own base colour texture.
-// Returns [{ name, color, rough }] (base-document textures) for attachLungTextures after the merge.
-async function transferTextures(base, src) {
-  const out = [];
+// T854: manifest `textureTransfer` {modelMesh: baseMesh} — the model mesh (no UVs) takes the base mesh's colour map as
+// COLOR_0: per vertex, the base point along its normal (rest pose, world space; scripts/texture-transfer.mjs) → base UV
+// → bilinear sample of the map (lobular contrast × TRANSFER.contrast, atlas gaps dilated, prefiltered per the model's
+// mean edge length so the vertex sampling does not alias). The base normal/roughness maps are not carried over
+// (v3 lung normals are flat; T824 procedural relief stays). Skipped for a model mesh that ships COLOR_0 or a colour map.
+async function transferColors(base, src) {
   const byName = (d, name) =>
     d
       .getRoot()
@@ -188,34 +189,39 @@ async function transferTextures(base, src) {
     const dst = byName(src, name);
     const ref = byName(base, from);
     if (!dst || !ref) throw new Error(`textureTransfer: missing ${dst ? from : name}`);
-    if (
-      dst
-        .getMesh()
-        .listPrimitives()
-        .some((p) => p.getMaterial()?.getBaseColorTexture())
-    ) {
-      console.log(`texture transfer ${name}: model ships its own textures, skipped`);
+    const prims = dst.getMesh().listPrimitives();
+    if (prims.some((p) => p.getAttribute('COLOR_0') || p.getMaterial()?.getBaseColorTexture())) {
+      console.log(`colour transfer ${name}: model ships its own colours, skipped`);
       continue;
     }
     const refPrims = ref.getMesh().listPrimitives();
-    const refMat = refPrims[0].getMaterial();
     const uv = refPrims.flatMap((p) => Array.from(p.getAttribute('TEXCOORD_0').getArray()));
     const from3 = { ...posedTriangles(ref, []), uv };
+    const tex = refPrims[0].getMaterial().getBaseColorTexture();
+    const { data, info } = await sharp(Buffer.from(tex.getImage()))
+      .raw()
+      .toBuffer({ resolveWithObject: true });
+    const size = info.width;
+    if (info.height !== size) throw new Error(`textureTransfer: ${tex.getName()} is not square`);
+    const mask = uvCoverage(uv, from3.idx, size);
+    contrast(data, info.channels, mask, TRANSFER.contrast);
+    dilate(data, info.channels, mask, size);
+    // Texels per metre of the base atlas (√ UV area / world area).
+    let uvArea = 0;
+    let worldArea = 0;
+    for (let t = 0; t < from3.idx.length; t += 3) {
+      const [a, b, c] = [0, 1, 2].map((k) => from3.idx[t + k]);
+      const d = (i, j, k) => from3.pos[j * 3 + k] - from3.pos[i * 3 + k];
+      const cr = [0, 1, 2].map(
+        (k) => d(a, b, (k + 1) % 3) * d(a, c, (k + 2) % 3) - d(a, b, (k + 2) % 3) * d(a, c, (k + 1) % 3),
+      );
+      worldArea += Math.hypot(...cr) / 2;
+      const du = (i, k) => uv[i * 2 + k] - uv[a * 2 + k];
+      uvArea += Math.abs(du(b, 0) * du(c, 1) - du(c, 0) * du(b, 1)) / 2;
+    }
+    const texelsPerM = Math.sqrt(uvArea / worldArea) * size;
     const m = dst.getWorldMatrix();
-    const buffer = src.getRoot().listBuffers()[0];
-    const gather = (a, remap) => {
-      const k = a.getElementSize();
-      const arr = a.getArray();
-      const o = new arr.constructor(remap.length * k);
-      for (let i = 0; i < remap.length; i++) o.set(arr.subarray(remap[i] * k, remap[i] * k + k), i * k);
-      return src
-        .createAccessor()
-        .setType(a.getType())
-        .setArray(o)
-        .setNormalized(a.getNormalized())
-        .setBuffer(buffer);
-    };
-    for (const prim of dst.getMesh().listPrimitives()) {
+    for (const prim of prims) {
       const local = prim.getAttribute('POSITION');
       const normal = prim.getAttribute('NORMAL');
       const p = [0, 0, 0];
@@ -227,47 +233,36 @@ async function transferTextures(base, src) {
         normal.getElement(i, p); // ponytail: rotation/uniform-scale world matrices only (manifest models: identity)
         for (let k = 0; k < 3; k++) nrm.push(m[k] * p[0] + m[4 + k] * p[1] + m[8 + k] * p[2]);
       }
-      const idx = Array.from(prim.getIndices()?.getArray() ?? { length: local.getCount() }, (v, i) => v ?? i);
-      const r = transferUVs(from3, { pos, idx, nrm }, TRANSFER_RAY_M, TRANSFER_SMOOTH);
-      for (const sem of prim.listSemantics()) prim.setAttribute(sem, gather(prim.getAttribute(sem), r.remap));
-      for (const t of prim.listTargets())
-        for (const sem of t.listSemantics()) t.setAttribute(sem, gather(t.getAttribute(sem), r.remap));
-      prim.setAttribute('TEXCOORD_0', src.createAccessor().setType('VEC2').setArray(r.uv).setBuffer(buffer));
-      prim.setIndices(src.createAccessor().setType('SCALAR').setArray(r.index).setBuffer(buffer));
+      const idx = prim.getIndices()?.getArray() ?? Array.from({ length: local.getCount() }, (_, i) => i);
+      let edge = 0;
+      for (let t = 0; t < idx.length; t++) {
+        const [i, j] = [idx[t], idx[t - (t % 3) + (((t % 3) + 1) % 3)]];
+        edge += Math.hypot(...[0, 1, 2].map((k) => pos[i * 3 + k] - pos[j * 3 + k])) / idx.length;
+      }
+      const sigma = Math.max(TRANSFER.minBlurPx, edge * texelsPerM * TRANSFER.blurPerEdge);
+      const img = await sharp(data, { raw: info }).blur(sigma).raw().toBuffer();
+      const r = projectUVs(from3, { pos, nrm }, TRANSFER.rayM);
+      const colors = new Float32Array(local.getCount() * 3);
+      const rgb = [0, 0, 0];
+      const lin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+      let luma = 0;
+      for (let v = 0; v < local.getCount(); v++) {
+        sampleBilinear(img, info.channels, size, r.uv[v * 2], r.uv[v * 2 + 1], rgb);
+        for (let k = 0; k < 3; k++) colors[v * 3 + k] = lin(rgb[k]);
+        luma +=
+          (0.2126 * colors[v * 3] + 0.7152 * colors[v * 3 + 1] + 0.0722 * colors[v * 3 + 2]) /
+          local.getCount();
+      }
+      prim.setAttribute(
+        'COLOR_0',
+        src.createAccessor().setType('VEC3').setArray(colors).setBuffer(src.getRoot().listBuffers()[0]),
+      );
       console.log(
-        `texture transfer ${name} ← ${from}: ${idx.length / 3} tris, ${r.seamTris} laid onto one UV island, ` +
-          `${r.remap.length - local.getCount()} vertices added, ${r.rayMiss} closest-point fallbacks`,
+        `colour transfer ${name} ← ${from}: ${local.getCount()} vertices, ${r.rayMiss} closest-point fallbacks, ` +
+          `prefilter σ ${sigma.toFixed(1)} px, mean linear luma ${luma.toFixed(3)} (materials.config mapLuma)`,
       );
     }
-    const color = refMat.getBaseColorTexture();
-    const rough = refMat.getMetallicRoughnessTexture();
-    const refIdx = from3.idx;
-    for (const tex of [color, rough]) {
-      const { data, info } = await sharp(Buffer.from(tex.getImage()))
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-      if (info.width !== info.height) throw new Error(`textureTransfer: ${tex.getName()} is not square`);
-      const mask = uvCoverage(uv, refIdx, info.width);
-      const covered = dilate(data, info.channels, mask, info.width);
-      if (tex === color) {
-        let sum = 0;
-        const lin = (c) => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
-        for (let i = 0; i < mask.length; i++)
-          if (mask[i]) {
-            const j = i * info.channels;
-            sum += 0.2126 * lin(data[j]) + 0.7152 * lin(data[j + 1]) + 0.0722 * lin(data[j + 2]);
-          }
-        console.log(
-          `  ${tex.getName()}: ${(covered * 100).toFixed(0)}% covered, mean linear luma ` +
-            `${(sum / (covered * mask.length)).toFixed(3)} (materials.config mapLuma)`,
-        );
-      }
-      const png = await sharp(data, { raw: info }).png().toBuffer();
-      tex.setImage(new Uint8Array(png)).setMimeType('image/png');
-    }
-    out.push({ name, color, rough });
   }
-  return out;
 }
 
 // --- KTX-Software (toktx/ktx), project-local, no sudo.
@@ -311,7 +306,7 @@ for (const n of doc.getRoot().listNodes()) {
   }
 }
 trimFromBase(doc, model);
-const transferred = await transferTextures(doc, model);
+await transferColors(doc, model);
 for (const n of doc.getRoot().listNodes()) {
   if (!drop.has(n.getName())) continue;
   n.getMesh()?.dispose();
@@ -326,16 +321,6 @@ for (const n of modelScene.listChildren()) {
   scene.addChild(n); // scene root, never under thorax_root (scale 1.3)
 }
 modelScene.dispose();
-for (const { name, color, rough } of transferred) {
-  const node = doc
-    .getRoot()
-    .listNodes()
-    .find((n) => n.getName() === name && n.getMesh());
-  for (const prim of node.getMesh().listPrimitives())
-    prim.setMaterial(
-      prim.getMaterial().clone().setName(name).setBaseColorTexture(color).setMetallicRoughnessTexture(rough),
-    );
-}
 await doc.transform(
   unpartition(), // one buffer (GLB)
   // keepUniqueNames: never merge two named meshes/materials into one (names are the app contract).

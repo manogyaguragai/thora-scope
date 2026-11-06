@@ -326,6 +326,15 @@ const MAP = /* glsl */ `
 		diffuseColor.a = mix( diffuseColor.a, 1.0, tissueCutRim ) * ( 1.0 - ${f(TORN.tornThin)} * tissueTorn );
 	}
 `;
+// T854 baked vertex colour (build-time colour transfer, scripts/optimize-assets.mjs): retinted like the map above.
+const VERTEX_COLOR = /* glsl */ `
+#if defined( USE_COLOR_ALPHA )
+	diffuseColor *= vColor;
+#elif defined( USE_COLOR )
+	vec3 tissueVc = mix( vColor.rgb, vec3( dot( vColor.rgb, ${vec3(look.lumaWeights)} ) ), uTissueMap.x );
+	diffuseColor.rgb *= clamp( tissueVc / uTissueMap.y, ${f(look.detailRange[0])}, ${f(look.detailRange[1])} );
+#endif
+`;
 const ROUGH = /* glsl */ `
 #include <roughnessmap_fragment>
 	roughnessFactor = mix( roughnessFactor, ${f(BLOOD.roughness)}, tissueWet );
@@ -350,6 +359,7 @@ function patch(shader: WebGLProgramParametersWithUniforms, u: TissueUniforms, ow
   shader.fragmentShader = shader.fragmentShader
     .replace('#include <lights_physical_pars_fragment>', PARS)
     .replace('#include <map_fragment>', MAP)
+    .replace('#include <color_fragment>', VERTEX_COLOR)
     .replace('#include <roughnessmap_fragment>', ROUGH)
     .replace('#include <normal_fragment_begin>', NORMAL_BEGIN)
     .replace('#include <emissivemap_fragment>', FOCUS)
@@ -434,6 +444,7 @@ function makeMaterial(
   transparent: boolean,
   opacity: number,
   clippingPlanes: Plane[],
+  vertexColors: boolean,
 ): MeshPhysicalMaterial {
   const t: TissueParams = TISSUES[cls];
   const baked = t.bakedMaps ?? true;
@@ -441,6 +452,7 @@ function makeMaterial(
     name: `${src.name}:${transparent ? 'transparent' : 'opaque'}`,
     color: paletteParams(cls, palette).color,
     map: baked ? src.map : null,
+    vertexColors: baked && vertexColors, // fixed at load (USE_COLOR is a define)
     normalMap: baked ? src.normalMap : null,
     normalScale: src.normalScale,
     roughnessMap: baked ? src.roughnessMap : null, // roughness below multiplies the baked map
@@ -582,9 +594,10 @@ export function applyMaterials(root: Object3D): Group {
       uPushOn: { value: PUSHED.includes(cls) ? 1 : 0 },
     };
     if (HIDDEN_AT_LOAD.includes(mesh.name)) mesh.visible = false; // T831 manifest `hidden` (warm-up still compiles it)
-    const opaque = makeMaterial(src, cls, u, own, noise, blend, baseOpacity, planes);
+    const vc = mesh.geometry.hasAttribute('color');
+    const opaque = makeMaterial(src, cls, u, own, noise, blend, baseOpacity, planes, vc);
     if (blend) opaque.depthWrite = src.depthWrite;
-    const transparent = makeMaterial(src, cls, u, own, noise, true, baseOpacity, planes);
+    const transparent = makeMaterial(src, cls, u, own, noise, true, baseOpacity, planes, vc);
     const bias = look.depthBias[mesh.name] ?? look.depthBias[mesh.parent?.name ?? ''];
     if (bias)
       for (const m of [opaque, transparent]) {

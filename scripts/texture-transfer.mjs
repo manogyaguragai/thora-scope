@@ -1,162 +1,69 @@
-// T854 build-time texture transfer (pure, no I/O; used by optimize-assets.mjs, tested in tests/unit/texture-transfer).
-// A remeshed surface (dst) borrows the UVs of a textured surface it lies close to (src): per dst vertex, the
-// barycentric UV of the src point along its normal (nearest hit either way within rayM; closest src point otherwise:
-// closest-point alone collapses an inset surface's UVs onto ridges → stretched streaks), then Laplacian-smoothed
-// within each island (`smooth` Jacobi passes; vertices next to another island pinned): a smooth remesh projected onto
-// a wrinkled CT surface otherwise folds its UVs into streaks along the wrinkles. Triangles whose corners land on different src UV islands are split off and laid onto
-// the island under their centroid (corner UVs extrapolated through that src triangle's affine UV map), so no triangle
-// interpolates across a seam. The textures are then dilated so extrapolated corners never sample the empty atlas.
+// T854 build-time colour transfer (pure, no I/O; used by optimize-assets.mjs, tested in tests/unit/texture-transfer).
+// A remeshed surface (dst, no UVs) takes the colour of a textured surface it lies close to (src) as per-vertex colour:
+// per dst vertex, the src point along its normal (nearest hit either way within rayM; closest src point otherwise),
+// its barycentric src UV, a bilinear sample of the prefiltered src map. Vertex colours have no seams: the v3 lung
+// atlases are too fragmented (v3 RLL: 1155 of 1193 UV islands < 50 vertices) for a UV transfer without a
+// per-triangle mosaic (T854 screenshots).
 import { BufferAttribute, BufferGeometry, DoubleSide, Plane, Ray, Triangle, Vector3 } from 'three';
 import { MeshBVH } from 'three-mesh-bvh';
 
-/** Island id per vertex: connected components of the indexed mesh (glTF splits vertices at UV seams). */
-export function uvIslands(count, idx) {
-  const parent = Int32Array.from({ length: count }, (_, i) => i);
-  const find = (i) => {
-    while (parent[i] !== i) i = parent[i] = parent[parent[i]];
-    return i;
-  };
-  for (let t = 0; t < idx.length; t += 3) {
-    parent[find(idx[t + 1])] = find(idx[t]);
-    parent[find(idx[t + 2])] = find(idx[t]);
-  }
-  return Int32Array.from({ length: count }, (_, i) => find(i));
-}
-
 /**
- * src/dst: { pos: number[] (world xyz), idx: number[] } (+ src.uv per src vertex, dst.nrm per dst vertex). Returns
- * { remap (new vertex → dst vertex), uv (per new vertex), index (new triangles), seamTris, rayMiss }.
+ * src: { pos: number[] (world xyz), idx: number[], uv: number[] per src vertex }; dst: { pos, nrm } per vertex.
+ * Returns { uv: Float32Array (src UV per dst vertex), rayMiss }.
  */
-export function transferUVs(src, dst, rayM, smooth) {
+export function projectUVs(src, dst, rayM) {
   const geo = new BufferGeometry();
   geo.setAttribute('position', new BufferAttribute(new Float32Array(src.pos), 3));
   geo.setIndex(new BufferAttribute(new Uint32Array(src.idx), 1));
   const bvh = new MeshBVH(geo);
   const sIdx = geo.index.array; // MeshBVH reorders the index: faceIndex refers to this order
-  const island = uvIslands(src.pos.length / 3, src.idx);
   const tri = new Triangle();
   const plane = new Plane();
   const p = new Vector3();
   const bary = new Vector3();
-  const hit = {};
   const ray = new Ray();
   const dir = new Vector3();
-  // UV of point p through src face f (barycentric of p projected on the face plane; unclamped = affine extrapolation).
-  const uvAt = (f, out, o) => {
-    for (let c = 0; c < 3; c++) {
-      const v = sIdx[f * 3 + c] * 3;
-      [tri.a, tri.b, tri.c][c].set(src.pos[v], src.pos[v + 1], src.pos[v + 2]);
-    }
-    tri.getPlane(plane).projectPoint(p, p);
-    tri.getBarycoord(p, bary);
-    for (let k = 0; k < 2; k++)
-      out[o + k] =
-        bary.x * src.uv[sIdx[f * 3] * 2 + k] +
-        bary.y * src.uv[sIdx[f * 3 + 1] * 2 + k] +
-        bary.z * src.uv[sIdx[f * 3 + 2] * 2 + k];
-  };
+  const hit = {};
+  const n = dst.pos.length / 3;
+  const uv = new Float32Array(n * 2);
   let rayMiss = 0;
-  // Src face for point (x,y,z) with normal n (dst.nrm at vertex v, or the triangle normal); p ← the src point.
-  const locate = (x, y, z, nx, ny, nz) => {
-    p.set(x, y, z);
+  for (let v = 0; v < n; v++) {
+    p.fromArray(dst.pos, v * 3);
     let best = null;
     for (const sgn of [1, -1]) {
-      ray.set(p, dir.set(nx * sgn, ny * sgn, nz * sgn).normalize());
+      ray.set(
+        p,
+        dir
+          .fromArray(dst.nrm, v * 3)
+          .multiplyScalar(sgn)
+          .normalize(),
+      );
       const h = bvh.raycastFirst(ray, DoubleSide, 0, rayM);
       if (h && (!best || h.distance < best.distance)) best = h;
     }
+    let f;
     if (best) {
       p.copy(best.point);
-      return best.faceIndex;
+      f = best.faceIndex;
+    } else {
+      rayMiss++;
+      bvh.closestPointToPoint(p, hit);
+      p.copy(hit.point);
+      f = hit.faceIndex;
     }
-    rayMiss++;
-    bvh.closestPointToPoint(p, hit);
-    return hit.faceIndex;
-  };
-  const n = dst.pos.length / 3;
-  const vUV = new Float32Array(n * 2);
-  const vIsland = new Int32Array(n);
-  for (let v = 0; v < n; v++) {
-    const f = locate(...dst.pos.slice(v * 3, v * 3 + 3), ...dst.nrm.slice(v * 3, v * 3 + 3));
-    vIsland[v] = island[sIdx[f * 3]];
-    uvAt(f, vUV, v * 2);
+    for (let c = 0; c < 3; c++) [tri.a, tri.b, tri.c][c].fromArray(src.pos, sIdx[f * 3 + c] * 3);
+    tri.getPlane(plane).projectPoint(p, p);
+    tri.getBarycoord(p, bary);
+    for (let k = 0; k < 2; k++)
+      uv[v * 2 + k] =
+        bary.x * src.uv[sIdx[f * 3] * 2 + k] +
+        bary.y * src.uv[sIdx[f * 3 + 1] * 2 + k] +
+        bary.z * src.uv[sIdx[f * 3 + 2] * 2 + k];
   }
-  // Vertex adjacency (CSR) of dst, then the island-local Laplacian smoothing of vUV.
-  const deg = new Int32Array(n + 1);
-  for (let t = 0; t < dst.idx.length; t++) deg[dst.idx[t] + 1] += 2;
-  for (let v = 0; v < n; v++) deg[v + 1] += deg[v];
-  const nbr = new Int32Array(deg[n]);
-  const fill = deg.slice(0, n);
-  for (let t = 0; t < dst.idx.length; t += 3)
-    for (let c = 0; c < 3; c++) {
-      const v = dst.idx[t + c];
-      nbr[fill[v]++] = dst.idx[t + ((c + 1) % 3)];
-      nbr[fill[v]++] = dst.idx[t + ((c + 2) % 3)];
-    }
-  const pinned = new Uint8Array(n);
-  for (let v = 0; v < n; v++)
-    for (let e = deg[v]; e < deg[v + 1]; e++) if (vIsland[nbr[e]] !== vIsland[v]) pinned[v] = 1;
-  let cur = vUV;
-  let next = new Float32Array(n * 2);
-  for (let it = 0; it < smooth; it++) {
-    for (let v = 0; v < n; v++) {
-      let u = 0;
-      let w = 0;
-      const cnt = deg[v + 1] - deg[v];
-      if (!pinned[v] && cnt)
-        for (let e = deg[v]; e < deg[v + 1]; e++) {
-          u += cur[nbr[e] * 2] / cnt;
-          w += cur[nbr[e] * 2 + 1] / cnt;
-        }
-      next[v * 2] = pinned[v] || !cnt ? cur[v * 2] : u;
-      next[v * 2 + 1] = pinned[v] || !cnt ? cur[v * 2 + 1] : w;
-    }
-    [cur, next] = [next, cur];
-  }
-  vUV.set(cur);
-  const remap = [...Array(n).keys()];
-  const uv = Array.from(vUV);
-  const index = [];
-  const c = new Float32Array(2);
-  let seamTris = 0;
-  for (let t = 0; t < dst.idx.length; t += 3) {
-    const [a, b, d] = [dst.idx[t], dst.idx[t + 1], dst.idx[t + 2]];
-    if (vIsland[a] === vIsland[b] && vIsland[a] === vIsland[d]) {
-      index.push(a, b, d);
-      continue;
-    }
-    seamTris++;
-    const cen = [0, 0, 0];
-    const nrm = [0, 0, 0];
-    for (const v of [a, b, d])
-      for (let k = 0; k < 3; k++) {
-        cen[k] += dst.pos[v * 3 + k] / 3;
-        nrm[k] += dst.nrm[v * 3 + k];
-      }
-    const f = locate(...cen, ...nrm);
-    const isl = island[sIdx[f * 3]];
-    for (const v of [a, b, d]) {
-      if (vIsland[v] === isl) {
-        index.push(v);
-        continue;
-      }
-      p.set(dst.pos[v * 3], dst.pos[v * 3 + 1], dst.pos[v * 3 + 2]);
-      uvAt(f, c, 0);
-      index.push(remap.length);
-      remap.push(v);
-      uv.push(Math.min(1, Math.max(0, c[0])), Math.min(1, Math.max(0, c[1]))); // [0,1]: UVs stay quantizable
-    }
-  }
-  return {
-    remap: Uint32Array.from(remap),
-    uv: Float32Array.from(uv),
-    index: Uint32Array.from(index),
-    seamTris,
-    rayMiss,
-  };
+  return { uv, rayMiss };
 }
 
-/** size×size coverage mask (1 = inside a UV triangle), glTF UV convention (v down the image). */
+/** size×size coverage mask (1 = texel centre inside a UV triangle), glTF UV convention (v down the image). */
 export function uvCoverage(uv, idx, size) {
   const mask = new Uint8Array(size * size);
   const x = [0, 0, 0];
@@ -174,7 +81,7 @@ export function uvCoverage(uv, idx, size) {
     const y1 = Math.min(size - 1, Math.ceil(Math.max(...y)));
     for (let py = y0; py <= y1; py++)
       for (let px = x0; px <= x1; px++) {
-        let inside = true; // texel centre inside (or on an edge of) the UV triangle
+        let inside = true;
         for (let e = 0; e < 3 && inside; e++) {
           const [i, j] = [e, (e + 1) % 3];
           inside = ((x[j] - x[i]) * (py - y[i]) - (y[j] - y[i]) * (px - x[i])) * Math.sign(area) >= 0;
@@ -185,13 +92,15 @@ export function uvCoverage(uv, idx, size) {
   return mask;
 }
 
-/** Fill every uncovered texel with its nearest covered texel (multi-source BFS), in place. Returns covered fraction. */
+/** Fill every uncovered texel with its nearest covered texel (multi-source BFS), in place: the prefilter blur and
+ *  bilinear taps at island rims never pull in the empty (black) atlas. Returns the covered fraction. */
 export function dilate(pixels, channels, mask, size) {
   const queue = new Int32Array(size * size);
   const seen = Uint8Array.from(mask);
   let head = 0;
   let tail = 0;
   for (let i = 0; i < mask.length; i++) if (mask[i]) queue[tail++] = i;
+  if (!tail) throw new Error('dilate: empty coverage');
   const covered = tail / mask.length;
   while (head < tail) {
     const i = queue[head++];
@@ -214,4 +123,42 @@ export function dilate(pixels, channels, mask, size) {
     }
   }
   return covered;
+}
+
+/** Scale the covered texels' luminance deviation from their mean by `gain` (hue kept), in place. */
+export function contrast(pixels, channels, mask, gain) {
+  const luma = (i) => 0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2];
+  let sum = 0;
+  let n = 0;
+  for (let t = 0; t < mask.length; t++)
+    if (mask[t]) {
+      sum += luma(t * channels);
+      n++;
+    }
+  const mean = sum / n;
+  for (let t = 0; t < mask.length; t++) {
+    if (!mask[t]) continue;
+    const i = t * channels;
+    const l = luma(i);
+    const k = l > 0 ? (mean + gain * (l - mean)) / l : 1;
+    for (let c = 0; c < 3; c++) pixels[i + c] = Math.min(255, Math.max(0, Math.round(pixels[i + c] * k)));
+  }
+}
+
+/** Bilinear RGB (0–255) at glTF uv from a size×size image (clamped to the edge), written to out. */
+export function sampleBilinear(pixels, channels, size, u, v, out) {
+  const fx = Math.min(size - 1, Math.max(0, u * size - 0.5));
+  const fy = Math.min(size - 1, Math.max(0, v * size - 0.5));
+  const x0 = Math.floor(fx);
+  const y0 = Math.floor(fy);
+  const x1 = Math.min(size - 1, x0 + 1);
+  const y1 = Math.min(size - 1, y0 + 1);
+  const tx = fx - x0;
+  const ty = fy - y0;
+  for (let k = 0; k < 3; k++) {
+    const at = (x, y) => pixels[(y * size + x) * channels + k];
+    out[k] =
+      (at(x0, y0) * (1 - tx) + at(x1, y0) * tx) * (1 - ty) + (at(x0, y1) * (1 - tx) + at(x1, y1) * tx) * ty;
+  }
+  return out;
 }
