@@ -78,6 +78,9 @@ export const config = {
     // ≤ 55°) for the most STEP_FOCUS pixels; target = a focus structure's centroid. They override portAim (cameras.ts).
     poseFix: [
       { camera: 'cam_7_reinflation', position: [-0.1528, 0.0803, 0.0127], target: [-0.0285, 0.0326, 0.0013] },
+      // T853: steps 7–8 lens kept (the fissure guide is traced from it), aimed at the guide's screen centre so both
+      // dotted fissures are in frame (they sat at the view's top-right edge).
+      { camera: 'cam_6_fissures', position: [-0.1185, 0.0839, 0.0268], target: [-0.0484, 0.0599, 0.057] },
       {
         camera: 'cam_2_anterior_hilum',
         position: [-0.0376, 0.0548, 0.0574],

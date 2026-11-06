@@ -8,13 +8,14 @@ test.use({ viewport: { width: 1280, height: 720 } });
 
 const SUCKER_KEY = 'Digit9';
 const PEANUT_KEY = 'Digit4';
+const ACCESS_PORT = 'port_utility_5ICS';
 const CAUTERY_KEY = 'Digit5';
 const HAZE_HEAVY = 0.6; // stands in for ~25 s of cumulative energy (cautery.config haze.riseRate)
 const HAZE_CLEAR = 0.05;
 const HAZE_CLEAR_MS = 6000; // HAZE_HEAVY / suction.hazeClearPerSec + margin
 const DRAIN_MS = 20_000; // full level / water.config drainPerSec + margin
-const SWEEP_STEPS = 16;
-const SWEEP_PX = 14; // short back-and-forth stroke on the layer, within the peanut's reach
+const SWEEP_PX = 5; // the chosen cell has layer (raw picks, clear shaft path) this far either side
+const OLV_MS = 10_000; // config.physiology olvMs + margin
 const TIP_FOLLOW_MS = 800; // the cursor-driven tip eases in through its port before the click acts there
 const PEANUT_DONE_MS = 12_000; // 1 / config.dissect.ratePerSec.peanut of contact + margin
 
@@ -35,7 +36,8 @@ const clearShell = (page: Page) =>
   page.addStyleTag({ content: '.shell, #action-toast { visibility: hidden !important; }' });
 
 /** NDC grid cell where the scope sees a `prefix` mesh: the lowest point the saline sucker reaches (`byLowY`), else
- *  the one nearest the view centre whose raw picks ± `spanX` (NDC) also hit it (a stroke stays on the layer). */
+ *  the one nearest the view centre whose raw picks ± `spanX` (NDC) also hit it, each on a clear shaft path from the
+ *  instrument's port (a stroke stays on the layer). */
 const findCell = (page: Page, prefix: string, byLowY: boolean, spanX = 0) =>
   page.evaluate(
     ({ prefix, byLowY, spanX }) => {
@@ -49,9 +51,18 @@ const findCell = (page: Page, prefix: string, byLowY: boolean, spanX = 0) =>
           if (!h || !h.nodeName.startsWith(prefix)) continue;
           if (byLowY && !m4.water.reaches(h.point)) continue;
           let along = true;
-          for (let k = -4; spanX > 0 && k <= 4; k++)
-            along &&=
-              m3.picker.pick(x + (k / 4) * spanX, y, rig.camera, true)?.nodeName.startsWith(prefix) === true;
+          const port = m4.control.port?.pleura;
+          for (let k = -4; spanX > 0 && port && along && k <= 4; k++) {
+            // Raw pick on the layer and a clear shaft path from the port to it (lung in the way stops the tip).
+            const q = m3.picker.pick(x + (k / 4) * spanX, y, rig.camera, true);
+            if (!q?.nodeName.startsWith(prefix)) along = false;
+            else {
+              const d = q.point.clone().sub(port);
+              const len = d.length();
+              along =
+                m3.picker.ray(port, d.normalize(), 0.005, len + 0.002)?.nodeName.startsWith(prefix) === true;
+            }
+          }
           if (!along) continue;
           const s = byLowY ? h.point.y : Math.hypot(x, y);
           if (s < bestScore) {
@@ -124,34 +135,37 @@ test('sucker held in the irrigated field drains the saline to dry', async ({ pag
   expect(errors).toEqual([]);
 });
 
-test('peanut sweep over the hilar pleura opens it bluntly: no char, no smoke; the dissection completes', async ({
+test('peanut on the hilar pleura opens it bluntly: no char, no smoke; the dissection completes', async ({
   page,
 }) => {
   test.setTimeout(240_000);
   const { errors, programs } = await boot(page, '/?view=scope&step=2');
   const before = await programs();
+  // One-lung ventilation (topbar switch): the collapsed lung leaves the shaft path onto the hilum (it would stop the tip).
+  await page.getByRole('button', { name: 'One-lung ventilation' }).click();
+  await page.waitForFunction(() => window.__sim.state.deflate_RML >= 1, null, { timeout: OLV_MS });
+  await clearShell(page);
+  await page.keyboard.press(PEANUT_KEY);
+  expect(await page.evaluate(() => window.__sim.m4?.tool)).toBe('peanut');
+  // Through the access incision (P: next port), as the reference sequence does: a straight path onto the hilum.
+  const portId = () => page.evaluate(() => window.__sim.m4?.control.port?.id ?? null);
+  for (let k = 0; k < 4 && (await portId()) !== ACCESS_PORT; k++) await page.keyboard.press('KeyP');
+  expect(await portId()).toBe(ACCESS_PORT);
   const cell = await findCell(page, 'mediastinal_pleura_hilum', false, (2 * SWEEP_PX) / 1280);
   expect(cell).not.toBeNull();
   if (!cell) return;
   const c = toPx(cell);
-  const a = { x: c.x - SWEEP_PX, y: c.y };
-  const b = { x: c.x + SWEEP_PX, y: c.y };
-  await clearShell(page);
-  await page.keyboard.press(PEANUT_KEY);
-  expect(await page.evaluate(() => window.__sim.m4?.tool)).toBe('peanut');
   await page.mouse.move(c.x, c.y);
   await page.waitForTimeout(TIP_FOLLOW_MS);
   await page.mouse.down();
-  const t0 = Date.now();
-  let done = false;
-  for (let lap = 0; !done && Date.now() - t0 < PEANUT_DONE_MS; lap++) {
-    for (let i = 0; i <= SWEEP_STEPS; i++) {
-      const t = lap % 2 ? 1 - i / SWEEP_STEPS : i / SWEEP_STEPS;
-      await page.mouse.move(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t);
-      await page.waitForTimeout(40);
-    }
-    done = await page.evaluate(() => /dissected/.test(window.__sim.m4?.lastToast ?? ''));
-  }
+  // Held on the layer (tip at contact) until it is through. ponytail: no drag stroke here: from the step-2 view a
+  // drag of a few px re-aims the shaft into the middle lobe (T850 tip collision stops it there); the stroke
+  // capsule itself is covered by tests/unit/effects.test.ts.
+  await page
+    .waitForFunction(() => /dissected/.test(window.__sim.m4?.lastToast ?? ''), null, {
+      timeout: PEANUT_DONE_MS,
+    })
+    .catch(() => undefined); // asserted below with the state
   const s = await page.evaluate(() => {
     const m4 = window.__sim.m4;
     return {

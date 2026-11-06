@@ -7,6 +7,8 @@ import { onModeChange } from '../sim/modes';
 import type { Shell } from './shell';
 import './panels.css';
 
+const READY_POLL_MS = 100; // ?demo= waits for the app's "ready" (load time only)
+
 /** What the panel needs from src/sim/guided.ts. */
 export interface GuidedNav {
   /** Current step number (GuidedStep.step). */
@@ -82,20 +84,37 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
       t.hidden = !text;
     }
   };
-  const toggleDemo = (): void => {
+  // T851 "Try it": back to the step's start after a demo (a reload when the demo divided / removed something).
+  const tryIt = h('button', {
+    type: 'button',
+    className: 'panel-button guided-demo',
+    textContent: 'Try it',
+    hidden: true,
+  });
+  tryIt.setAttribute('aria-label', 'Try this step yourself');
+  tryIt.addEventListener('click', () => {
+    tryIt.hidden = true;
     if (!demo) return;
+    if (demo.pristine(guided.current)) demo.applyStart(guided.current);
+    else demo.reloadInto(guided.current, 'try');
+  });
+  const toggleDemo = (fresh = false): void => {
+    if (!demo) return;
+    tryIt.hidden = true;
     if (demoRunning) {
       demo.stopDemo();
       return setDemo(false);
     }
     setDemo(true);
     void demo
-      .runDemo(guided.current, (t) => setDemo(true, t))
+      .runDemo(guided.current, (t) => setDemo(true, t), fresh)
       .then((r) => {
+        if (r === 'reload') return; // the page reloads into the step and plays it there
+        tryIt.hidden = false;
         if (r !== 'stopped') setDemo(false, r === 'done' ? '' : `Demonstration stopped: ${r}`);
       });
   };
-  for (const b of showMe) b.addEventListener('click', toggleDemo);
+  for (const b of showMe) b.addEventListener('click', () => toggleDemo());
   const exploreBar = h('section', { className: 'guided-demo-bar' }, showMe[1] as HTMLElement, exploreText);
   exploreBar.setAttribute('aria-label', 'Demonstration');
   exploreBar.style.cssText =
@@ -109,8 +128,14 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     setDemo(false);
     showExplore(m);
   });
+  // T851: from the theatre (outside view), the first Next / PageDown only takes the scope in at step 1 (wireM3
+  // enterScope); it used to skip straight to step 2. data-view is the view shown before this input.
+  const advance = (): void => {
+    if (guided.current === steps[0]?.step && shell.root.dataset.view !== 'scope') return;
+    guided.next();
+  };
   const prev = navButton('Prev', 'Previous step', () => guided.prev());
-  const next = navButton('Next', 'Next step', () => guided.next());
+  const next = navButton('Next', 'Next step', advance);
   // Learning points, video note and model note sit behind "More" so the bar stays short (T205).
   const details = h(
     'div',
@@ -136,7 +161,7 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
       { className: 'guided-head' },
       title,
       port,
-      h('div', { className: 'guided-controls' }, showMe[0] as HTMLElement, more, prev, counter, next),
+      h('div', { className: 'guided-controls' }, showMe[0] as HTMLElement, tryIt, more, prev, counter, next),
     ),
     demoText,
     body,
@@ -163,6 +188,7 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     note.hidden = !s.note;
     if (demoRunning) demo?.stopDemo();
     setDemo(false);
+    tryIt.hidden = true;
     prev.disabled = i === 0;
     next.disabled = i === steps.length - 1;
     // Restart the enter animation (opacity/transform; 0 ms under reduced motion via tokens.css).
@@ -175,7 +201,7 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     if (shell.root.dataset.mode !== 'guided' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]'))
       return;
-    if (matchesKey(keybindings.guidedNext, e.code)) guided.next();
+    if (matchesKey(keybindings.guidedNext, e.code)) advance();
     else if (matchesKey(keybindings.guidedPrev, e.code)) guided.prev();
     else return;
     e.preventDefault();
@@ -190,6 +216,18 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
   void import('../app/guidedDemo').then((d) => {
     demo = d;
     if (!demoRunning) setDemo(false);
+    // T851: a reload into a step (?demo=run plays its demo, ?demo=try starts it) once the app is ready.
+    const u = new URL(location.href);
+    const want = u.searchParams.get('demo');
+    if (want !== 'run' && want !== 'try') return;
+    u.searchParams.delete('demo');
+    history.replaceState(history.state, '', u);
+    const go = (): void => {
+      if (!window.__perf?.ready) return void window.setTimeout(go, READY_POLL_MS);
+      if (want === 'run') toggleDemo(true);
+      else d.applyStart(guided.current);
+    };
+    go();
   });
   return () => {
     guided.off('stepchange', render);

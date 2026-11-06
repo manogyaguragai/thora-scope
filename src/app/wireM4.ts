@@ -15,6 +15,7 @@ import { ANATOMY } from '../content/anatomy';
 import { SUB_IDS, TARGET_BY_ID, TARGETS, divisionGroup, lobeOf } from '../content/targets';
 import { cauteryConfig as CAUTERY } from '../scene/cautery.config';
 import { createEffects, CutPool } from '../scene/effects';
+import type { FissureGuide, Segment } from '../scene/fissureGuide';
 import { buildHands } from '../scene/hands';
 import { buildInstruments, TOOL_IDS } from '../scene/instruments';
 import type { ToolId } from '../scene/instruments';
@@ -40,7 +41,7 @@ import { getMode, onModeChange } from '../sim/modes';
 import { interactionConfig as I, invKind } from '../sim/interaction.config';
 import { PortOccupancy } from '../sim/portOccupancy';
 import { loadPracticeActions } from '../sim/practiceActions';
-import { TipCollision } from '../sim/tipCollision';
+import { contactOf, TipCollision } from '../sim/tipCollision';
 import type { Hold } from '../sim/portOccupancy';
 import type { Port } from '../sim/ports';
 import type { PracticeAttempt } from '../sim/practice';
@@ -134,6 +135,9 @@ export interface M4 {
   irrigate: () => string;
   /** T842 node-bed ooze at world `point` (T840 onNodeRemoved calls this); energised cautery contact seals it. */
   startOoze: (point: Vector3) => void;
+  /** T853 step-7 fissure guide (main.ts sets it at load): while active the powered stapler on the middle lobe seats
+   *  on its next segment, jaws along it, and the guide (not M4) draws that fire's staple line. */
+  fissure: FissureGuide | null;
   /** T822: energised cautery tip touching a surface right now, and where (valid while `contact`). */
   readonly contact: boolean;
   readonly contactPoint: Vector3;
@@ -198,6 +202,8 @@ interface Held {
   ref: Hold | null;
   /** Retract slot its grip keeps engaged (−1 = none). */
   slot: number;
+  /** T853: left while parked (right click): selecting its kind again resumes it. */
+  parked: boolean;
   port: Port | null;
   obj: Object3D | null;
   mesh: Mesh | null;
@@ -458,6 +464,16 @@ export function wireM4(ctx: M4Context): M4 {
   const coll = new TipCollision((o, d, n, f) => m3.picker.ray(o, d, n, f, collHit));
   pushUniforms.uPushRadius.value = I.collide.push.radiusM;
   let collAcc = 0;
+  // Depth of the surface point the tip was last aimed at (0 = none); `anchorOn` = placed on it by a click-snap or
+  // an energised sweep (reached even through tissue in the way), else the cursor's (only overlapping layers).
+  let anchorM = 0;
+  let anchorOn = false;
+  let anchorLayer = false; // T853: aimed at a dissectable layer (a lobe in the shaft path yields to the dissector)
+  const anchorAt = (p: Vector3, on: boolean, node = ''): void => {
+    anchorM = control.port ? p.distanceTo(control.port.pleura) : 0;
+    anchorOn = on;
+    anchorLayer = contactOf(node) === 'pass';
+  };
   let pickerScope: string | null = null;
 
   // ── Instruments left in ports (T820 holds, T840 any placed tool) + the guided static grasper; clones built once ──
@@ -485,6 +501,7 @@ export function wireM4(ctx: M4Context): M4 {
       target: null,
       ref: null,
       slot: -1,
+      parked: false,
       port: null,
       obj: null,
       mesh: null,
@@ -590,6 +607,7 @@ export function wireM4(ctx: M4Context): M4 {
     m4.target = null;
     inst.show(m4.tool, m3.hotbar.subOption());
     control.park(port);
+    anchorM = 0;
     occupancy.insert(m4.tool as ToolId, port.id, sub);
     lastPort = port.id;
     refreshPorts();
@@ -617,12 +635,19 @@ export function wireM4(ctx: M4Context): M4 {
     inst.show(null);
     if (next) {
       const kind = invKind(next, sub);
-      const h = occupancy.canTake(next, sub) ? undefined : latestLeft(kind);
+      // T853: one left parked (right click) resumes, spare inventory or not; at the cap the latest
+      // left one comes back to the hand (Insert via then moves it).
+      const parkedOne = latestLeft(kind, true);
+      const h = parkedOne ?? (occupancy.canTake(next, sub) ? undefined : latestLeft(kind));
       const p = h ? undefined : freePort();
       if (h) {
         const where = portLabel(h.port?.id ?? null).toLowerCase();
         pickUp(h, subIdx);
-        toast(`${I.names[kind]}: all ${I.inventory[kind]} in use, took the one in the ${where}`);
+        toast(
+          parkedOne
+            ? `${I.names[kind]}: the one parked in the ${where} follows the cursor again`
+            : `${I.names[kind]}: all ${I.inventory[kind]} in use, took the one in the ${where} (Insert via moves it)`,
+        );
       } else if (p) park(p);
       else toast(occupancy.canTake(next, sub) ? FULL : `${I.names[kind]}: all in use`);
     }
@@ -675,10 +700,14 @@ export function wireM4(ctx: M4Context): M4 {
   }
 
   // ── Snap (left-click a structure); `instant` = the click of a cursor-driven tip already there ──
-  function snapTo(name: string, at: Vector3, instant = false): string {
+  function snapTo(name: string, pick: Vector3, instant = false): string {
     const tool = m4.tool;
     if (!tool) return 'hands';
     const tid = name;
+    // T853: the powered stapler on the lobe while the dotted guide shows goes to its next segment (in order).
+    const seg =
+      tool === 'stapler' && tid === FIN.lobe && m4.fissure?.active ? m4.fissure.nextSegment() : null;
+    const at = seg ? seg.mid : pick;
     const t = TARGET_BY_ID.get(tid);
     const coag = tool === 'cautery' && bleedAt(at); // T822: on a bleed = coagulate it
     if (!coag && (!t || t.tools[tool] === undefined))
@@ -700,8 +729,9 @@ export function wireM4(ctx: M4Context): M4 {
     if (!r.ok) return toast(`${r.reason}: try another port (P)`);
     m4.target = tid;
     point.copy(at);
-    seat(tool, tid);
+    seat(tool, tid, seg);
     stayPut = false;
+    anchorAt(at, true);
     constrain();
     return 'ok';
   }
@@ -873,9 +903,11 @@ export function wireM4(ctx: M4Context): M4 {
       const tissue = ANATOMY.structures[r.target]?.tissue;
       if (tissue === 'vein' || tissue === 'artery') F.noteDivided(finish, tissue);
     }
-    if (!lineOn) beginLine();
-    if (split) staples.clearLine();
-    else staples.reveal(1);
+    if (!guideLine(r.target)) {
+      if (!lineOn) beginLine();
+      if (split) staples.clearLine();
+      else staples.reveal(1);
+    }
     lineOn = false;
     eng.done = true; // the jaws open off the stumps, then let go
     m4.flags.add(`divided:${r.target}`);
@@ -912,9 +944,22 @@ export function wireM4(ctx: M4Context): M4 {
     eng.tool = tool;
     eng.target = tid;
   }
-  /** Snap: a stapler / clip applier on a vessel or bronchus seats open around it; anything else frees the jaws. */
-  function seat(tool: ToolId, tid: string): void {
-    if ((tool === 'stapler' || tool === 'clip') && needsEncircle(tid))
+  /** Snap: a stapler / clip applier on a vessel or bronchus seats open around it, the stapler on a fissure-guide
+   *  segment lies along it; anything else frees the jaws. */
+  function seat(tool: ToolId, tid: string, seg: Segment | null = null): void {
+    if (seg && control.port) {
+      // jawPose lays the jaws along the shaft projected ⟂ eng.axis: the shaft's component ⟂ the segment keeps them
+      // along it (as far as the articulation allows).
+      eng.axis.subVectors(seg.mid, control.port.pleura).normalize();
+      eng.axis.addScaledVector(seg.dir, -eng.axis.dot(seg.dir)).normalize();
+      eng.centre.copy(seg.mid);
+      eng.split = false;
+      eng.radius = ENG.fallbackRadiusM;
+      eng.offset = 0;
+      eng.done = false;
+      eng.tool = 'stapler';
+      eng.target = tid;
+    } else if ((tool === 'stapler' || tool === 'clip') && needsEncircle(tid))
       engage(tool, tid, tool === 'clip' ? clipOffset(tid) : 0);
     else disengage();
   }
@@ -926,6 +971,8 @@ export function wireM4(ctx: M4Context): M4 {
     eng.done = false;
     inst.setArticulation(instrumentGeom.stapler.articulation);
   }
+  /** T853: a fissure fire's staple line is the guide's (its segment), not M4's. */
+  const guideLine = (target: string): boolean => target === FIN.lobe && m4.fissure !== null;
   /** Staple line at the fire's cut: both sides of the knife, along the jaws (heel → tip); formed by reveal(). */
   function beginLine(): void {
     const r = fire.result;
@@ -978,7 +1025,10 @@ export function wireM4(ctx: M4Context): M4 {
       // Raw pick: the hook rides the layer it is opening, not the structure seen through the opening.
       sweepDirty = false;
       const h = m3.picker.pick(sweepX, sweepY, camera, true);
-      if (h) control.aimAt(h.point);
+      if (h) {
+        control.aimAt(h.point);
+        anchorAt(h.point, true);
+      }
     }
     // Mid-stroke the hook rides the layer it is opening (raw); a fresh contact inside an opening looks through it
     // to the structure beneath, as hover / pick do.
@@ -1079,6 +1129,7 @@ export function wireM4(ctx: M4Context): M4 {
     h.sub = sub;
     h.port = port;
     h.slot = act.slot;
+    h.parked = stayPut;
     if (act.mesh && act.target === tid) {
       h.target = tid;
       h.mesh = act.mesh;
@@ -1128,14 +1179,16 @@ export function wireM4(ctx: M4Context): M4 {
     h.sub = null;
     h.ref = null;
     h.slot = -1;
+    h.parked = false;
     h.port = null;
   }
 
-  /** Most recent instrument of inventory kind `kind` left in a port. */
-  function latestLeft(kind: string): Held | undefined {
+  /** Most recent instrument of inventory kind `kind` left in a port (`parked`: only one left parked). */
+  function latestLeft(kind: string, parked = false): Held | undefined {
     for (let i = occupancy.holds.length - 1; i >= 0; i--) {
       const o = occupancy.holds[i] as Hold;
-      if (invKind(o.tool, o.sub) === kind) return userHeld.find((h) => h.ref === o);
+      const h = invKind(o.tool, o.sub) === kind ? userHeld.find((x) => x.ref === o) : undefined;
+      if (h && (!parked || h.parked)) return h;
     }
     return undefined;
   }
@@ -1360,7 +1413,15 @@ export function wireM4(ctx: M4Context): M4 {
   function constrain(): void {
     const port = control.port;
     if (!port || !m4.tool || act.slot >= 0 || clamped !== null || eng.tool !== null) coll.clear();
-    else coll.check(port.pleura, control.shaftDir, control.depth);
+    else
+      coll.check(
+        port.pleura,
+        control.shaftDir,
+        control.depth,
+        anchorM,
+        anchorOn,
+        anchorLayer && I.collide.lungYieldsFor.includes(m4.tool),
+      );
     control.setLimit(coll.limit);
   }
 
@@ -1552,7 +1613,11 @@ export function wireM4(ctx: M4Context): M4 {
       camera,
     );
     if (m4.tool === 'sucker' && sub !== 'irrigation') {
-      if (hit) control.follow(hit.point); // T852: suction acts at the cursor-driven tip, no target needed
+      // T852: suction acts at the cursor-driven tip, no target needed
+      if (hit) {
+        control.follow(hit.point);
+        anchorAt(hit.point, false);
+      }
       return void press(true);
     }
     if (!hit) return void toast(REASONS.place as string);
@@ -1656,6 +1721,7 @@ export function wireM4(ctx: M4Context): M4 {
     get grasped() {
       return grab.name;
     },
+    fissure: null,
     onNodeRemoved: [],
     heldShown: () => allHeld.filter((h) => h.obj?.visible).length,
     update(now) {
@@ -1680,7 +1746,10 @@ export function wireM4(ctx: M4Context): M4 {
         followAcc = 0;
         followDirty = false;
         const h = canFollow() ? m3.picker.pick(followX, followY, camera) : null;
-        if (h) control.follow(h.point);
+        if (h) {
+          control.follow(h.point);
+          anchorAt(h.point, false, h.nodeName);
+        }
       }
       control.update(dt);
       // T850 tissue-aware tip: shaft ray at ≤ follow.hz; the lung indent follows the press (uniform writes on change).
@@ -1743,7 +1812,7 @@ export function wireM4(ctx: M4Context): M4 {
       }
       if (fire.update(dt)) onDivide();
       // T841: staples form heel → tip after the compression pause, then the knife runs.
-      if (fire.phase === 'firing' && fire.form > 0) {
+      if (fire.phase === 'firing' && fire.form > 0 && !guideLine(fire.result.target)) {
         if (!lineOn) beginLine();
         staples.reveal(fire.form);
       }

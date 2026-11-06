@@ -211,7 +211,8 @@ const GRASP_VERTEX = /* glsl */ `
 	// T850 lung push: the instrument tip indents the lung (world offset uPushDir = depth × direction, smooth falloff).
 	if ( uPushOn * dot( uPushDir, uPushDir ) > 0.0 ) {
 		float pushK = 1.0 - smoothstep( 0.0, uPushRadius, distance( ( modelMatrix * vec4( transformed, 1.0 ) ).xyz, uPushPoint ) );
-		transformed += inverse( mat3( modelMatrix ) ) * ( uPushDir * pushK );
+		// world → local without a per-vertex inverse: valid for rotation + uniform scale (all scene meshes).
+		transformed += transpose( mat3( modelMatrix ) ) * ( uPushDir * pushK ) / dot( modelMatrix[0].xyz, modelMatrix[0].xyz );
 	}
 	vTissueWorld = ( modelMatrix * vec4( transformed, 1.0 ) ).xyz;
 #include <project_vertex>`;

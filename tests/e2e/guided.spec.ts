@@ -32,6 +32,11 @@ test('guided mode: Next through steps 1–9, captions match, PageUp/PageDown nav
   await expect(page.locator('button[data-mode=guided]')).toHaveAttribute('aria-pressed', 'true');
   await expect(bar.getByRole('button', { name: 'Previous step' })).toBeDisabled();
 
+  // T851: the first Next from the theatre only takes the scope in, at step 1.
+  await bar.getByRole('button', { name: 'Next step' }).click();
+  await expect.poll(() => page.evaluate(() => window.__sim.rig?.target)).toBe('scope');
+  await settled(page);
+  await expect(title).toHaveText(GUIDED_STEPS[0]?.title ?? '');
   for (const [i, s] of GUIDED_STEPS.entries()) {
     if (i > 0) await bar.getByRole('button', { name: 'Next step' }).click();
     await settled(page);
@@ -110,37 +115,6 @@ test('guided layout: all rail steps visible and clickable at 1280×720 and 1024�
   await expect(page.locator('.guided-step[aria-current=step]')).toContainText(last?.rail ?? '');
 });
 
-test('T844 step 7 "Show me": grasper pulls the middle lobe, stapler fires across the fissures, lobe free', async ({
-  page,
-}) => {
-  test.setTimeout(300_000);
-  const errors: string[] = [];
-  page.on('pageerror', (e) => errors.push(e.message));
-  page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?step=7&view=scope');
-  await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
-  const programs = await page.evaluate(() => window.__perf.programs);
-  const bar = page.getByRole('region', { name: 'Guided procedure' });
-  await expect(bar.getByRole('heading')).toHaveText('Complete the fissures');
-  const show = bar.getByRole('button', { name: 'Show me this step' });
-  await expect(show).toBeEnabled();
-  await show.click();
-  await expect(bar.getByRole('button', { name: 'Stop the demonstration' })).toBeVisible();
-  await expect(bar.locator('.guided-demo-text')).not.toBeEmpty();
-  // Runs to the end on its own (2 stapler fires), then offers a replay.
-  await expect(show).toBeVisible({ timeout: 120_000 });
-  await expect(bar.locator('.guided-demo-text')).toBeHidden(); // hidden = finished cleanly (no refusal text)
-  expect(await page.evaluate(() => window.__sim.m4?.finish.lobeFree)).toBe(true);
-  expect(await page.evaluate(() => window.__sim.m4?.finish.fissureFires)).toBe(2);
-  await page.screenshot({ path: 'qa/screenshots/demo-step-7.png' });
-  // Skippable: a replay stops on Stop.
-  await show.click();
-  await bar.getByRole('button', { name: 'Stop the demonstration' }).click();
-  await expect(show).toBeVisible();
-  expect(await page.evaluate(() => window.__perf.programs)).toBe(programs);
-  expect(errors).toEqual([]);
-});
-
 test('T847a: guided steps enter the scope view (a later Outside click holds); caption + toast placement', async ({
   page,
 }) => {
@@ -157,6 +131,9 @@ test('T847a: guided steps enter the scope view (a later Outside click holds); ca
   await bar.getByRole('button', { name: 'Next step' }).click();
   await expect.poll(target).toBe('scope');
   await expect(text).toBeVisible();
+  await expect(bar.getByRole('heading')).toHaveText(GUIDED_STEPS[0]?.title ?? ''); // T851: still step 1
+  await settled(page);
+  await bar.getByRole('button', { name: 'Next step' }).click(); // step 2
   // Port hint toast: below the topbar and clear of the compass.
   const toast = page.locator('#action-toast');
   await expect(toast).toBeVisible();

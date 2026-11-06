@@ -260,7 +260,9 @@ describe('persistent dissection (T842 per-vertex opened field)', () => {
     expect(flags[at(0)]).toBe(1);
     expect(flags[at(0.012)]).toBe(0);
     expect(blunt.cuts.inside(blunt.mesh, p)).toBe(true);
-    expect((cautery.mesh.geometry.getAttribute(BLUNT_ATTR).array as Float32Array).every((v) => v === 0)).toBe(true);
+    expect((cautery.mesh.geometry.getAttribute(BLUNT_ATTR).array as Float32Array).every((v) => v === 0)).toBe(
+      true,
+    );
   });
 
   it('never closes: 10 sweeps back and forth only add; reset clears everything', () => {

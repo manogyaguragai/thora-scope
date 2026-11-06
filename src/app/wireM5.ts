@@ -347,7 +347,11 @@ export function wireM5(ctx: M5Context): M5 {
       });
       const d = await import('../ui/debrief');
       holdRendering(HOLD);
-      d.openDebrief(app, breakdown, { onRetry: restart, onClose: () => releaseRendering(HOLD) });
+      d.openDebrief(app, breakdown, {
+        onRetry: restart,
+        onClose: () => releaseRendering(HOLD),
+        samples: m4.samples,
+      });
       return breakdown;
     },
     update(now) {

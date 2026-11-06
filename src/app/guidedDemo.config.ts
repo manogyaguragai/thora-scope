@@ -17,6 +17,11 @@ export const guidedDemoConfig = {
   timeoutMs: 8000,
   /** Beat duration when a script line gives none: one eased camera move plus a moment to look. */
   beatMs: config.scope.transitionMs + 700,
+  /** Reach point on a target: up to `tries` of its vertices (the `topFrac` nearest in angle to the port → centre
+   *  line) whose straight line from the port meets the target first (ray up to `beyondM` past the vertex). */
+  reach: { tries: 48, topFrac: 0.5, beyondM: 0.002 },
+  /** Camera aims: blend factors toward the step view's line of sight tried until the lens stays in the chest. */
+  aimBlend: [0, 0.35, 0.7] as readonly number[],
   /** Lens start for the step-1 insertion: this far past the camera port's pleura. */
   scopeEntryM: config.scopeRig.depthM.min,
 } as const;

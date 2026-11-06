@@ -11,13 +11,14 @@ export const fissureGuideConfig = {
     { neighbour: 'lung_upper_lobe_right', segments: 2 },
     { neighbour: 'lung_lower_lobe_right', segments: 2 },
   ],
-  /** Contact band: middle-lobe vertices this close to the neighbour in the collapsed (step 1) pose. */
+  /** Contact band: middle-lobe vertices this close to the neighbour in the rest (un-morphed) pose. */
   bandM: 0.004,
   /** Path resolution: band points binned along the fissure's long axis (as seen from the step-7 scope). */
   bins: 20,
   dot: {
     spacingM: 0.0032, // centre to centre along the path
     radiusM: 0.0009,
+    refDepthM: 0.09, // nearer to the lens than this a dot keeps its screen size (the far fissure's, step-7 lens)
     liftM: 0.0012, // toward the scope, so the dots sit on (not in) the surface
     color: '#ffd23f', // guide yellow (sRGB), unlit
     segmentGapM: 0.0035, // dot-free gap marking where one fire ends and the next begins

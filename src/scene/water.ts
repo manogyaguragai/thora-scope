@@ -160,7 +160,8 @@ export class Water {
 
   /** Per frame. `suckTip`: the held sucker's tip (null = not sucking); in reach the level falls (and stays down). */
   update(dt: number, bubbles: PointPool | null, suckTip: Vector3Like | null): void {
-    if (suckTip && this.reaches(suckTip)) this.level = this.target = Math.max(0, this.level - C.drainPerSec * dt);
+    if (suckTip && this.reaches(suckTip))
+      this.level = this.target = Math.max(0, this.level - C.drainPerSec * dt);
     else if (this.level !== this.target) {
       const step = C.fillPerSec * dt;
       const d = this.target - this.level;

@@ -287,8 +287,10 @@ function practiceSteps(page) {
         await sleep(TWEEN_MS);
       },
     ],
-    ['PA20', () => fire(RML, 'parenchyma', RET)],
+    ['PA20', () => fire(RML, 'parenchyma', RET)], // T851: one fire per dotted fissure segment
+    ['PA29', () => fire(RML, 'parenchyma', RET)],
     ['PA21', () => inspect(AIRWAY_TREE)],
+    ['PA30', () => fire(RML, 'parenchyma', RET)],
     ['PA22', () => fire(RML, 'parenchyma', RET)],
     ['PA23', () => page.keyboard.press('KeyB')],
     ['PA24', () => page.evaluate(() => window.__sim.m4?.irrigate())],

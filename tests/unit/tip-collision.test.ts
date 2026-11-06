@@ -43,6 +43,36 @@ describe('T850 tip collision', () => {
     expect(c.limit).toBe(Infinity);
   });
 
+  test('an aimed point just inside a hard surface (overlapping layers) is reachable, not one well behind it', () => {
+    const c = new TipCollision(rayOver([['middle_lobe_vein', 0.111]]));
+    c.check(O, X, 0.1116, 0.1116);
+    expect(c.limit).toBeCloseTo(0.1116, 9);
+    c.check(O, X, 0.13, 0.13);
+    expect(c.limit).toBeCloseTo(0.111 - C.marginM, 9);
+  });
+
+  test('T853: a lobe in the shaft path yields to a dissector aimed at a layer behind it; hard tissue still stops it', () => {
+    const lobe: [string, number] = ['lung_middle_lobe_right', 0.04];
+    const layer: [string, number] = ['hilar_connective_tissue', 0.08];
+    const c = new TipCollision(rayOver([lobe, layer]));
+    c.check(O, X, 0.08, 0.08);
+    expect(c.limit).toBeCloseTo(0.04 + C.push.capM, 9); // not reaching: the lobe blocks after its press
+    c.check(O, X, 0.08, 0.08, false, true);
+    expect(c.limit).toBeCloseTo(0.08, 9);
+    expect(c.press(0.08)).toBeCloseTo(C.push.capM, 9); // the lobe is pushed aside (indent capped)
+    const h = new TipCollision(rayOver([lobe, ['pericardium', 0.06], layer]));
+    h.check(O, X, 0.08, 0.08, false, true);
+    expect(h.limit).toBeCloseTo(0.06 - C.marginM, 9);
+  });
+
+  test('a click-snap placed on a structure reaches it through tissue in the way (force)', () => {
+    const c = new TipCollision(rayOver([['pericardium', 0.05]]));
+    c.check(O, X, 0.09, 0.09);
+    expect(c.limit).toBeCloseTo(0.05 - C.marginM, 9);
+    c.check(O, X, 0.09, 0.09, true);
+    expect(c.limit).toBeCloseTo(0.09, 9);
+  });
+
   test('dissectable layers are passed: the vessel beneath stops the tip', () => {
     const c = new TipCollision(
       rayOver([

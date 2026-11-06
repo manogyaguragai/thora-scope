@@ -10,6 +10,8 @@ export interface DebriefCallbacks {
   readonly onRetry?: () => void;
   /** Fires once whenever the dialog closes (Close, Esc, Retry): resume the loop here. */
   readonly onClose?: () => void;
+  /** T851: lymph-node samples recorded in the run (station ids, e.g. '11R'). */
+  readonly samples?: readonly string[];
 }
 
 export interface DebriefHandle {
@@ -76,6 +78,13 @@ function fill(d: HTMLDialogElement, b: ScoreBreakdown): void {
     sec.append(ul);
     body.append(sec);
   }
+  const samples = callbacks.samples ?? [];
+  const sec = el('section', 'debrief-group');
+  sec.append(
+    el('h3', 'debrief-group-title', 'Samples sent'),
+    el('p', 'debrief-detail', samples.length ? samples.map((x) => `Station ${x}`).join(', ') : 'None'),
+  );
+  body.append(sec);
 
   const actions = el('div', 'debrief-actions');
   const retry = button('Retry case', 'debrief-button debrief-primary', () => {

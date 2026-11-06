@@ -1,6 +1,7 @@
 // T850 tissue-aware instrument tip (docs/FEEDBACK_v8_LIVE.md 3): one ray along the shaft from the port fulcrum,
 // by tissue type (manifest-driven): hard structures stop the tip short of their surface, a lung lobe yields (the
-// tip presses it, an indent eased back on release), manifest-dissectable layers are passed. Pure logic; the ray is
+// tip presses it, an indent eased back on release), manifest-dissectable layers are passed. T853: a lobe in the shaft
+// path also yields (pressed, not blocking) when the tip is aimed at a dissectable layer behind it (`reach`). Pure logic; the ray is
 // injected (wireM4: picker.ray, BVH). check() runs at ≤ follow.hz, ease() per frame; neither allocates.
 import { MathUtils, Vector3 } from 'three';
 import { ANATOMY } from '../content/anatomy';
@@ -39,8 +40,17 @@ export class TipCollision {
     private readonly cfg = interactionConfig.collide,
   ) {}
 
-  /** Shaft from `origin` (pleura point) along unit `dir`, the tip wanting to be `depth` m along it. */
-  check(origin: Vector3, dir: Vector3, depth: number): void {
+  /** Shaft from `origin` (pleura point) along unit `dir`, the tip wanting to be `depth` m along it. `anchor` = the
+   *  depth of the surface point it was aimed at (snap / cursor / sweep; 0 = none): a hard surface within
+   *  `anchorTolM` before it (modelled layers sitting slightly inside a vessel) lets the tip reach that point;
+   *  `force` (a click-snap / energised sweep placed on that structure) always does; `reach` (a dissecting tip aimed
+   *  at a visible dissectable layer) lets a lobe before the anchor yield, hard surfaces still stop it. */
+  check(origin: Vector3, dir: Vector3, depth: number, anchor = 0, force = false, reach = false): void {
+    this.scan(origin, dir, depth, anchor, reach);
+    if (force) this.limit = Math.max(this.limit, anchor);
+  }
+
+  private scan(origin: Vector3, dir: Vector3, depth: number, anchor: number, reach: boolean): void {
     const c = this.cfg;
     const far = depth + c.marginM + c.push.capM;
     let near = c.skipM;
@@ -54,13 +64,23 @@ export class TipCollision {
         continue;
       }
       if (k === 'lung') {
-        this.surface = h.distance;
-        this.limit = h.distance + c.push.capM;
-        if (depth > h.distance) {
-          this.point.copy(h.point);
-          this.dir.copy(dir);
+        if (this.surface === Infinity) {
+          this.surface = h.distance;
+          if (depth > h.distance) {
+            this.point.copy(h.point);
+            this.dir.copy(dir);
+          }
         }
-      } else this.limit = Math.max(c.skipM, h.distance - c.marginM);
+        if (reach && anchor > h.distance) {
+          this.limit = anchor; // pushed aside on the way to the layer: look for hard tissue before it
+          near = h.distance + c.passStepM;
+          continue;
+        }
+        this.limit = h.distance + c.push.capM;
+      } else {
+        const stop = Math.max(c.skipM, h.distance - c.marginM);
+        this.limit = anchor > 0 && h.distance >= anchor - c.anchorTolM ? Math.max(stop, anchor) : stop;
+      }
       return;
     }
   }

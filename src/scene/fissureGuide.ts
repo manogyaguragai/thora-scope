@@ -1,8 +1,8 @@
 // T851 step-7 fissure guide: built ONCE at load from geometry (§6.10). The middle lobe's contact band with each
 // neighbour lobe (collapsed pose) is traced in the step-7 pose as the edge the step-7 scope sees, split into
-// stapler-sized segments and drawn as dots (one InstancedMesh). Each powered-stapler fire on the lobe (finish.ts
-// fissureFires) turns the segment nearest the stapler tip into a staple line (own Staples pool, same program as the
-// M4 staples) and hides its dots; when all are fired the free lobe drifts with the grasper. Runtime = matrix writes
+// stapler-sized segments and drawn as dots (one InstancedMesh, depth-scaled in its vertex shader). Each powered-stapler
+// fire on the lobe (finish.ts fissureFires; wireM4 seats the jaws on nextSegment()) turns the next segment, in order,
+// into a staple line (own Staples pool, same program as the M4 staples) and hides its dots; when all are fired the free lobe drifts with the grasper. Runtime = matrix writes
 // at fire time + a few compares per frame; nothing is created after load.
 import { Color, Group, InstancedMesh, Matrix4, MeshBasicMaterial, SphereGeometry, Vector3 } from 'three';
 import type { Mesh, Object3D } from 'three';
@@ -165,8 +165,12 @@ export interface FissureGuide {
   isFired(i: number): boolean;
   /** Midpoint of the next unfired segment (demo / stapler snap); false when all are fired. */
   next(out: Vector3): boolean;
+  /** The next unfired segment (the user's stapler seats on it); null when all are fired. */
+  nextSegment(): Segment | null;
+  /** Dots shown: the guide's step, segments left (the stapler snaps to them). */
+  readonly active: boolean;
   /** Per frame (after M4): mirror finish.fissureFires onto the segments, step visibility. Allocation-free. */
-  update(state: AppState, f: GuideFinish, tip: Vector3): void;
+  update(state: AppState, f: GuideFinish): void;
 }
 
 /** The finish.ts fields the guide reads. */
@@ -177,9 +181,8 @@ export interface GuideFinish {
 }
 
 const COLLAPSE = 'collapse_';
-/** World vertex positions of every mesh under `node`, morphed to step `n`'s state (influences restored after). */
-function posedPositions(node: Object3D, n: number): Vector3[] {
-  const s = getStep(n).state as Readonly<Record<string, number | undefined>>;
+/** World vertex positions of every mesh under `node`, morphed to state `s` (influences restored after). */
+function posedPositions(node: Object3D, s: Readonly<Record<string, number | undefined>>): Vector3[] {
   const out: Vector3[] = [];
   node.traverse((o) => {
     const mesh = o as Mesh;
@@ -192,7 +195,8 @@ function posedPositions(node: Object3D, n: number): Vector3[] {
       inf[i] = (s[key] ?? 0) * (name.startsWith(COLLAPSE) ? COLLAPSE_GAIN : 1);
     }
     const count = mesh.geometry.getAttribute('position').count;
-    for (let i = 0; i < count; i++) out.push(mesh.getVertexPosition(i, new Vector3()).applyMatrix4(mesh.matrixWorld));
+    for (let i = 0; i < count; i++)
+      out.push(mesh.getVertexPosition(i, new Vector3()).applyMatrix4(mesh.matrixWorld));
     if (inf) saved.forEach((v, i) => (inf[i] = v));
   });
   return out;
@@ -207,14 +211,15 @@ const flatten = (v: readonly Vector3[]): Float32Array => {
 const ZERO = new Matrix4().makeScale(0, 0, 0);
 const _m = new Matrix4();
 const _n = new Vector3();
-const CONTACT_STEP = 1; // collapsed lobes, no retraction: the fissure surfaces touch
+const REST = {}; // un-morphed: the lobes' fissure surfaces sit a fraction of a millimetre apart
 
 /** Load time, before the compile stage (the caller adds `group` to the scene + registerWarmupObject). */
 export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
   model.updateMatrixWorld();
   const lobe = model.getObjectByName(C.lobe);
-  const restLobe = lobe ? posedPositions(lobe, CONTACT_STEP) : [];
-  const poseLobe = lobe ? posedPositions(lobe, C.step) : [];
+  const restLobe = lobe ? posedPositions(lobe, REST) : [];
+  const stepState = getStep(C.step).state;
+  const poseLobe = lobe ? posedPositions(lobe, stepState) : [];
   const restFlat = flatten(restLobe);
   const lobeCentre = new Vector3();
   for (const p of poseLobe) lobeCentre.add(p);
@@ -225,14 +230,14 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
   for (const f of C.fissures) {
     const nb = model.getObjectByName(f.neighbour);
     if (!nb) continue;
-    const band = bandIndices(restFlat, flatten(posedPositions(nb, CONTACT_STEP)), C.bandM);
+    const band = bandIndices(restFlat, flatten(posedPositions(nb, REST)), C.bandM);
     const path = tracePath(
       band.map((i) => poseLobe[i] as Vector3),
       eye,
       C.bins,
     );
     const nbCentre = new Vector3();
-    const nbPose = posedPositions(nb, C.step);
+    const nbPose = posedPositions(nb, stepState);
     for (const p of nbPose) nbCentre.add(p);
     nbCentre.divideScalar(Math.max(1, nbPose.length));
     for (const seg of splitPath(path, f.segments)) {
@@ -251,11 +256,20 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
     ranges.push([centres.length, centres.length + dots.length]);
     for (const p of dots) centres.push(p.addScaledVector(_n.subVectors(eye, p).normalize(), D.liftM));
   }
-  const dots = new InstancedMesh(
-    new SphereGeometry(D.radiusM, 8, 6),
-    new MeshBasicMaterial({ color: new Color(D.color), name: 'fissureGuide:dots' }),
-    Math.max(1, centres.length),
-  );
+  const dotMat = new MeshBasicMaterial({ color: new Color(D.color), name: 'fissureGuide:dots' });
+  // Nearer than refDepthM a dot keeps its screen size (shrinks in the world): no big blobs by the lens. Load-time
+  // program (compiled at warm-up), no runtime uniform.
+  dotMat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace(
+      '#include <project_vertex>',
+      `vec4 dotC = modelViewMatrix * instanceMatrix * vec4(0.0, 0.0, 0.0, 1.0);
+      vec4 mvPosition = dotC + modelViewMatrix * instanceMatrix * vec4(transformed, 0.0) *
+        min(1.0, -dotC.z / ${D.refDepthM.toFixed(4)});
+      gl_Position = projectionMatrix * mvPosition;`,
+    );
+  };
+  dotMat.customProgramCacheKey = () => 'fissureGuide:dots';
+  const dots = new InstancedMesh(new SphereGeometry(D.radiusM, 8, 6), dotMat, Math.max(1, centres.length));
   dots.name = 'fissure_guide_dots';
   dots.count = centres.length;
   centres.forEach((p, i) => dots.setMatrixAt(i, _m.makeTranslation(p.x, p.y, p.z)));
@@ -283,19 +297,7 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
     dots.instanceMatrix.needsUpdate = true;
     staples.addLine(seg.mid, normals[i] as Vector3, seg.dir, seg.length, 2);
   };
-  const nearest = (tip: Vector3): number => {
-    let best = -1;
-    let d = Infinity;
-    for (let i = 0; i < segments.length; i++) {
-      if (fired[i]) continue;
-      const e = (segments[i] as Segment).mid.distanceToSquared(tip);
-      if (e < d) {
-        d = e;
-        best = i;
-      }
-    }
-    return best;
-  };
+  const nextSegment = (): Segment | null => segments[fired.indexOf(0)] ?? null;
 
   return {
     group,
@@ -305,15 +307,17 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
     },
     isFired: (i) => fired[i] === 1,
     next(out) {
-      const i = fired.indexOf(0);
-      const seg = segments[i];
-      if (i < 0 || !seg) return false;
-      out.copy(seg.mid);
-      return true;
+      const seg = nextSegment();
+      if (seg) out.copy(seg.mid);
+      return seg !== null;
     },
-    update(state, f, tip) {
+    nextSegment,
+    get active() {
+      return group.visible && dots.visible;
+    },
+    update(state, f) {
       if (f.fissureFires < seen) seen = f.fissureFires; // a fresh case
-      for (; seen < f.fissureFires && nFired < segments.length; seen++) fire(nearest(tip));
+      for (; seen < f.fissureFires && nFired < segments.length; seen++) fire(fired.indexOf(0));
       if (f.lobeFree && nFired < segments.length) {
         for (let i = 0; i < segments.length; i++) fire(i); // freed elsewhere (a reload into a later step)
         drifted = true;

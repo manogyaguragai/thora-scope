@@ -109,7 +109,8 @@ describe('finish: fissure + extraction sequence', () => {
     expect(confirmUnderside(s, 1).ok).toBe(false); // before first fire
     expect(flags(fireFissure(s, 1))).toEqual(['fissure_fire_1']);
     // T851: one fire per fissure-guide segment; only the last one needs the underside check.
-    for (let i = 2; i < C.fissureFiresRequired; i++) expect(flags(fireFissure(s, 1))).toEqual([`fissure_fire_${i}`]);
+    for (let i = 2; i < C.fissureFiresRequired; i++)
+      expect(flags(fireFissure(s, 1))).toEqual([`fissure_fire_${i}`]);
     const early = fireFissure(s, 1);
     expect(!early.ok && early.error).toBe(true);
     expect(confirmUnderside(s, 0.1).ok).toBe(false);

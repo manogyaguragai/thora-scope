@@ -49,15 +49,19 @@ export const interactionConfig = {
   /** T850 "Insert via" picker order (Camera port · Anterior port · Access incision); keys K.insertVia1–3. */
   insertOrder: ['port_camera_8ICS', 'port_retraction_8ICS', 'port_utility_5ICS'] as readonly string[],
   /** T850 tissue-aware tip: a ray along the shaft (from `skipM` past the pleura, ≤ follow.hz) stops the tip `marginM`
-   *  short of chest wall / mediastinum / vessels / heart / bronchus / nodes; manifest-dissectable layers are passed
+   *  short of chest wall / mediastinum / vessels / heart / bronchus / nodes (unless it is within `anchorTolM` of the
+   *  point the tip was aimed at: modelled layers overlap the vessels a little); manifest-dissectable layers are passed
    *  (re-cast `passStepM` beyond, ≤ `passMax` times; cautery / peanut open them); a lung lobe yields: the tip presses
    *  up to `push.capM` past its surface, indenting it over `push.radiusM` (instant in, eased back at `push.perS`). */
   collide: {
     skipM: 0.01,
     marginM: 0.0015,
+    anchorTolM: 0.003,
     passStepM: 0.0005,
     passMax: 3,
     push: { capM: 0.012, radiusM: 0.025, perS: 8, epsM: 1e-5 },
+    /** T853: these tips aimed (cursor) at a visible dissectable layer push a lobe in the shaft path aside. */
+    lungYieldsFor: ['peanut', 'cautery'] as readonly string[],
   },
   lens: {
     clearM: { stapler: 0.045 } as Readonly<Record<string, number>>,

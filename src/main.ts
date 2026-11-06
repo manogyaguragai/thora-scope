@@ -220,7 +220,7 @@ async function main(): Promise<void> {
     if (sim.morphs) updateMorphs(sim.morphs, state);
     sim.m3?.update(now);
     sim.m4?.update(now);
-    if (sim.m4) sim.fissure?.update(state, sim.m4.finish, sim.m4.control.tipPos);
+    if (sim.m4) sim.fissure?.update(state, sim.m4.finish);
     sim.m5?.update(now);
     sim.stumps?.sync();
   }
@@ -317,7 +317,11 @@ async function main(): Promise<void> {
       const m4 = (sim.m4 = wireM4({ ...ctx, m3, scene, renderer, preset, fog: post.uniforms.uFog }));
       // After picking (stumps are not pickable), before the compile stage (titanium program compiles at load).
       sim.stumps = buildStumps(m);
-      const fg = (sim.fissure = buildFissureGuide(m, r.scopePoseOf(getStep(fissureGuideConfig.step).camera).position));
+      const fg = (sim.fissure = buildFissureGuide(
+        m,
+        r.scopePoseOf(getStep(fissureGuideConfig.step).camera).position,
+      ));
+      m4.fissure = fg; // T853: the user's stapler seats on its next segment
       scene.add(fg.group);
       registerWarmupObject(fg.group);
       m5Ctx = { ...ui, m3, m4, gain: post.uniforms.uGain, setStep: sim.setStep, setView: sim.setView };
