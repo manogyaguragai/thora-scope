@@ -185,16 +185,19 @@ describe('smoke density (T842)', () => {
   });
 });
 
-describe('node-bed ooze (T842)', () => {
-  it('drips until energised contact holds coag.sec on it', () => {
+describe('node-bed ooze (T842 seal rule, T861 look)', () => {
+  it('oozes (no particles, no decal) until energised contact holds coag.sec on it', () => {
     const fx = createEffects(presets.medium);
     const bed = new Vector3(0.01, 0, 0);
-    fx.startOoze(bed, new Vector3(0, 1, 0));
+    fx.startOoze(bed, new Vector3(0, 0, 1));
     expect(fx.oozing).toBe(1);
+    expect(fx.bed.state).toBe('oozing');
     expect(fx.oozeNear(bed)).toBe(true);
     expect(fx.oozeNear(new Vector3(1, 0, 0))).toBe(false);
     fx.update(1);
-    expect(fx.ooze.aliveCount).toBeGreaterThan(0);
+    expect(fx.ooze.aliveCount).toBe(0);
+    expect(fx.blood.activeBleeds).toBe(0);
+    expect(fx.beds[0]?.mesh.visible).toBe(true);
     fx.cautery(bed);
     fx.contact(new Vector3(1, 0, 0), new Vector3(0, 1, 0)); // elsewhere: no seal
     fx.update(CAUTERY.coag.sec + 0.1);
@@ -202,7 +205,49 @@ describe('node-bed ooze (T842)', () => {
     fx.contact(bed, new Vector3(0, 1, 0));
     for (let t = 0; t <= CAUTERY.coag.sec + 0.1; t += 0.1) fx.update(0.1);
     expect(fx.oozing).toBe(0);
+    expect(fx.bed.state).toBe('coagulated');
     expect(fx.oozeNear(bed)).toBe(false);
+  });
+
+  it('rivulet runs down (gravity −Y) on a vertical surface and ends in a pool; flat surface = pool at the drop', () => {
+    const fx = createEffects(presets.medium);
+    const pos = (i: number): Vector3 => {
+      const m = new Matrix4();
+      fx.beds[0]?.mesh.getMatrixAt(i, m);
+      return new Vector3().setFromMatrixPosition(m);
+    };
+    const R = EFFECTS_CONFIG.bed.rivulet;
+    fx.startOoze(new Vector3(), new Vector3(0, 0, 1)); // wall facing +Z, no surface probe: a straight run
+    expect(pos(R.steps + 1).y).toBeCloseTo(-R.steps * R.stepM, 4); // pool at the low end
+    expect(pos(1).y).toBeLessThan(0);
+    const fx2 = createEffects(presets.medium);
+    fx2.startOoze(new Vector3(), new Vector3(0, 1, 0)); // floor: already the low point
+    const m = new Matrix4();
+    fx2.beds[0]?.mesh.getMatrixAt(1, m);
+    expect(new Vector3().setFromMatrixScale(m).x).toBe(0); // no rivulet
+  });
+
+  it('BedFxApi: ooze → coagulate, instant set(), timeline growth / dark-down', () => {
+    const fx = createEffects(presets.medium);
+    const B = EFFECTS_CONFIG.bed;
+    fx.bed.ooze({ x: 0, y: 0, z: 0 });
+    fx.update(B.oozeSec / 2);
+    const tl = fx.beds[0]?.timeline;
+    expect(tl?.grow).toBeCloseTo(0.5, 5);
+    fx.bed.coagulate();
+    fx.update(B.coagSec);
+    expect(fx.bed.state).toBe('coagulated');
+    expect(tl?.grow).toBeCloseTo(0.5, 5); // frozen by the seal
+    expect(tl?.coag).toBe(1);
+    fx.bed.set('none');
+    fx.update(0.01);
+    expect(fx.bed.state).toBe('none');
+    expect(fx.beds.every((b) => !b.mesh.visible)).toBe(true);
+    fx.bed.set('coagulated', { x: 0.01, y: 0, z: 0 });
+    expect(fx.bed.state).toBe('coagulated');
+    expect(fx.beds[1]?.timeline.coag).toBe(1);
+    expect(fx.beds[1]?.timeline.grow).toBe(B.coagulatedGrow);
+    expect(fx.oozeNear(new Vector3(0.01, 0, 0))).toBe(false); // sealed: not a bleed
   });
 });
 

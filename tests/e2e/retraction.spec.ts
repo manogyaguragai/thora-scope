@@ -4,7 +4,7 @@ import type { Page } from '@playwright/test';
 // T820/T832/T840: multi-instrument retraction on the v7 keys. Any drag direction blends retract_hilum /
 // retract_RML_lateral / retract_fissure for the grasped lobe (directions measured from its morph deltas); grasps add
 // up. Held (G) or left in place by a tool switch, a grasper keeps the pose while another tool works; Shift+G / a mode
-// change ease it back. Guided steps 2–7 show a static held grasper. No new shader programs.
+// change ease it back. Guided (the T860 walkthrough) rebuilds its holding grasper per step. No new programs.
 test.use({ viewport: { width: 1280, height: 720 } });
 
 const SHOTS = 'qa/screenshots';
@@ -180,27 +180,33 @@ test('retraction: key per lobe + drag → hold → cautery in another port → r
   expect(errors).toEqual([]);
 });
 
-test('guided: steps 2–7 show the static held grasper, steps 1, 8 and 9 do not', async ({ page }) => {
+test('guided walkthrough (T860): entering steps 3–8 rebuilds the holding grasper in its port; steps 1, 2 and 9 start without', async ({
+  page,
+}) => {
   test.setTimeout(180_000);
   await page.goto('/?view=scope&step=2');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const programs = (): Promise<number> => page.evaluate(() => window.__perf.programs);
   const before = await programs();
   for (const [step, shown] of [
-    [2, 1],
-    [7, 1],
-    [8, 0],
-    [1, 0],
     [3, 1],
+    [7, 1],
+    [9, 0],
+    [1, 0],
+    [2, 0],
+    [8, 1],
   ] as const) {
-    await page.evaluate((n) => window.__sim.setStep(n, true), step);
-    await page.waitForTimeout(SETTLE_MS);
-    expect((await held(page)).shown, `step ${step}`).toBe(shown);
+    const s = await page.evaluate(async (n) => {
+      await window.__sim.walkthrough?.seek(n);
+      return { reflected: window.__sim.walkthrough?.state().reflected, shown: window.__sim.m4?.heldShown() };
+    }, step);
+    expect(s.shown, `step ${step}`).toBe(shown);
+    if (shown) expect(s.reflected, `step ${step}`).toBe(true);
   }
-  for (const step of [2, 3, 4, 5, 6, 7]) {
-    await page.evaluate((n) => window.__sim.setStep(n, true), step);
+  for (const step of [3, 4, 5, 6, 7]) {
+    await page.evaluate((n) => window.__sim.walkthrough?.seek(n), step);
     await page.waitForTimeout(SETTLE_MS);
-    await page.screenshot({ path: `${SHOTS}/guided-grasper-s${step}.png` }); // T821: grasper framed in 3, 5, 6
+    await page.screenshot({ path: `${SHOTS}/guided-grasper-s${step}.png` });
   }
   expect(await programs()).toBe(before);
 });

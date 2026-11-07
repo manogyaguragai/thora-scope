@@ -51,8 +51,9 @@
 /* 3D labels: a non-interactive overlay over the canvas; nodes only move via transform (§6.7). */
 .labels3d {
   position: absolute;
-  /* Bottom band reserved for the caption-free dock (hotbar + port chips): labels never land on it. */
-  inset: 0 0 calc(var(--space-6) * 3) 0;
+  /* Bottom band reserved for the caption-free dock (hotbar + port chips + Hold/Release rows, ≈ 180 px): labels never
+     land on it (T880: 3 × space-6 was 35 px short at 1024×640). */
+  inset: 0 0 calc(var(--space-6) * 4) 0;
   overflow: hidden;
   pointer-events: none;
   z-index: 0; /* under the shell (z-index 1): tags never paint over the UI */
@@ -107,4 +108,27 @@
   margin: 0;
   color: var(--color-muted);
   font-size: var(--font-size-small);
+}
+
+/* T862 Guided walkthrough hover label (hoverLabel.ts): follows the cursor via transform, never takes input. */
+.hover-label {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2; /* above the shell panels it may pass over */
+  max-width: calc(var(--space-6) * 5);
+  padding: calc(var(--space-1) / 4) var(--space-1);
+  background: var(--color-surface-label);
+  color: var(--color-text);
+  border: var(--border-width) solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-small);
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: transform;
+}
+
+.hover-label[hidden] {
+  display: none;
 }

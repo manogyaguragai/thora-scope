@@ -31,6 +31,9 @@ export const STUMPS = {
   liftM: 0.0001,
   /** Staple-line direction reference (projected ⟂ the stump axis); +X = cranial. */
   acrossRef: [1, 0, 0] as const,
+  /** T890: node whose world position the stapled faces turn toward (the walkthrough's division views: inferior
+   *  camera port); acrossRef is the fallback when it is missing. */
+  faceEye: 'port_camera_8ICS',
   /** Tessellation: around, tube rings, dome rings. */
   radial: 24,
   tubeRings: 10,
@@ -50,6 +53,19 @@ export const STUMPS = {
     axisR: 1.2, // cut axis = centroid offset over ± this × radius
     layer: 30,
     patchSlack: 1.5, // live-axis patch (rest pose) reaches this × the PCA radius: morphs may slide it a little
+  },
+  /** T875 compact pair for a trunk too short for the full stump + cap (middle-lobe artery: 9.2 mm for a 6.7 mm
+   *  vessel): one staple row per face, shorter ramp / pinch; `capLengthR` = the distal cap's lengthR. */
+  // T886: once divided, the pair's specimen side (distal end + cap + carried branches) shifts `retractM` back along
+  // the cut axis (cut vessel ends spring apart), so the two stapled ends read apart (they sat ≈ 1 mm apart).
+  short: {
+    rows: 1,
+    lengthR: 0.6,
+    rampR: 0.3,
+    pinch: 0.3,
+    flatMarginM: 0.0002,
+    capLengthR: 0.4,
+    retractM: 0.004,
   },
   /** Distal stump cap: a short pinched end on the specimen side (overrides of the stump shape above). */
   cap: { lengthR: 0.7, embedR: 0.25, radiusK: 1.04, rampR: 0.5 },

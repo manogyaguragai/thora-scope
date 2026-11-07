@@ -114,7 +114,7 @@ test('T841 division: stapler across the vein, progressive staples, two stumps â€
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
   page.on('console', (m) => /^\[stumps\]|^T841/.test(m.text()) && console.log(m.text())); // split diagnostics
-  await page.goto('/?view=scope&step=3');
+  await page.goto('/?mode=explore&view=scope&step=3');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const programs = (): Promise<number> => page.evaluate(() => window.__perf.programs);
   const before = await programs();
@@ -226,7 +226,7 @@ test('T841 division: stapler across the vein, progressive staples, two stumps â€
 // T847b: in every guided step view (static grasper, instruments the step shows) nothing sits at the lens.
 test('T847b lens clearance in each step view', async ({ page }) => {
   test.setTimeout(180_000);
-  await page.goto('/?view=scope&step=1');
+  await page.goto('/?mode=explore&view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   for (let n = 1; n <= STEP_COUNT; n++) {
     await page.evaluate((k) => window.__sim.setStep(k, true), n);

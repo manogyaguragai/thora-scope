@@ -151,6 +151,21 @@ export const config = {
     stepHidden: {
       2: ['heart_rest', 'inferior_vena_cava'], // bulge through the pericardium over the SPV
     } as Readonly<Record<number, readonly string[]>>,
+    // T884/T886 (critic S5): Guided walkthrough scope view only (Practice unchanged): the base scene's vagus pokes
+    // through the collapsed right lobes as a stray white tube (steps 2–4); with the lobe released the phrenic does
+    // the same across the lower lobe (step 8 release →). No walkthrough beat targets them there.
+    guidedHidden: ['vagus_nerve_right'] as readonly string[],
+    // T890 (critic r2 C10): the phrenic stub pokes past the middle lobe in steps 1–3 too; it shows only while a beat
+    // frames it (guidedFramedShow: the step-1 phrenic beat).
+    guidedStepHidden: {
+      1: ['phrenic_nerve_right'],
+      2: ['phrenic_nerve_right'],
+      3: ['phrenic_nerve_right'],
+      8: ['phrenic_nerve_right'],
+      9: ['phrenic_nerve_right'],
+    } as Readonly<Record<number, readonly string[]>>,
+    /** Guided-hidden nodes shown while the current walkthrough beat's camera subject names them (wireM4). */
+    guidedFramedShow: ['phrenic_nerve_right'] as readonly string[],
   },
   steps: {
     defaultStep: 1, // ?view=scope without ?step=
@@ -213,6 +228,12 @@ export const config = {
     labelAvoid: '.shell-top, .guided-caption, .scope-compass', // T806: tags never land under these (rects measured on resize/toggle)
     labelAvoidMax: 4, // at most this many labelAvoid rects
     focusLabelModes: ['guided'] as readonly string[], // T807: L shows only the step-focus structures' tags here
+    // T862 (FEEDBACK_GUIDED_v1 R5 / R2): side-docked text panels stay outside this central fraction of the aperture;
+    // walkthrough hover tooltip offset from the cursor, touch long-press, side messages kept.
+    dockClearFrac: 0.85,
+    hoverTipOffsetPx: 14,
+    longPressMs: 500,
+    walkMsgMax: 3,
   },
   perf: {
     sampleHz: 4, // window.__perf refresh rate
@@ -393,8 +414,9 @@ export const config = {
     smoke: {
       capScale: 1,
       color: [0.86, 0.86, 0.84] as const,
-      size: 0.012, // m, point size (size-attenuated); T410: 0.008 read too thin
-      opacity: 0.5, // T817: 0.35 was faint against pink tissue
+      // T890 (critic r2 C4): 12 mm × 0.5 read as hard white discs near the lens → small soft wisps at the tip
+      size: 0.005, // m, point size (size-attenuated); T410: 0.008 read too thin (from the far step view)
+      opacity: 0.25, // T817: 0.35 was faint against pink tissue (single wisps; the plume overlaps them)
       lifeSec: 1.6,
       riseSpeed: 0.012, // m/s along +Y (gravity is −Y, §7.1)
       jitter: 0.004, // m/s random lateral/vertical velocity
@@ -433,6 +455,39 @@ export const config = {
       normalOffset: 0.0004, // m, lift off the surface
       normalPickTolM: 0.01, // T806: bleed point re-picked from the camera; a hit this close lends its surface normal
     },
+    /** T861 node-bed ooze (BedFx): a glossy drop welling at the bed point, a rivulet traced down the surface along
+     *  gravity, a small pool at its low point; no particles. Growth (0…1 over oozeSec) and coagulation are uniforms;
+     *  the shapes are instance matrices written once when the ooze starts. */
+    bed: {
+      gravity: [0, -1, 0] as const, // world: left lateral decubitus, right side up (CONTEXT §7.1: gravity −Y)
+      oozeSec: 10, // drop → rivulet → pool fully grown
+      coagSec: 1.2, // dark-down after the seal
+      coagulatedGrow: 0.5, // growth shown by an instant set('coagulated') (seek end-state)
+      color: 0x4c2200, // glossy dark blood after ACES + grade (T861 0x420707 → body #58001c, magenta; T872: green offsets ACES' red→magenta skew + the blue lift; target #5a0a0a…#8a1414)
+      clotColor: 0x2e0e08, // coagulum (dark red-brown; T890: 0x1c0a06 read as a black char fleck on the bronchus)
+      roughness: 0.15, // T890 (C5): wet specular
+      clotRoughness: 0.55,
+      clearcoatRoughness: 0.05,
+      clotShrink: 0.15, // coagulum sits a little lower than the wet blood
+      // T884 (critic S2): 2.6 mm × 0.45 read as a ball; a thin film welling up, a flat trickle and a flat pool
+      drop: { radiusM: 0.0015, flat: 0.15, grow: [0, 0.25] as const }, // grow = [start, end] of the growth range
+      rivulet: {
+        // T890 (critic r2 C5): 10 × 1.8 mm blobs read as a stack of flat discs close up → many short, heavily
+        // overlapping blobs (same ≈ 18 mm run) merge into one continuous ribbon.
+        steps: 28,
+        stepM: 0.00065, // along the surface per segment
+        widthM: 0.001,
+        flat: 0.2,
+        overlap: 3,
+        grow: [0.2, 0.8] as const,
+      },
+      pool: { radiusM: 0.0032, flat: 0.1, grow: [0.7, 1] as const },
+      snapM: 0.004, // rivulet points re-snapped to the nearest surface within this
+      minSlope: 0.15, // |gravity along the surface| below this = the low point (the pool)
+      clearDecalM: 0.02, // T884: sealing a bed clears the fresh-blood decals (decal.color) within this of it
+      liftM: 0.0002, // off the surface
+      segments: [12, 8] as const, // sphere width / height segments of the blob geometry
+    },
   },
   // Encircle + staple-divide logic (src/sim/actions/staple.ts).
   staple: {
@@ -462,11 +517,14 @@ export const config = {
     rowGap: 0.0009, // row spacing along the stump axis, first row this far beyond the cut (m)
     lineWidth: 0.012, // default staple-line width without a measured diameter (m)
     crown: 0.0028, // staple crown length along the line (m)
-    wire: 0.0005, // wire thickness (m)
+    wire: 0.0003, // wire thickness (m); T890 (critic r2 C3): 0.5 mm read as chunky chips close up
     maxLines: 12, // caps alive (vein, bronchus, artery, fissure fires + branches)
     maxClips: 8,
     cutGap: 0.0015, // gap between the cut plane and the kept tissue (m)
-    look: { color: '#d4d7dc', roughness: 0.18, metalness: 1 }, // titanium (sRGB hex)
+    // titanium (sRGB hex). T884 (critic S3): metalness 1 + the warm cavity env read as maroon dashes → the instruments'
+    // neutral env (staples.ts / stumps.ts set it) + a little diffuse so the headlight lifts them silver.
+    // T890 (C3): envMapIntensity 2 + the bright env cap blew the rows out to white bars → greyer, env 1.
+    look: { color: '#aeb2b8', roughness: 0.35, metalness: 0.85, envMapIntensity: 1 },
   },
   // Finish phase (src/sim/actions/finish.ts, PA14–PA32).
   finish: {

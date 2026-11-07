@@ -2,11 +2,11 @@ import { describe, expect, test, vi } from 'vitest';
 import { keybindings, matchesKey } from '../../src/core/keybindings';
 import { structuresWhere } from '../../src/content/anatomy';
 import { config } from '../../src/core/config';
-import { DEMOS } from '../../src/app/guidedDemo';
+import { WALK_STEPS } from '../../src/app/walkthrough/steps';
 import { FISSURE_SEGMENTS } from '../../src/scene/fissureGuide.config';
 import { TARGET_BY_ID } from '../../src/content/targets';
 import { createGuided } from '../../src/sim/guided';
-import { CONTEXT_ACTIONS, SLOTS } from '../../src/sim/hotbar';
+import { SLOTS } from '../../src/sim/hotbar';
 import { STEPS } from '../../src/sim/steps';
 import { getMode, onModeChange, setMode } from '../../src/sim/modes';
 import type { Mode } from '../../src/sim/modes';
@@ -210,26 +210,29 @@ describe('keybindings', () => {
   });
 });
 
-describe('T851 guided demonstrations (declarative timelines)', () => {
-  test('every step has a script; every beat names a known tool, target, port, context key', () => {
-    const tools = new Set(SLOTS.map((t) => t.id));
-    const context = new Set<string>(CONTEXT_ACTIONS.map((c) => c.id));
-    const ports = new Set(STEPS.map((s) => s.port).concat('port_retraction_8ICS'));
-    for (const s of STEPS) expect(DEMOS[s.step]?.length, `step ${s.step}`).toBeGreaterThan(0);
-    expect(DEMOS[7]?.filter((b) => b.act?.k === 'segment')).toHaveLength(FISSURE_SEGMENTS);
-    expect(DEMOS[8]?.some((b) => b.act?.k === 'key' && b.act.id === 'bag')).toBe(true);
-    for (const [step, script] of Object.entries(DEMOS))
-      for (const b of script) {
+describe('T860 guided walkthrough step data (src/app/walkthrough/steps)', () => {
+  test('every guided step has a timeline; beats name known tools, targets and ports', () => {
+    const tools = new Set(SLOTS.map((t) => t.id).concat('bag', 'chestTube'));
+    const ports = new Set(STEPS.map((s) => s.port).concat('port_retraction_8ICS', 'port_camera_8ICS'));
+    expect(WALK_STEPS.map((s) => s.step)).toEqual(STEPS.map((s) => s.step));
+    const s7 = WALK_STEPS.find((s) => s.step === 7);
+    expect(s7?.beats.filter((b) => b.act?.k === 'segment')).toHaveLength(FISSURE_SEGMENTS);
+    expect(WALK_STEPS.find((s) => s.step === 8)?.beats.some((b) => b.act?.k === 'bag')).toBe(true);
+    for (const st of WALK_STEPS) {
+      expect(ports.has(st.scopePort)).toBe(true);
+      expect(new Set(st.beats.map((b) => b.id)).size, `step ${st.step} beat ids`).toBe(st.beats.length);
+      for (const b of st.beats) {
         expect(b.say.length).toBeGreaterThan(0);
         const a = b.act;
-        if (a?.k === 'insert') {
-          expect(tools.has(a.tool), `${step} ${a.tool}`).toBe(true);
-          for (const t of typeof a.target === 'string' ? [a.target] : a.target)
-            if (t !== 'bed')
-              expect(TARGET_BY_ID.get(t)?.tools[a.tool as 'grasper'], `${step} ${t}`).toBeDefined();
-          for (const p of typeof a.port === 'string' ? [a.port] : a.port) expect(ports.has(p)).toBe(true);
-        }
-        if (a?.k === 'key') expect(context.has(a.id)).toBe(true);
+        if (a?.k !== 'insert') continue;
+        expect(tools.has(a.tool), `${st.step} ${a.tool}`).toBe(true);
+        expect(ports.has(a.port)).toBe(true);
+        if (typeof a.target === 'string' && SLOTS.some((t) => t.id === a.tool))
+          expect(
+            TARGET_BY_ID.get(a.target)?.tools[a.tool as 'grasper'],
+            `${st.step} ${a.target}`,
+          ).toBeDefined();
       }
+    }
   });
 });

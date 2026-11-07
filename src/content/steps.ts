@@ -1,5 +1,6 @@
 // Guided-mode teaching text (CONTEXT §6.1 item 1). Own wording, paraphrased from docs/BOOK_NOTES.md,
 // docs/VIDEO_STEP_MAP.md and CONTEXT §13. Port labels follow ADR-004. Pending clinician review.
+import { PORT_LABELS } from '../sim/ports';
 
 export interface GuidedStep {
   step: number;
@@ -13,8 +14,8 @@ export interface GuidedStep {
   note?: string;
 }
 
-const CAMERA_PORT = 'Camera port (8th space)';
-const ACCESS_INCISION = 'Access incision (5th space)';
+const CAMERA_PORT = PORT_LABELS.port_camera_8ICS ?? '';
+const ACCESS_INCISION = PORT_LABELS.port_utility_5ICS ?? '';
 
 export const GUIDED_STEPS: readonly GuidedStep[] = [
   {
@@ -27,13 +28,13 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
       'The patient lies on the left side, right side up. Only the left lung is ventilated, so the right lung falls away from the chest wall.',
       'Try the ventilation switch: with both lungs ventilated the right lung fills the cavity and hides the hilum, which is why surgery runs on one lung.',
       'Name the landmarks: three right lobes, the horizontal fissure above the middle lobe, the oblique one below it, and the phrenic nerve on the pericardium.',
-      'Ports: camera port low in the 8th space, access incision higher and further forward in the 5th, plus one more 1 cm port. Roles can swap.',
+      'Ports: inferior camera port low on the side, anterior access incision higher and further forward in the 5th space, posterior 1 cm port. Roles can swap.',
       'A 30° angled telescope lets you look around structures by rotating the optic rather than moving the port.',
     ],
     video: {
       from: '0:26',
       to: '0:39',
-      text: 'In the reference video: the anterior working port and a roughly 4 cm access incision are made, then the collapsed lung is surveyed.',
+      text: 'In the reference video: a 1 cm working port and a roughly 4 cm access incision are made, then the collapsed lung is surveyed.',
     },
     portLabel: CAMERA_PORT,
   },
@@ -202,5 +203,5 @@ export const MODEL_LIMITATIONS: readonly string[] = [
   'Vessel trees stop just inside the lung, so with the lungs hidden you see the hilar vessels only.',
   'See-through pleura can occasionally draw in the wrong order.',
   'The tumour in the reference video, and the extra upper lobe margin taken for it, are not modelled.',
-  'Port positions differ from the video; ports are matched by role (camera port, access incision, anterior working port).',
+  'Port positions differ from the video; ports are named by where they sit on this patient (inferior camera port, anterior access incision, posterior port).',
 ];

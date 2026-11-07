@@ -38,6 +38,12 @@ export function registerWarmupHook(fn: WarmupHook): void {
   warmupHooks.push(fn);
 }
 
+const warmupViews: Camera[] = [];
+/** Extra stage-5 warm-up camera (e.g. a walkthrough beat pose, T863): `warmupFrames` renders like the glTF cams. */
+export function registerWarmupView(cam: Camera): void {
+  warmupViews.push(cam);
+}
+
 let sceneTarget: WebGLRenderTarget | null = null;
 /** The target the scene is rendered into at runtime (post-FX HDR target); compile + warm-up render into it too. */
 export function setWarmupTarget(target: WebGLRenderTarget): void {
@@ -152,7 +158,7 @@ export async function runLoadingStages(
   enter('warmup');
   // Scene renders go to the same target as at runtime; hooks then draw the post-FX pass to the canvas, which the
   // opaque loading screen still covers.
-  const cams = [...loaded.gltf.cameras, camera];
+  const cams = [...loaded.gltf.cameras, ...warmupViews, camera];
   const steps = cams.length * config.loading.warmupFrames + warmupHooks.length;
   let s = 0;
   for (const cam of cams) {

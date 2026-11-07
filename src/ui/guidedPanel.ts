@@ -1,13 +1,19 @@
-// Guided procedure UI (§6.1 item 1): step list in the left rail + caption bar above the hotbar dock.
-// Plain DOM (ADR-007). Event-driven: the DOM is rewritten only on 'stepchange', never per frame.
-type Demo = typeof import('../app/guidedDemo');
+// Guided walkthrough UI (§6.1 item 1, FEEDBACK_GUIDED_v1 §2.3 + R5): step rail on the left (with the walkthrough's
+// sub-progress) and, in the right side dock above the vitals monitor, the walkthrough panel (title, Prev / Replay /
+// Pause / Next, the beat caption, learning points) plus side messages. Playback runs through
+// window.__sim.walkthrough (T860 timeline) when it exists, else the panel drives the guided controller directly.
+// Plain DOM (ADR-007). Event-driven: the DOM is rewritten on step / walkthrough events only, never per frame.
+import type { WalkState, WalkthroughHook } from '../app/walkthrough/types';
 import type { GuidedStep } from '../content/steps';
+import { config } from '../core/config';
 import { keybindings, matchesKey } from '../core/keybindings';
 import { onModeChange } from '../sim/modes';
+import { PORT_LABELS } from '../sim/ports';
 import type { Shell } from './shell';
 import './panels.css';
 
-const READY_POLL_MS = 100; // ?demo= waits for the app's "ready" (load time only)
+const READY_POLL_MS = 100; // the walkthrough hook may land after mount (load time only)
+const MSG_MAX = config.viewing.walkMsgMax;
 
 /** What the panel needs from src/sim/guided.ts. */
 export interface GuidedNav {
@@ -30,15 +36,21 @@ function h<K extends keyof HTMLElementTagNameMap>(
   return node;
 }
 
-function navButton(text: string, aria: string, run: () => void): HTMLButtonElement {
-  const b = h('button', { type: 'button', className: 'panel-button guided-nav', textContent: text });
+function button(className: string, text: string, aria: string, run: () => void): HTMLButtonElement {
+  const b = h('button', { type: 'button', className: `panel-button ${className}`, textContent: text });
   b.setAttribute('aria-label', aria);
+  b.title = aria;
   b.addEventListener('click', run);
   return b;
 }
 
-/** Mounts the step list into shell.rail and the caption bar into shell.caption; returns a dispose function. */
+/** The T860 engine hook, null until it is wired. */
+const hook = (): WalkthroughHook | null =>
+  (window.__sim as { walkthrough?: WalkthroughHook | null } | undefined)?.walkthrough ?? null;
+
+/** Mounts the step list into shell.rail and the walkthrough panel into the side dock; returns a dispose function. */
 export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonly GuidedStep[]): () => void {
+  const sub = h('span', { className: 'guided-sub', hidden: true });
   const items = steps.map((s) => {
     const b = h(
       'button',
@@ -48,95 +60,52 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     );
     b.setAttribute('aria-label', `${s.step}. ${s.title}`);
     b.title = s.title;
-    b.addEventListener('click', () => guided.goTo(s.step));
+    b.addEventListener('click', () => {
+      const w = attach();
+      if (w) void w.seek(s.step);
+      else guided.goTo(s.step);
+    });
     return b;
   });
   const list = h('ol', { className: 'guided-steps' }, ...items.map((b) => h('li', {}, b)));
+  list.setAttribute('aria-label', 'Guided walkthrough steps');
 
   const title = h('h2', { className: 'guided-title' });
   title.setAttribute('aria-live', 'polite');
   const counter = h('span', { className: 'guided-counter' });
   const port = h('span', { className: 'guided-port' });
-  const caption = h('p', { className: 'guided-text' });
+  const caption = h('p', { className: 'guided-text' }); // beat caption (walkthrough) or the step caption
+  caption.setAttribute('aria-live', 'polite');
   const points = h('ul', { className: 'guided-points' });
   const video = h('p', { className: 'guided-video' });
   const note = h('p', { className: 'guided-note' });
-  // T844 "Show me": the step's scripted demonstration (Guided here, Explore in its own small bar); Stop skips it.
-  const demoText = h('p', { className: 'guided-demo-text', hidden: true });
-  demoText.setAttribute('aria-live', 'polite');
-  const exploreText = h('p', { className: 'guided-demo-text', hidden: true });
-  exploreText.setAttribute('aria-live', 'polite');
-  let demoRunning = false;
-  let demo: Demo | null = null; // lazy chunk (keeps the scripts out of the initial bundle)
-  const showMe = [
-    h('button', { type: 'button', className: 'panel-button guided-demo', textContent: 'Show me' }),
-    h('button', { type: 'button', className: 'panel-button guided-demo', textContent: 'Show me' }),
-  ];
-  const setDemo = (running: boolean, text = ''): void => {
-    demoRunning = running;
-    for (const b of showMe) {
-      b.textContent = running ? 'Stop' : b === showMe[1] ? `Show me step ${guided.current}` : 'Show me';
-      b.setAttribute('aria-label', running ? 'Stop the demonstration' : 'Show me this step');
-      b.disabled = !running && !demo?.hasDemo(guided.current);
-    }
-    for (const t of [demoText, exploreText]) {
-      t.textContent = text;
-      t.hidden = !text;
-    }
-  };
-  // T851 "Try it": back to the step's start after a demo (a reload when the demo divided / removed something).
-  const tryIt = h('button', {
-    type: 'button',
-    className: 'panel-button guided-demo',
-    textContent: 'Try it',
-    hidden: true,
-  });
-  tryIt.setAttribute('aria-label', 'Try this step yourself');
-  tryIt.addEventListener('click', () => {
-    tryIt.hidden = true;
-    if (!demo) return;
-    if (demo.pristine(guided.current)) demo.applyStart(guided.current);
-    else demo.reloadInto(guided.current, 'try');
-  });
-  const toggleDemo = (fresh = false): void => {
-    if (!demo) return;
-    tryIt.hidden = true;
-    if (demoRunning) {
-      demo.stopDemo();
-      return setDemo(false);
-    }
-    setDemo(true);
-    void demo
-      .runDemo(guided.current, (t) => setDemo(true, t), fresh)
-      .then((r) => {
-        if (r === 'reload') return; // the page reloads into the step and plays it there
-        tryIt.hidden = false;
-        if (r !== 'stopped') setDemo(false, r === 'done' ? '' : `Demonstration stopped: ${r}`);
-      });
-  };
-  for (const b of showMe) b.addEventListener('click', () => toggleDemo());
-  const exploreBar = h('section', { className: 'guided-demo-bar' }, showMe[1] as HTMLElement, exploreText);
-  exploreBar.setAttribute('aria-label', 'Demonstration');
-  exploreBar.style.cssText =
-    'display:flex;gap:var(--space-1);align-items:center;padding:var(--space-1) var(--space-2);background:var(--color-surface-overlay);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-lg)';
-  const showExplore = (mode: string | undefined): void => {
-    exploreBar.hidden = mode !== 'explore';
-    exploreBar.style.display = exploreBar.hidden ? 'none' : 'flex'; // inline display beats [hidden]
-  };
-  onModeChange((m) => {
-    if (demoRunning) demo?.stopDemo();
-    setDemo(false);
-    showExplore(m);
-  });
+  const msgs = h('ul', { className: 'guided-msgs', hidden: true });
+  msgs.setAttribute('aria-label', 'Walkthrough messages');
+  msgs.setAttribute('aria-live', 'polite');
+
   // T851: from the theatre (outside view), the first Next / PageDown only takes the scope in at step 1 (wireM3
-  // enterScope); it used to skip straight to step 2. data-view is the view shown before this input.
+  // enterScope). data-view is the view shown before this input.
   const advance = (): void => {
     if (guided.current === steps[0]?.step && shell.root.dataset.view !== 'scope') return;
-    guided.next();
+    const w = attach();
+    if (w) w.next();
+    else guided.next();
   };
-  const prev = navButton('Prev', 'Previous step', () => guided.prev());
-  const next = navButton('Next', 'Next step', advance);
-  // Learning points, video note and model note sit behind "More" so the bar stays short (T205).
+  const back = (): void => {
+    const w = attach();
+    if (w) w.prev();
+    else guided.prev();
+  };
+  const prev = button('guided-nav', 'Prev', 'Previous step', back);
+  const next = button('guided-nav', 'Next', 'Next step', advance);
+  const replay = button('guided-play', '↻', 'Replay step', () => attach()?.replay());
+  const play = button('guided-play', '▶', 'Play', () => {
+    const w = attach();
+    if (w?.state().status === 'playing') w.pause();
+    else w?.play();
+  });
+
+  // Learning points, video note and model note sit behind "More" (T205).
   const details = h(
     'div',
     { className: 'guided-details', id: 'guided-details', hidden: true },
@@ -152,22 +121,29 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     more.textContent = details.hidden ? 'More' : 'Less';
     more.setAttribute('aria-expanded', String(!details.hidden));
   });
-  const body = h('div', { className: 'guided-body' }, caption, details);
+  const body = h('div', { className: 'guided-body', id: 'guided-body' }, caption, more, details);
+  // R5: collapsible (only the head + controls stay).
+  const fold = h('button', { type: 'button', className: 'panel-button guided-fold', textContent: '−' });
+  fold.setAttribute('aria-label', 'Step text');
+  fold.setAttribute('aria-expanded', 'true');
+  fold.setAttribute('aria-controls', body.id);
+  fold.addEventListener('click', () => {
+    body.hidden = !body.hidden;
+    fold.textContent = body.hidden ? '+' : '−';
+    fold.setAttribute('aria-expanded', String(!body.hidden));
+  });
   const bar = h(
     'section',
     { className: 'guided-caption' },
-    h(
-      'div',
-      { className: 'guided-head' },
-      title,
-      port,
-      h('div', { className: 'guided-controls' }, showMe[0] as HTMLElement, tryIt, more, prev, counter, next),
-    ),
-    demoText,
+    h('div', { className: 'guided-head' }, title, fold),
+    h('div', { className: 'guided-meta' }, port, counter),
+    h('div', { className: 'guided-controls' }, prev, replay, play, next),
     body,
   );
-  bar.setAttribute('aria-label', 'Guided procedure');
+  bar.setAttribute('aria-label', 'Guided walkthrough');
 
+  let shown = 0; // step number on screen
+  let said = 0; // step whose beat caption is on screen (a caption may arrive before the step's state event)
   const render = (n: number): void => {
     const i = Math.max(
       0,
@@ -175,20 +151,20 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     );
     const s = steps[i];
     if (!s) return;
+    shown = s.step;
     items.forEach((b, j) =>
       j === i ? b.setAttribute('aria-current', 'step') : b.removeAttribute('aria-current'),
     );
+    items[i]?.append(sub);
     title.textContent = s.title;
     counter.textContent = `${i + 1} / ${steps.length}`;
     port.textContent = s.portLabel;
-    caption.textContent = s.caption;
+    if (said !== s.step) caption.textContent = s.caption; // replaced by the beat captions while the walkthrough plays
     points.replaceChildren(...s.points.map((p) => h('li', {}, p)));
     video.textContent = `${s.video.text} (${s.video.from}–${s.video.to})`;
     note.textContent = s.note ?? '';
     note.hidden = !s.note;
-    if (demoRunning) demo?.stopDemo();
-    setDemo(false);
-    tryIt.hidden = true;
+    clearMsgs();
     prev.disabled = i === 0;
     next.disabled = i === steps.length - 1;
     // Restart the enter animation (opacity/transform; 0 ms under reduced motion via tokens.css).
@@ -197,43 +173,79 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     body.classList.add('guided-enter');
   };
 
+  const clearMsgs = (): void => {
+    msgs.replaceChildren();
+    msgs.hidden = true;
+  };
+  // T872: walkthrough messages belong to the walkthrough: none carried into (or arriving during) another mode.
+  const pushMsg = (text: string): void => {
+    if (!text || shell.root.dataset.mode !== 'guided') return;
+    msgs.append(h('li', {}, text));
+    while (msgs.childElementCount > MSG_MAX) msgs.firstElementChild?.remove();
+    msgs.hidden = false;
+  };
+  let lastBeat = 0;
+  const onState = (s: WalkState): void => {
+    if (s.step !== shown) render(s.step);
+    else if (s.beat < lastBeat) clearMsgs(); // U4: a seek / replay back inside the step drops stale messages
+    lastBeat = s.beat;
+    port.textContent = PORT_LABELS[s.scopePort] ?? s.scopePort; // U3: where the scope is now, not the step's declared port
+    sub.textContent = s.sub ? `${s.sub.at}/${s.sub.of}` : '';
+    sub.hidden = !s.sub;
+    const playing = s.status === 'playing';
+    play.textContent = playing ? '❚❚' : '▶';
+    play.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+    play.title = playing ? 'Pause' : 'Play';
+    prev.disabled = s.step === steps[0]?.step && (!s.sub || s.sub.at <= 1);
+    if (s.status === 'error' && s.error) pushMsg(s.error);
+  };
+
+  let walk: WalkthroughHook | null = null;
+  /** Subscribes once the T860 hook exists; null = fall back to the guided controller. */
+  function attach(): WalkthroughHook | null {
+    if (walk) return walk;
+    walk = hook();
+    replay.disabled = play.disabled = !walk;
+    if (!walk) return null;
+    walk.on('caption', (s, text) => {
+      said = s.step;
+      caption.textContent = text;
+    });
+    walk.on('msg', (_s, text) => pushMsg(text));
+    walk.on('state', (s) => onState(s));
+    onState(walk.state());
+    return walk;
+  }
+
   const onKey = (e: KeyboardEvent): void => {
     if (shell.root.dataset.mode !== 'guided' || e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     if (e.target instanceof HTMLElement && e.target.closest('input, textarea, select, [contenteditable]'))
       return;
     if (matchesKey(keybindings.guidedNext, e.code)) advance();
-    else if (matchesKey(keybindings.guidedPrev, e.code)) guided.prev();
+    else if (matchesKey(keybindings.guidedPrev, e.code)) back();
     else return;
     e.preventDefault();
   };
+  const onStep = (n: number): void => {
+    attach();
+    if (n !== shown) render(n);
+  };
 
   render(guided.current);
-  guided.on('stepchange', render);
+  guided.on('stepchange', onStep);
+  onModeChange(clearMsgs);
   window.addEventListener('keydown', onKey);
   shell.rail.append(list);
-  shell.caption.append(bar, exploreBar);
-  showExplore(shell.root.dataset.mode);
-  void import('../app/guidedDemo').then((d) => {
-    demo = d;
-    if (!demoRunning) setDemo(false);
-    // T851: a reload into a step (?demo=run plays its demo, ?demo=try starts it) once the app is ready.
-    const u = new URL(location.href);
-    const want = u.searchParams.get('demo');
-    if (want !== 'run' && want !== 'try') return;
-    u.searchParams.delete('demo');
-    history.replaceState(history.state, '', u);
-    const go = (): void => {
-      if (!window.__perf?.ready) return void window.setTimeout(go, READY_POLL_MS);
-      if (want === 'run') toggleDemo(true);
-      else d.applyStart(guided.current);
-    };
-    go();
-  });
+  shell.caption.append(bar, msgs);
+  const poll = (): void => {
+    if (!attach() && !window.__perf?.ready) window.setTimeout(poll, READY_POLL_MS);
+  };
+  poll();
   return () => {
-    guided.off('stepchange', render);
+    guided.off('stepchange', onStep);
     window.removeEventListener('keydown', onKey);
     list.remove();
     bar.remove();
-    exploreBar.remove();
+    msgs.remove();
   };
 }

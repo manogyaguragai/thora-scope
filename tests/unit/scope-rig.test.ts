@@ -49,13 +49,13 @@ function shaftDir(rig: ScopeRig): Vector3 {
 describe('readPorts', () => {
   test('converts Blender (x, y, z) to glTF (x, z, −y), labels per ADR-004', () => {
     const cam = ports.find((p) => p.id === 'port_camera_8ICS');
-    expect(cam?.label).toBe('Camera port');
+    expect(cam?.label).toBe('Inferior camera port');
     expect(cam?.skin.toArray()).toEqual([-0.163, 0.138, 0.0332]);
     expect(cam?.pleura.toArray()).toEqual([-0.163, 0.0842, 0.0136]);
     expect(cam?.axis.y).toBeCloseTo(-0.9397, 3);
     expect(cam?.axis.z).toBeCloseTo(-0.342, 3);
     expect(cam?.axis.length()).toBeCloseTo(1);
-    expect(ports.map((p) => p.label)).toContain('Anterior working port');
+    expect(ports.map((p) => p.label)).toContain('Posterior port');
   });
 
   test('rejects missing or inconsistent extras', () => {

@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test';
 test.use({ viewport: { width: 1280, height: 720 } });
 
 const CAM = 'port_camera_8ICS';
-const ANT = 'port_retraction_8ICS';
+const ANT = 'port_retraction_8ICS'; // posterior port (ADR-004)
 const UTIL = 'port_utility_5ICS';
 
 const sim = <T>(page: Page, fn: () => T): Promise<T> => page.evaluate(fn);
@@ -135,10 +135,10 @@ test('T850 insert via each port, right-click park, tissue stop + lung push, LN s
 
   // Chest wall: never past it. Lung: pressed in, it indents (uniform > 0) and the tip stays within the indent.
   const wall = await pressInto(page, 'chest', 0.03);
-  expect(wall, 'a chest-wall direction from the anterior port').not.toBeNull();
+  expect(wall, 'a chest-wall direction from the posterior port').not.toBeNull();
   expect(wall?.tipDepth ?? Infinity).toBeLessThanOrEqual((wall?.surface ?? 0) + 1e-4);
   const lung = await pressInto(page, 'lung', 0.03);
-  expect(lung, 'a lung direction from the anterior port').not.toBeNull();
+  expect(lung, 'a lung direction from the posterior port').not.toBeNull();
   expect(lung?.uniform ?? 0).toBeGreaterThan(0);
   expect(lung?.push ?? 0).toBeGreaterThan(0);
   expect((lung?.tipDepth ?? Infinity) - (lung?.surface ?? 0)).toBeLessThanOrEqual((lung?.push ?? 0) + 1e-4);

@@ -12,7 +12,7 @@ test('arrows pivot, wheel inserts, compass + Inside/Outside buttons', async ({ p
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?view=scope&step=1');
+  await page.goto('/?mode=explore&view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const programs = await page.evaluate(() => window.__perf?.programs ?? -1);
 
@@ -91,7 +91,7 @@ test('T843: scope stops at organ surfaces and inside the chest wall; orbit stays
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?view=scope&step=1');
+  await page.goto('/?mode=explore&view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   await page.waitForFunction(() => Object.values(window.__sim.state.tweens).every((t) => !t.active), null, {
     timeout: 120_000,
@@ -212,7 +212,7 @@ test('T843: the CT mediastinal fat never takes a label; the lung surface behind 
   page,
 }) => {
   test.setTimeout(300_000);
-  await page.goto('/?view=scope&step=1');
+  await page.goto('/?mode=explore&view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   let fatOverLung = 0;
   // Several angles: step views, plus the step-1 view swung down toward the inferior lung surface.

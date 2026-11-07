@@ -77,7 +77,7 @@ const findCell = (page: Page, prefix: string, byLowY: boolean, spanX = 0) =>
 
 test('sucker held over the field clears smoke and haze (hotbar → port → cursor → hold)', async ({ page }) => {
   test.setTimeout(240_000);
-  const { errors, programs } = await boot(page, '/?view=scope&step=2');
+  const { errors, programs } = await boot(page, '/?mode=explore&view=scope&step=2');
   const before = await programs();
   const cell = await findCell(page, 'mediastinal_pleura_hilum', false);
   expect(cell).not.toBeNull();
@@ -114,7 +114,7 @@ test('sucker held over the field clears smoke and haze (hotbar → port → curs
 
 test('sucker held in the irrigated field drains the saline to dry', async ({ page }) => {
   test.setTimeout(240_000);
-  const { errors, programs } = await boot(page, '/?view=scope&step=9');
+  const { errors, programs } = await boot(page, '/?mode=explore&view=scope&step=9');
   const before = await programs();
   await page.keyboard.press('KeyW'); // water.config key: "Irrigate the field"
   await page.waitForFunction(() => window.__sim.m4?.water.level === 1, null, { timeout: 15_000 });
@@ -139,7 +139,7 @@ test('peanut on the hilar pleura opens it bluntly: no char, no smoke; the dissec
   page,
 }) => {
   test.setTimeout(240_000);
-  const { errors, programs } = await boot(page, '/?view=scope&step=2');
+  const { errors, programs } = await boot(page, '/?mode=explore&view=scope&step=2');
   const before = await programs();
   // One-lung ventilation (topbar switch): the collapsed lung leaves the shaft path onto the hilum (it would stop the tip).
   await page.getByRole('button', { name: 'One-lung ventilation' }).click();

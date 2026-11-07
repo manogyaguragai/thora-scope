@@ -389,8 +389,10 @@ async function main() {
     const allDts = Object.values(probe.phases).flatMap((p) => p.dts);
     await page.close();
 
-    // Practice: a fresh page straight into ?mode=practice (as practice.spec). Re-entering practice after a run
-    // reloads (wireM5 restart(): M4 has no scene reset), so runs 2–3 reload the same ?mode=practice URL.
+    // Practice: a fresh page straight into ?mode=practice (as practice.spec). T860: Retry / re-entry now reset the
+    // case in place (wireM5 restart → m4.walk.reset, no reload), but runs 2–3 still reload the same URL on purpose:
+    // every run then starts from the same fresh-page state, so the heap samples (start / end of each run) and the
+    // across-run gate keep comparing like with like. The in-place reset is covered by the walkthrough specs.
     const pPage = await context.newPage();
     watchErrors(pPage, errors);
     await pPage.addInitScript(instrument, LONG_FRAME_MS);
@@ -400,14 +402,14 @@ async function main() {
     for (let i = 0; i < PRACTICE_RUNS; i++) {
       await practiceReady(pPage);
       runs.push(await practiceRun(pPage, pCdp));
-      if (i < PRACTICE_RUNS - 1) await pPage.reload(); // = restart(): location.assign(same URL)
+      if (i < PRACTICE_RUNS - 1) await pPage.reload(); // a fresh page per run (see above), not restart()
     }
     await pPage.close();
     const ends = runs.map((r) => r.heapMB.end);
     const practice = {
       runs,
       heapMethod:
-        'Re-entering practice reloads the page (wireM5 restart), so in-page re-entry is impossible: heap (after CDP HeapProfiler.collectGarbage) is read at the same points of each reloaded run — practice ready (start) and after the debrief closed (end). Gate: acrossRunGrowthPct = run-3 end vs run-1 end. perRunGrowthPct (end vs start; includes the lazy debrief chunk) is informational.',
+        'Each practice run starts on a freshly reloaded page (by choice: in-place restart exists since T860): heap (after CDP HeapProfiler.collectGarbage) is read at the same points of each reloaded run — practice ready (start) and after the debrief closed (end). Gate: acrossRunGrowthPct = run-3 end vs run-1 end. perRunGrowthPct (end vs start; includes the lazy debrief chunk) is informational.',
       perRunGrowthPct: runs.map((r) => r.heapMB.growthPct),
       acrossRunGrowthPct: pct(ends[0], ends[ends.length - 1]),
     };

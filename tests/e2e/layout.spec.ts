@@ -2,14 +2,14 @@ import { expect, test } from '@playwright/test';
 
 // T308: overlay panels never overlap each other; at 1280×720 the side panels/chips stay in the black margin beside
 // the 5:4 scope image (only the caption bar and the §6.3 bottom-centred hotbar sit over it); tags stay off the dock.
+// T880: runs in Explore, where the hotbar + port chips exist and the scope frames the lobes (T878 hides those controls
+// in Guided; layout-walkthrough.spec covers the Guided layout, incl. the steps rail and walkthrough caption).
 const PARTS = {
-  rail: '.shell-rail',
-  caption: '.guided-caption',
   inspector: '.shell-inspector',
   hotbar: '.hotbar',
   chips: '.port-chips',
 } as const;
-const MARGIN_ONLY = ['rail', 'inspector', 'chips'] as const;
+const MARGIN_ONLY = ['inspector', 'chips'] as const;
 // Mirrors config.postfx.maskAspect/maskFill and config.viewing.labelMaxCount (config.ts reads import.meta.env, so
 // it can't be imported into a Node-side spec).
 const MASK_ASPECT = 1.25;
@@ -34,7 +34,7 @@ for (const viewport of [
   }) => {
     test.setTimeout(180_000);
     await page.setViewportSize(viewport);
-    await page.goto('/?view=scope&step=1');
+    await page.goto('/?mode=explore&view=scope&step=1');
     await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
     await page.locator('.viewing-panel summary', { hasText: 'Layers' }).click();
     await page.keyboard.press('KeyL');

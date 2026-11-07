@@ -6,7 +6,7 @@ test('hotbar: 1–9, Q/E and sub-option re-press', async ({ page }) => {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
-  await page.goto('/');
+  await page.goto('/?mode=explore');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const bar = page.getByRole('toolbar', { name: 'Instruments' });
   await expect(bar).toBeVisible();

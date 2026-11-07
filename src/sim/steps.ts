@@ -7,6 +7,7 @@
 import procedure from '../content/procedure_steps.json' with { type: 'json' };
 import { hiddenAtStep } from '../content/anatomy';
 import { config } from '../core/config';
+import { getMode } from './modes';
 import { TWEEN_KEYS, tweenTo } from './state';
 import type { AppState, TweenKey } from './state';
 
@@ -30,6 +31,8 @@ export const STEPS: readonly Step[] = procedure.steps.map((s) => ({
 const DEFAULT_HIDDEN: readonly string[] = [...new Set([...procedure.default_hidden, ...hiddenAtStep(0)])];
 const SCOPE_HIDDEN: readonly string[] = config.scope.hidden;
 const SCOPE_STEP_HIDDEN = config.scope.stepHidden;
+const GUIDED_HIDDEN: readonly string[] = config.scope.guidedHidden;
+const GUIDED_STEP_HIDDEN = config.scope.guidedStepHidden;
 const NONE: readonly string[] = [];
 
 /** The subset of Object3D used here (unit tests pass plain objects). */
@@ -57,6 +60,8 @@ export function createStepVisibility(lookup: (name: string) => Toggleable | unde
     ...DEFAULT_HIDDEN,
     ...SCOPE_HIDDEN,
     ...Object.values(SCOPE_STEP_HIDDEN).flat(),
+    ...GUIDED_HIDDEN,
+    ...Object.values(GUIDED_STEP_HIDDEN).flat(),
     ...STEPS.flatMap((s) => s.hidden),
   ]);
   const managed: Toggleable[] = [];
@@ -72,7 +77,13 @@ export function createStepVisibility(lookup: (name: string) => Toggleable | unde
 export function stepHidden(vis: StepVisibility, s: AppState, name: string): boolean {
   const hidden = s.step ? getStep(s.step).hidden : DEFAULT_HIDDEN;
   if (hidden.includes(name)) return true;
-  return vis.scope && (SCOPE_HIDDEN.includes(name) || (SCOPE_STEP_HIDDEN[s.step] ?? NONE).includes(name));
+  if (!vis.scope) return false;
+  if (SCOPE_HIDDEN.includes(name) || (SCOPE_STEP_HIDDEN[s.step] ?? NONE).includes(name)) return true;
+  // T886: Guided walkthrough only (Practice / Explore keep them); main.ts re-applies on every mode change.
+  return (
+    getMode() === 'guided' &&
+    (GUIDED_HIDDEN.includes(name) || (GUIDED_STEP_HIDDEN[s.step] ?? NONE).includes(name))
+  );
 }
 
 /** Re-apply visibility for the current step and view. Allocation-free. */

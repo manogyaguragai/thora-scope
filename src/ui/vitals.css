@@ -22,12 +22,9 @@ body:has(#pip-inset[style*='display: block']) .vitals {
   bottom: calc(var(--space-2) + var(--vitals-pip-h) + var(--space-1));
 }
 
-/* Keep the inspector (Layers / Physiology) clear of the monitor: it scrolls instead of running under it. */
-body:has(.vitals) .shell-inspector {
-  max-height: calc(100% - var(--space-6));
-}
-body:has(.vitals):has(#pip-inset[style*='display: block']) .shell-inspector {
-  max-height: calc(100% - var(--space-6) - var(--vitals-pip-h) - var(--space-1));
+/* T862: the right column (inspector + side dock) ends above the monitor (--vitals-h from vitalsMonitor.ts). */
+body:has(#pip-inset[style*='display: block']) .shell-right {
+  margin-bottom: calc(var(--vitals-h, 0px) + var(--vitals-pip-h) + 2 * var(--space-1));
 }
 
 .vitals-trace {

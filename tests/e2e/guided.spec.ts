@@ -19,7 +19,20 @@ async function settled(page: Page): Promise<void> {
   );
 }
 
-test('guided mode: Next through steps 1–9, captions match, PageUp/PageDown navigate', async ({ page }) => {
+/** Next until the step heading changes: step 1's parts (T860 walkthrough, rail "n/6") advance first. */
+async function nextStep(page: Page): Promise<void> {
+  const bar = page.getByRole('region', { name: 'Guided walkthrough' });
+  const title = bar.getByRole('heading');
+  const before = await title.textContent();
+  for (let k = 0; k < 8 && (await title.textContent()) === before; k++) {
+    await bar.getByRole('button', { name: 'Next step' }).click();
+    await page.waitForTimeout(300);
+  }
+}
+
+test('Guided walkthrough mode: Next through steps 1–9, captions match, PageUp/PageDown navigate', async ({
+  page,
+}) => {
   test.setTimeout(720_000); // SwiftShader, full size: 9 steps + key/rail navigation (~3 min alone, ~6 contended)
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
@@ -27,9 +40,11 @@ test('guided mode: Next through steps 1–9, captions match, PageUp/PageDown nav
 
   await page.goto('/');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
-  const bar = page.getByRole('region', { name: 'Guided procedure' });
+  const bar = page.getByRole('region', { name: 'Guided walkthrough' });
   const title = bar.getByRole('heading');
   await expect(page.locator('button[data-mode=guided]')).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('button[data-mode=guided]')).toHaveText('Guided walkthrough');
+  await expect(bar.getByRole('button', { name: /show me/i })).toHaveCount(0); // T862: playback is the timeline
   await expect(bar.getByRole('button', { name: 'Previous step' })).toBeDisabled();
 
   // T851: the first Next from the theatre only takes the scope in, at step 1.
@@ -38,7 +53,7 @@ test('guided mode: Next through steps 1–9, captions match, PageUp/PageDown nav
   await settled(page);
   await expect(title).toHaveText(GUIDED_STEPS[0]?.title ?? '');
   for (const [i, s] of GUIDED_STEPS.entries()) {
-    if (i > 0) await bar.getByRole('button', { name: 'Next step' }).click();
+    if (i > 0) await nextStep(page);
     await settled(page);
     await expect(title).toHaveText(s.title);
     await expect(bar).toContainText(`${i + 1} / ${GUIDED_STEPS.length}`);
@@ -82,7 +97,7 @@ test('guided layout: all rail steps visible and clickable at 1280×720 and 1024�
   test.setTimeout(300_000);
   await page.goto('/');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
-  const bar = page.getByRole('region', { name: 'Guided procedure' });
+  const bar = page.getByRole('region', { name: 'Guided walkthrough' });
   const more = bar.getByRole('button', { name: 'More' });
   await expect(more).toHaveAttribute('aria-expanded', 'false');
   await expect(bar.locator('.guided-points')).toBeHidden();
@@ -115,14 +130,14 @@ test('guided layout: all rail steps visible and clickable at 1280×720 and 1024�
   await expect(page.locator('.guided-step[aria-current=step]')).toContainText(last?.rail ?? '');
 });
 
-test('T847a: guided steps enter the scope view (a later Outside click holds); caption + toast placement', async ({
+test('T847a: guided steps enter the scope view (a later O-key Outside holds); hidden controls, docked caption', async ({
   page,
 }) => {
   test.setTimeout(300_000);
   await page.goto('/'); // opens on the theatre (outside)
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const target = () => page.evaluate(() => window.__sim.rig?.target);
-  const bar = page.getByRole('region', { name: 'Guided procedure' });
+  const bar = page.getByRole('region', { name: 'Guided walkthrough' });
   const text = bar.locator('.guided-text');
   expect(await target()).toBe('outside');
   await expect(text).toBeHidden(); // the step text describes the scope view
@@ -133,25 +148,39 @@ test('T847a: guided steps enter the scope view (a later Outside click holds); ca
   await expect(text).toBeVisible();
   await expect(bar.getByRole('heading')).toHaveText(GUIDED_STEPS[0]?.title ?? ''); // T851: still step 1
   await settled(page);
-  await bar.getByRole('button', { name: 'Next step' }).click(); // step 2
-  // Port hint toast: below the topbar and clear of the compass.
-  const toast = page.locator('#action-toast');
-  await expect(toast).toBeVisible();
+  await nextStep(page); // step 2
+  // T880: Guided is film-like (T878): the practice action toast stays hidden; side messages / the caption sit in the
+  // side dock, below the topbar and clear of the compass.
+  await expect(page.locator('#action-toast')).toBeHidden();
+  const caption = page.locator('.shell-caption');
+  await expect(caption).toBeVisible();
   const [t, top, compass] = await Promise.all(
-    ['#action-toast', '.shell-top', '.scope-compass'].map((s) => page.locator(s).boundingBox()),
+    ['.shell-caption', '.shell-top', '.scope-compass'].map((s) => page.locator(s).boundingBox()),
   );
   expect(t && top && t.y >= top.y + top.height).toBe(true);
-  if (t && compass) expect(t.x + t.width <= compass.x || t.y + t.height <= compass.y).toBe(true);
+  if (t && compass)
+    expect(
+      t.x >= compass.x + compass.width ||
+        t.x + t.width <= compass.x ||
+        t.y >= compass.y + compass.height ||
+        t.y + t.height <= compass.y,
+    ).toBe(true);
 
+  // T881 (critic U2): Guided is film-like: view switch, ventilation and Inspector / Layers are hidden; the scope
+  // view holds and the O key (handled before the walkthrough input lock) is the only way outside.
+  for (const sel of ['.shell-views', '.shell-vents', '.shell-inspector'])
+    await expect(page.locator(sel), sel).toBeHidden();
   await settled(page);
-  await page.getByRole('button', { name: 'Outside (theatre)' }).click();
+  await page.waitForTimeout(500);
+  expect(await target()).toBe('scope');
+  await page.keyboard.press('KeyO');
   await expect.poll(target).toBe('outside');
   await page.waitForTimeout(500);
   expect(await target()).toBe('outside'); // the manual choice holds …
   await bar.getByRole('button', { name: 'Next step' }).click();
   await expect.poll(target).toBe('scope'); // … until the next step change
   await settled(page);
-  await page.getByRole('button', { name: 'Outside (theatre)' }).click();
+  await page.keyboard.press('KeyO');
   await expect.poll(target).toBe('outside');
   await page.locator('.guided-step[aria-current=step]').click(); // rail click on the current step
   await expect.poll(target).toBe('scope');

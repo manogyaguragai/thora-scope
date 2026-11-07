@@ -4,6 +4,7 @@ import { interactionConfig as I } from '../../src/sim/interaction.config';
 import { contactOf, TipCollision } from '../../src/sim/tipCollision';
 import type { RayHit } from '../../src/sim/tipCollision';
 import { createHotbar } from '../../src/sim/hotbar';
+import { setMode } from '../../src/sim/modes';
 import { InstrumentController } from '../../src/sim/instrumentControl';
 import { PortOccupancy } from '../../src/sim/portOccupancy';
 import type { Port } from '../../src/sim/ports';
@@ -144,6 +145,7 @@ describe('T850 insert via / park', () => {
   });
 
   test('re-selecting the active slot asks reselect first (resume, no sub-option cycle)', () => {
+    setMode('explore'); // T860: guided = the walkthrough (user hotbar input locked)
     const hb = createHotbar();
     hb.select(1);
     const sub = hb.subOption();

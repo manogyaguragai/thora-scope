@@ -200,6 +200,12 @@ async function tabAudit(page: Page, scope: string): Promise<[string[], string[]]
   return [unreached, [...noRing]];
 }
 
+async function expectGuidedToolsHidden(page: Page): Promise<void> {
+  const tools = '.shell-hotbar, .shell-ports, .shell-dock, .shell-views, .shell-vents, .shell-inspector';
+  await expect(page.locator(tools).filter({ visible: true })).toHaveCount(0);
+  await expect(page.locator('.scope-compass-hint')).toBeHidden();
+}
+
 /** Focus `el` from the keyboard's point of view and press `key`. */
 async function press(el: Locator, key: string): Promise<void> {
   await el.focus();
@@ -215,12 +221,17 @@ test('a11y contrast: shell, guided, hotbar + chips, layers, help, quiz, practice
   test.setTimeout(240_000);
   await ready(page, '/?view=scope&step=1');
   const canvas = await canvasPixels(page);
-  // Guided bar with details open, Layers + one group expanded, the active slot's tooltip showing.
+  // Guided (T881): bar with details open; the practice tools are hidden, what remains must meet AA.
   await page.getByRole('button', { name: 'More' }).click();
+  await expectGuidedToolsHidden(page);
+  expect(await contrastFailures(page, '.shell', canvas), 'guided').toEqual([]);
+
+  // Explore: Layers + one group expanded, the active slot's tooltip showing.
+  await page.click('button[data-mode=explore]');
   await page.locator('.viewing-panel summary', { hasText: 'Layers' }).click();
   await page.locator('.viewing-group summary').first().click();
   await page.locator('.hotbar-slot[aria-pressed=true]').focus();
-  expect(await contrastFailures(page, '.shell', canvas)).toEqual([]);
+  expect(await contrastFailures(page, '.shell', canvas), 'explore').toEqual([]);
 
   await page.getByRole('button', { name: 'Keyboard shortcuts' }).click();
   await expect(page.getByRole('dialog', { name: 'Controls' })).toBeVisible();
@@ -244,7 +255,7 @@ test('a11y contrast: shell, guided, hotbar + chips, layers, help, quiz, practice
   await expect(quiz.locator('.quiz-feedback')).toBeVisible();
   expect(await contrastFailures(page, '.quiz', canvas), 'quiz feedback').toEqual([]);
 
-  // Practice bar (T506): bottom-left over the scope edge.
+  // Practice bar (T506; T862: side dock above the vitals monitor).
   await page.keyboard.press('Escape');
   await expect(quiz).toBeHidden();
   await page.click('button[data-mode=practice]');
@@ -267,8 +278,32 @@ test('a11y keyboard: every control reachable with a visible focus ring; Enter/Sp
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   await ready(page, '/?view=scope&step=1');
-  const bar = page.getByRole('region', { name: 'Guided procedure' });
+  const bar = page.getByRole('region', { name: 'Guided walkthrough' });
   const counter = bar.locator('.guided-counter');
+
+  // Guided (T881): practice tools hidden; the remaining controls are all reachable with a ring.
+  await expectGuidedToolsHidden(page);
+  expect(await tabAudit(page, '.shell')).toEqual([[], []]);
+
+  // More/Less, Next/Prev.
+  await press(bar.getByRole('button', { name: 'More' }), 'Enter');
+  await press(bar.getByRole('button', { name: 'Less' }), 'Space');
+  await expect(bar.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
+  // T860: Next / Prev inside step 1 walk its parts; from step 2 they change steps.
+  await page.evaluate(() => window.__sim.walkthrough?.seek(2));
+  await expect(counter).toHaveText(/^2 \//);
+  await idle(page);
+  await press(bar.getByRole('button', { name: 'Next step' }), 'Enter');
+  await expect(counter).toHaveText(/^3 \//);
+  await idle(page);
+  await press(bar.getByRole('button', { name: 'Previous step' }), 'Space');
+  await expect(counter).toHaveText(/^2 \//);
+  await idle(page);
+
+  // Mode buttons; Explore keeps the practice tools.
+  const explore = page.locator('button[data-mode=explore]');
+  await press(explore, 'Enter');
+  await expect(explore).toHaveAttribute('aria-pressed', 'true');
 
   // Layers (native <details>): Enter opens it, so its controls join the tab order.
   const layers = page.locator('.viewing-panel summary', { hasText: 'Layers' });
@@ -286,22 +321,6 @@ test('a11y keyboard: every control reachable with a visible focus ring; Enter/Sp
   await press(group.locator('summary'), 'Enter');
   await expect(group).toHaveAttribute('open', '');
 
-  // More/Less, Next/Prev.
-  await press(bar.getByRole('button', { name: 'More' }), 'Enter');
-  await press(bar.getByRole('button', { name: 'Less' }), 'Space');
-  await expect(bar.getByRole('button', { name: 'More' })).toHaveAttribute('aria-expanded', 'false');
-  await idle(page);
-  await press(bar.getByRole('button', { name: 'Next step' }), 'Enter');
-  await expect(counter).toHaveText(/^2 \//);
-  await idle(page);
-  await press(bar.getByRole('button', { name: 'Previous step' }), 'Space');
-  await expect(counter).toHaveText(/^1 \//);
-  await idle(page);
-
-  // Mode buttons.
-  const explore = page.locator('button[data-mode=explore]');
-  await press(explore, 'Enter');
-  await expect(explore).toHaveAttribute('aria-pressed', 'true');
   const guided = page.locator('button[data-mode=guided]');
   await press(guided, 'Space');
   await expect(guided).toHaveAttribute('aria-pressed', 'true');
@@ -335,7 +354,7 @@ test('a11y reduced motion: guided step change is instant, panel animations ~0', 
   test.setTimeout(180_000);
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await ready(page, '/?view=scope&step=1');
-  const bar = page.getByRole('region', { name: 'Guided procedure' });
+  const bar = page.getByRole('region', { name: 'Guided walkthrough' });
   // Same task as the click: the heading text and the transition flag after one animation frame.
   const after = await page.evaluate(async () => {
     const before = document.querySelector('.guided-title')?.textContent;

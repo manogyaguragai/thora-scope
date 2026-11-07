@@ -38,6 +38,8 @@ import { PULSE, look } from './materials.config';
 import { STAPLES_CONFIG, lineMatrices, localAxis } from './staples';
 import type { V3 } from './staples';
 import { STUMPS } from './stumps.config';
+import { specimenCarrier } from './retrievalBag';
+import { getInstrumentEnv } from './lights';
 
 interface Structure {
   group: string;
@@ -348,6 +350,9 @@ export function stumpReach(r: number, C: Shape = STUMPS): number {
   return Math.max(r * C.lengthR, flat + r * C.rampR) + r * C.pinch;
 }
 const CAP: Shape = { ...STUMPS, ...STUMPS.cap };
+/** T875: a trunk too short for the full pair (e.g. the middle-lobe artery, 9 mm for 7 mm) gets a compact pair. */
+const SHORT: Shape = { ...STUMPS, ...STUMPS.short };
+const SHORT_CAP: Shape = { ...CAP, ...STUMPS.short, lengthR: STUMPS.short.capLengthR };
 
 // ── T841 split (load time) ──
 /** Edge-length (geodesic) distance of every vertex from `seeds`, over the position-welded mesh (glTF seams split
@@ -459,10 +464,12 @@ export function planCut(
   r0: number,
   at: Vector3 | null = null,
   posed: BufferAttribute | null = null,
+  capShape: Shape = CAP,
+  quiet = false,
 ): CutPlan | null {
   const P = STUMPS.split;
   const fail = (why: string): null => {
-    console.warn(`[stumps] no cut plan: ${why}`);
+    if (!quiet) console.warn(`[stumps] no cut plan: ${why}`);
     return null;
   };
   const dist = geodesic(pos, index, seeds);
@@ -510,7 +517,7 @@ export function planCut(
   // Cut range for a structure of radius r: the stump + margin before it, the cap + minDistal after it; a short
   // segment gives up the margin and the spare distal length first.
   const range = (r: number): [number, number, number] | null => {
-    const reach = stumpReach(r * STUMPS.cap.radiusK, CAP);
+    const reach = stumpReach(r * STUMPS.cap.radiusK, capShape);
     const hi = maxD - P.minDistalM - reach;
     if (hi >= minCut) return [minCut, hi, reach];
     const [lo2, hi2] = [minCut - P.marginM, maxD - reach];
@@ -529,7 +536,12 @@ export function planCut(
   const [lo, hi, reach] = rr;
   dCut = Math.min(hi, Math.max(lo, dCut));
   const dSplit = dCut + reach;
-  const cap = ringAt(dSplit, r);
+  // T875: near the end of a short trunk the distal axis band runs off the segment: the cut ring's axis then serves.
+  let cap = ringAt(dSplit, r);
+  if (!cap && cut) {
+    const base = new Vector3();
+    if (band(dSplit, r * P.bandR, base)) cap = { base, axis: cut.axis.clone(), radius: r };
+  }
   if (!cap) return fail('no ring at the split');
   cap.radius = r * STUMPS.cap.radiusK;
   const ring: number[] = [];
@@ -591,7 +603,7 @@ uniform float uMetalPulse;
 uniform float uMetalBeat;
 void main() {`;
 function pulsingMetal(pulseM: number, name: string): MeshStandardMaterial {
-  const m = new MeshStandardMaterial({ ...STAPLES_CONFIG.look, name });
+  const m = new MeshStandardMaterial({ ...STAPLES_CONFIG.look, envMap: getInstrumentEnv(), name }); // T884 neutral env
   const amp = { value: pulseM };
   m.onBeforeCompile = (p: WebGLProgramParametersWithUniforms): void => {
     p.uniforms.uMetalPulse = amp;
@@ -630,6 +642,8 @@ export interface Split {
   parent: Split | null;
   top: Object3D;
   lobe: Object3D | null;
+  /** T872b specimen carrier (retrievalBag): the distal piece lives in it; a carried branch's proximal one joins it. */
+  carrier: Object3D | null;
   ring: readonly number[];
   ringP: readonly number[];
   ringD: readonly number[];
@@ -640,6 +654,11 @@ export interface Split {
   cut: DivideMode | null;
   divided: boolean;
   carried: boolean;
+  /** T886 short-trunk pair: once divided, its specimen side (distal piece + cap + the branches it carries) shifts
+   *  this far (parent-local) away from the stump, so the cut reads as two stapled ends; null = no shift. */
+  retract: Vector3 | null;
+  /** Shift applied to this split's pieces now (its own retract when divided, else its carrying ancestor's). */
+  shift: Vector3 | null;
   /** Shared by proximal / distal / cap; copied per frame from `src[k]` influence `srcI[k]` into slot `dstI[k]`. */
   inf: number[];
   src: Mesh[];
@@ -670,9 +689,18 @@ const shownChain = (o: Object3D | null): boolean => {
   for (; o; o = o.parent) if (!o.visible) return false;
   return true;
 };
-const followMatrix = (m: Object3D, src: Object3D): void => {
-  if (m.matrix.equals(src.matrix)) return;
-  m.matrix.copy(src.matrix);
+const _fm = new Matrix4();
+/** `src`'s matrix, translated by `shift` (parent-local; null = none); written only when it changed. */
+const followMatrix = (m: Object3D, src: Object3D, shift: Vector3 | null = null): void => {
+  _fm.copy(src.matrix);
+  if (shift) {
+    const e = _fm.elements;
+    e[12] = (e[12] as number) + shift.x;
+    e[13] = (e[13] as number) + shift.y;
+    e[14] = (e[14] as number) + shift.z;
+  }
+  if (m.matrix.equals(_fm)) return;
+  m.matrix.copy(_fm);
   m.matrixWorldNeedsUpdate = true;
 };
 const setMode = (mats: Material[], metal: Material, mode: DivideMode): void => {
@@ -713,6 +741,11 @@ export function buildStumps(
   const hit: HitPointInfo = { point: new Vector3(), distance: 0, faceIndex: 0 };
   const pairs = stumpPairs();
   const parentOf = new Map(pairs);
+  // T890 (critic r2 C3): each staple line runs ⟂ the view from STUMPS.faceEye (X = view × axis), so the stapled faces
+  // and their rows face the lens instead of showing their edge; no eye node: the fixed acrossRef.
+  const eye = root.getObjectByName(STUMPS.faceEye)?.getWorldPosition(new Vector3()) ?? null;
+  const across = (j: Junction): V3 =>
+    eye ? new Vector3().subVectors(eye, j.base).cross(j.axis) : vec(STUMPS.acrossRef);
   for (const [segName, parentName] of pairs) {
     const segment = root.getObjectByName(segName) as Mesh | undefined;
     const parent = root.getObjectByName(parentName) as Mesh | undefined;
@@ -726,7 +759,40 @@ export function buildStumps(
       console.warn(`[stumps] no junction found: ${segName} → ${parentName}`);
       continue;
     }
-    const g = buildStumpGeometry(j);
+    // T841: where the segment splits into proximal + distal pieces (planned first: a short trunk gets the compact
+    // stump shapes, the T834 stump included).
+    const seeds: number[] = [];
+    // Seeds: the junction cross-section (on / inside the parent, not past the junction base along the branch), so
+    // distances grow along the branch even where it runs against the parent for a while.
+    for (let i = 0; i < seg.count; i++) {
+      _v.fromBufferAttribute(seg, i);
+      const behind = _w.subVectors(_v, j.base).dot(j.axis) <= 0 && _w.length() < STUMPS.reachM;
+      if (behind || (bvh.closestPointToPoint(_v, hit, 0, STUMPS.ringTolM) && _w.dot(j.axis) <= j.radius))
+        seeds.push(i);
+    }
+    const t = TARGET_BY_ID.get(segName)?.point;
+    const idx = wg.index ? (wg.index.array as ArrayLike<number>) : null;
+    const splittable = !Array.isArray(segment.material) && segment.parent !== null;
+    const plan1 = (shape: Shape, cap: Shape, quiet: boolean): CutPlan | null =>
+      planCut(
+        seg,
+        idx,
+        seeds,
+        stumpReach(j.radius, shape) + STUMPS.split.marginM,
+        j.radius,
+        t ? new Vector3(...t) : null,
+        t ? posedWorld(segment, STUMPS.split.pose) : null,
+        cap,
+        quiet,
+      );
+    let shape = STUMPS;
+    let capShape = CAP;
+    let plan = splittable ? plan1(STUMPS, CAP, true) : null;
+    if (splittable && !plan) {
+      [shape, capShape] = [SHORT, SHORT_CAP];
+      plan = plan1(SHORT, SHORT_CAP, false);
+    }
+    const g = buildStumpGeometry(j, across(j), shape);
     copyMorphDeltas(g, parent.geometry, bvh);
     g.applyMatrix4(inv.copy(parent.matrixWorld).invert());
     const metal = pulsingMetal(
@@ -746,28 +812,7 @@ export function buildStumps(
     const stump: Stump = { segment, parent, mesh, mats, metal };
     list.push(stump);
 
-    // T841: split into proximal + distal pieces at the cut.
-    if (Array.isArray(segment.material) || !segment.parent) continue;
-    const seeds: number[] = [];
-    // Seeds: the junction cross-section (on / inside the parent, not past the junction base along the branch), so
-    // distances grow along the branch even where it runs against the parent for a while.
-    for (let i = 0; i < seg.count; i++) {
-      _v.fromBufferAttribute(seg, i);
-      const behind = _w.subVectors(_v, j.base).dot(j.axis) <= 0 && _w.length() < STUMPS.reachM;
-      if (behind || (bvh.closestPointToPoint(_v, hit, 0, STUMPS.ringTolM) && _w.dot(j.axis) <= j.radius))
-        seeds.push(i);
-    }
-    const t = TARGET_BY_ID.get(segName)?.point;
-    const idx = wg.index ? (wg.index.array as ArrayLike<number>) : null;
-    const plan = planCut(
-      seg,
-      idx,
-      seeds,
-      stumpReach(j.radius) + STUMPS.split.marginM,
-      j.radius,
-      t ? new Vector3(...t) : null,
-      t ? posedWorld(segment, STUMPS.split.pose) : null,
-    );
+    if (!splittable || Array.isArray(segment.material)) continue;
     if (!plan) {
       console.warn(`[stumps] ${segName} stays whole (no split)`);
       continue;
@@ -792,7 +837,7 @@ export function buildStumps(
       return m;
     }) as [Mesh, Mesh];
     const segBvh = new MeshBVH(wg);
-    const cg = buildStumpGeometry(plan.cap, vec(STUMPS.acrossRef), CAP);
+    const cg = buildStumpGeometry(plan.cap, across(plan.cap), capShape);
     copyMorphDeltas(cg, segment.geometry, segBvh);
     cg.applyMatrix4(inv.copy(segment.matrixWorld).invert());
     const capMetal = pulsingMetal(
@@ -840,6 +885,7 @@ export function buildStumps(
       parent: byName.get(parentName) ?? null,
       top,
       lobe: lobeName ? (root.getObjectByName(lobeName) ?? null) : null,
+      carrier: null,
       ring: plan.ring,
       ringP: plan.ringP,
       ringD: plan.ringD,
@@ -849,13 +895,27 @@ export function buildStumps(
       cut: null,
       divided: false,
       carried: false,
+      retract: null,
+      shift: null,
       inf,
       src,
       srcI,
       dstI,
     };
+    // T886: a short trunk's cut ends sit ≈ 1 mm apart; its specimen side shifts back along the cut axis once divided.
+    if (shape === SHORT && segment.parent) {
+      inv.copy(segment.parent.matrixWorld).invert();
+      const p0 = plan.cap.base.clone().applyMatrix4(inv);
+      sp.retract = plan.cap.base
+        .clone()
+        .addScaledVector(plan.cap.axis, -STUMPS.short.retractM) // the axis points to the proximal side
+        .applyMatrix4(inv)
+        .sub(p0);
+    }
     splits.push(sp);
     byName.set(segName, sp);
+    // T872b: the distal piece (+ its staple cap) stays on the specimen: it leaves with the lobe in the bag.
+    if (sp.lobe && distal.parent) (sp.carrier = specimenCarrier(distal.parent, sp.lobe.name)).add(distal);
   }
   const centroid = (s: Split, ids: readonly number[], out: Vector3): Vector3 => {
     out.set(0, 0, 0);
@@ -916,14 +976,17 @@ export function buildStumps(
       const anc = s.parent;
       s.carried = anc !== null && (anc.divided || anc.carried);
       s.divided = !s.carried && (s.cut !== null || (!segV && topV));
+      s.shift = s.divided ? s.retract : s.carried ? (anc?.shift ?? null) : null;
       const specimen = topV && (s.lobe ? s.lobe.visible : true);
       s.proximal.visible = s.carried ? specimen : segV && !s.divided;
+      const home = s.carried && s.carrier ? s.carrier : s.segment.parent; // a carried branch leaves with the lobe
+      if (home && s.proximal.parent !== home) home.add(s.proximal);
       s.distal.visible = s.carried || s.divided ? specimen : segV;
       s.cap.visible = s.divided;
       if (!s.proximal.visible && !s.distal.visible) continue;
       // The logical node's matrix can change (T840 clamp squeeze): the pieces follow (rare write).
-      followMatrix(s.proximal, s.segment);
-      followMatrix(s.distal, s.segment);
+      followMatrix(s.proximal, s.segment, s.carried ? s.shift : null);
+      followMatrix(s.distal, s.segment, s.shift);
       const mat = s.segment.material as Material;
       s.proximal.material = mat;
       s.distal.material = mat;

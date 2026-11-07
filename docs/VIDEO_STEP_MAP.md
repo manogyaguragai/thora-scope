@@ -5,7 +5,7 @@ Sources: frames in `assets_src/ref-frames/` (see `REFERENCE_FRAMES.md`), timelin
 ## Frame table
 | Frame | §13 event | Sim step | Practice action | Conf. |
 |---|---|---|---|---|
-| 0:28 | 0:26–0:39 anterior working port created | 1 | hands: inspect from port_camera_8ICS (ports pre-placed in sim) | high |
+| 0:28 | 0:26–0:39 posterior port created (video calls it the "anterior working port") | 1 | hands: inspect from port_camera_8ICS (ports pre-placed in sim) | high |
 | 0:39 | 0:26–0:39 access incision made | 1 | hands: inspect; access incision = port_utility_5ICS | high |
 | 0:42 | lead-in to 0:46–0:56 (retractors on lung) | 1→2 | grasper:lung retractor on lung_upper_lobe_right, retract_posterior | med |
 | 0:54 | 0:46–0:56 camera moved; retractors via former camera port | 2 | hands: P → scope to port_retraction_8ICS; grasper:lung retractor via port_camera_8ICS, hold G | high |
@@ -28,7 +28,7 @@ Sources: frames in `assets_src/ref-frames/` (see `REFERENCE_FRAMES.md`), timelin
 | 04:41 | same — leader on stapler tip | 5 | stapler:vascular + silicone leader via port_camera_8ICS | high |
 | 05:06 | same — both branches divided together | 5 | stapler fire on A_RML_common | high |
 | 05:21 | 5:14–6:11 scope back to original camera port | 6 | hands: P → scope to port_camera_8ICS; grasper:lung retractor retract_fissure | high |
-| 05:50 | 5:14–6:11 stapler via anterior working port (+ tumour margin, not modelled) | 6 | stapler:parenchyma on lung_middle_lobe_right via port_retraction_8ICS | high |
+| 05:50 | 5:14–6:11 stapler via posterior port (video: "anterior working port") (+ tumour margin, not modelled) | 6 | stapler:parenchyma on lung_middle_lobe_right via port_retraction_8ICS | high |
 | 06:03 | 5:14–6:11 view from underneath, stump above stapler | 6 | hands: underside check; stapler:parenchyma second fire | med |
 | 06:12 | 5:14–6:11 additional fire completes fissure | 6 | stapler:parenchyma final fire | high |
 | 06:16 | 6:11 lobe free | 6→7 | (result) lobe detached | high |
@@ -46,20 +46,29 @@ All 31 frames placed; none unplaceable.
 - **Extra upper-lobe margin for tumour** (5:14–6:11) — tumour visible at 05:50; not modelled.
 
 ## (b) Port mapping
-Asset geometry (glTF, from glb `extras`; +X head, +Y up/right side, +Z anterior):
+Asset geometry (glTF, from glb `extras`; +X head, +Y up/right side, +Z anterior — the same frame as the orientation compass `config.viewing.compassAxes` and the ASSETS.md axis checks):
 | Asset port | Skin point (x, y, z) m | Position | Book name (p6) | Video role / UI label | Video evidence |
 |---|---|---|---|---|---|
-| `port_camera_8ICS` | (−0.163, 0.138, 0.033) | most caudal, lateral, just anterior | camera port (~8th ICS, behind ant. axillary line) | **Camera port / "former camera port"** — scope at start & 5:14–6:29; retractors 0:46–5:00; vein + artery staplers; chest tube | inset camera icon low at 0:28–0:42, 05:21–06:29; stapler arrows from low port at 02:04, 04:17–05:06; tube from low port at 06:46 |
-| `port_utility_5ICS` | (−0.095, 0.097, 0.099) | cranial, anterior | utility incision (2–5 cm, ~5th ICS) | **Access incision** — peanut, cautery, clamps, ring clamp, bronchus stapler, held retraction during swaps, bag removal | inset instruments enter upper-anterior at 01:13–06:23; gloved hand pulls bag there at 06:23 |
-| `port_retraction_8ICS` | (−0.084, 0.053, −0.102) | mid-level, **posterior** | retraction port (midscapular line) | **Anterior working port** (by role) — scope 0:46–5:00 & 6:45; fissure stapler, bag, block needle 5:50–6:29 | inset camera icon anterior at 0:54–05:06 and 06:46; horizontal instrument there at 05:50–06:29 |
+| `port_camera_8ICS` | (−0.163, 0.138, 0.033) | most caudal, lateral, just anterior | camera port (~8th ICS, behind ant. axillary line) | **Inferior camera port** — scope at start & 5:14–6:29; retractors 0:46–5:00; vein + artery staplers; chest tube | inset camera icon low at 0:28–0:42, 05:21–06:29; stapler arrows from low port at 02:04, 04:17–05:06; tube from low port at 06:46 |
+| `port_utility_5ICS` | (−0.095, 0.097, 0.099) | cranial, anterior | utility incision (2–5 cm, ~5th ICS) | **Anterior access incision (5th space)** — peanut, cautery, clamps, ring clamp, bronchus stapler, held retraction during swaps, bag removal | inset instruments enter upper-anterior at 01:13–06:23; gloved hand pulls bag there at 06:23 |
+| `port_retraction_8ICS` | (−0.084, 0.053, −0.102) | mid-level, **posterior** | retraction port (midscapular line) | **Posterior port** — the video's third (working) port by role: scope 0:46–5:00 & 6:45; fissure stapler, bag, block needle 5:50–6:29 | inset camera icon anterior at 0:54–05:06 and 06:46; horizontal instrument there at 05:50–06:29 |
 
-Reasoning: `procedure_steps.json` puts the step-3 scope in `port_retraction_8ICS` (video: scope in anterior working port while retractors fill the former camera port) and steps 1/2/6/7 in `port_camera_8ICS` (video: original camera port). The access incision is unambiguous. Geometry of `port_retraction_8ICS` is posterior (book layout), not anterior as in the video — map by role (CONTEXT §7.6); stapler-angle thresholds must be computed from the real asset geometry.
+**Geometry check (T863, 2026-11-06; shipped `public/models/thorax_sim.opt.glb`, Blender (x, y, z) → glTF (x, z, −y)):**
+| Port id | Skin | Pleura | Axis into chest | Anatomical reading | Label (ADR-004) |
+|---|---|---|---|---|---|
+| `port_utility_5ICS` | (−0.0950, 0.0969, 0.0992) | (−0.0950, 0.0833, 0.0856) | (0, −0.707, −0.707) | most anterior skin point (z +0.099); enters from the front, heading medial + backwards | Anterior access incision (5th space) |
+| `port_camera_8ICS` | (−0.1630, 0.1380, 0.0332) | (−0.1630, 0.0842, 0.0136) | (0, −0.940, −0.342) | most caudal by 68–79 mm (x −0.163), most lateral (y 0.138), near the coronal midline; enters medially from the side, low | Inferior camera port |
+| `port_retraction_8ICS` | (−0.0840, 0.0535, −0.1020) | (−0.0840, 0.0345, −0.0749) | (0, −0.574, +0.819) | most posterior skin point (z −0.102); axis points anteriorly = enters from the back | Posterior port |
+
+Agrees with the user's report (FEEDBACK_GUIDED_v1 §2.2): the access incision is anterior, the camera port inferior, and the former "anterior working port" posterior. The compass (head = +X, anterior = +Z) uses the same axes, so its Ant/Post marks agree. Note: `port_retraction_8ICS` sits level with the access incision (x −0.084 vs −0.095), not in a lower space, so its label states no space number (the id's "8ICS" is kept only as a stable id).
+
+Reasoning: `procedure_steps.json` puts the step-3 scope in `port_retraction_8ICS` (video: scope in the third working port while retractors fill the former camera port) and steps 1/2/6/7 in `port_camera_8ICS` (video: original camera port). The access incision is unambiguous. The video's third port is anterior; this asset's (book layout) is posterior — map by role (CONTEXT §7.6), name by position; stapler-angle thresholds must be computed from the real asset geometry.
 **Capacity:** the access incision carries 2–3 instruments at once in the video (03:04, 04:17, 06:03) → configure `port_utility_5ICS` capacity 3, the 1 cm ports capacity 1.
 
 ## (c) Conflicts and resolutions
 | # | Conflict | Resolution |
 |---|---|---|
-| 1 | Third port: book p6 = posterior midscapular "retraction" port (asset follows it); video = anterior working port that hosts the scope. | Keep asset geometry; label `port_retraction_8ICS` "anterior working port" by role; log in ASSET_ISSUES. |
+| 1 | Third port: book p6 = posterior midscapular "retraction" port (asset follows it); video = anterior working port that hosts the scope. | Keep asset geometry; `port_retraction_8ICS` plays the video role but is labelled "Posterior port" by position (T863); log in ASSET_ISSUES. |
 | 2 | Retractors: book implies retraction port; video uses the former camera port (scope moved out). | Practice follows video: scope → `port_retraction_8ICS`, retractors → `port_camera_8ICS`. |
 | 3 | Scope port steps 4/5: asset cams use `port_utility_5ICS`; video keeps scope in anterior working port and uses access incision for instruments. | Guided mode uses glb cams as authored (view only). Practice: scope stays in `port_retraction_8ICS`; utility capacity 3 so either works. |
 | 4 | Order: book p7 generic fissure-last = vein → accessible PA branches → bronchus → remaining PA → fissure; ch.32 (p134), video and procedure_steps = vein → nodes/bronchus → arteries → fissure. | Score the RML order (vein → bronchus → arteries → fissure); show the generic order as a teaching note. |

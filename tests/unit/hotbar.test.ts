@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { createHotbar, SLOTS } from '../../src/sim/hotbar';
 import type { HotbarChange } from '../../src/sim/hotbar';
+import { setMode } from '../../src/sim/modes';
+import { asEngine } from '../../src/sim/walkLock';
 
 function setup() {
   const hb = createHotbar();
@@ -10,6 +12,18 @@ function setup() {
 }
 
 describe('hotbar state', () => {
+  it('T860: guided mode (the walkthrough) locks user selection; the engine still selects', () => {
+    const { hb, events } = setup();
+    setMode('guided');
+    hb.handleKey('Digit3');
+    hb.cycle(1);
+    expect(hb.slot).toBe(0);
+    asEngine(() => hb.select(2));
+    expect(hb.slot).toBe(2);
+    expect(events).toHaveLength(1);
+    setMode('explore'); // the rest: free input
+  });
+
   it('has 9 slots, Hands active by default', () => {
     expect(SLOTS).toHaveLength(9);
     expect(createHotbar().slot).toBe(0);

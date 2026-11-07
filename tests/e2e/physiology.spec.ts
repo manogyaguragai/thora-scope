@@ -48,14 +48,14 @@ test('physiology lab: one-lung ventilation, then the RML bronchus clamp test', a
   expect(errors).toEqual([]);
 });
 
-test('T843 ventilation switch in guided, practice and explore (hidden in the Physiology lab)', async ({
+test('T843 ventilation switch in practice and explore, hidden in the Guided walkthrough (T881), hidden in the lab', async ({
   page,
 }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?view=scope&step=1');
+  await page.goto('/?mode=explore&view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const programs = await page.evaluate(() => window.__perf?.programs ?? -1);
   await tweensDone(page, 0);
@@ -67,8 +67,8 @@ test('T843 ventilation switch in guided, practice and explore (hidden in the Phy
       return [s.deflate_RUL, s.deflate_RLL];
     });
 
-  await expect(one).toHaveAttribute('aria-pressed', 'true'); // guided steps default to one-lung ventilation
-  for (const mode of ['guided', 'practice', 'explore'] as const) {
+  await expect(one).toHaveAttribute('aria-pressed', 'true'); // steps default to one-lung ventilation
+  for (const mode of ['practice', 'explore'] as const) {
     await page.click(`button[data-mode=${mode}]`);
     await tweensDone(page, 0);
     if ((await one.getAttribute('aria-pressed')) !== 'true') {
@@ -88,6 +88,12 @@ test('T843 ventilation switch in guided, practice and explore (hidden in the Phy
     await tweensDone(page, OLV_WAIT_MS);
     expect(await lobes()).toEqual([1, 1]);
   }
+  // Guided walkthrough (T881): the switch is hidden; the walkthrough drives ventilation itself.
+  await page.click('button[data-mode=guided]');
+  await tweensDone(page, 0);
+  await expect(two).toBeHidden();
+  await expect(one).toBeHidden();
+  expect(await lobes()).toEqual([1, 1]);
   await page.click('button[data-mode=physiology]');
   await expect(two).toBeHidden();
   expect(await page.evaluate(() => window.__perf?.programs ?? -1)).toBe(programs);

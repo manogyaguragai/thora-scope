@@ -108,6 +108,14 @@
   gap: var(--space-2);
   padding: var(--space-2);
   pointer-events: none; /* only panels take input; the canvas stays interactive elsewhere */
+  /* T862 (R5): scope aperture width (post-FX letterbox fit; --mask-* set by shell.ts from config.postfx) and the side
+     dock width that keeps text panels outside its central --dock-clear fraction. */
+  --ap-w: calc(min(100vh * var(--mask-aspect, 1.25), 100vw) * var(--mask-fill, 1));
+  --dock-w: clamp(
+    calc(var(--space-6) * 3),
+    calc((100vw - var(--dock-clear, 0.85) * var(--ap-w)) / 2 - var(--space-2) - var(--space-1)),
+    calc(var(--space-6) * 7)
+  ); /* the floor only binds below ~1000 px wide (there the dock may reach the scope image) */
   font-family: var(--font-sans);
   font-size: var(--font-size-body);
   color: var(--color-text);
@@ -210,16 +218,34 @@
 
 .shell-rail {
   grid-area: rail;
-  grid-row: 2 / 4; /* may extend beside the (centred, narrow) caption bar on short viewports */
+  grid-row: 2 / 4; /* may extend beside the bottom-centred hotbar on short viewports */
   width: var(--side-panel-width);
 }
 
 .shell-inspector {
-  grid-area: inspector;
+  align-self: flex-end;
   align-items: flex-end;
+  flex-shrink: 0; /* keeps its size; an open Layers / Physiology panel scrolls inside the cap instead */
 }
 
-/* Hide empty hosts (e.g. no inspector content in guided mode) and the steps rail outside guided mode. */
+/* Room for the walkthrough panel / practice bar below it. */
+.shell:is([data-mode='guided'], [data-mode='practice']) .shell-inspector {
+  max-height: 60%;
+}
+
+/* T862: right column = inspector on top, side dock at the bottom, ending above the vitals monitor (vitals.css). */
+.shell-right {
+  grid-area: inspector;
+  grid-row: 2 / 4;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--space-1);
+  min-height: 0;
+  margin-bottom: calc(var(--vitals-h, 0px) + var(--space-1));
+}
+
+/* Hide empty hosts and the steps rail / walkthrough panel outside Guided walkthrough mode. */
 .shell-side:has(> .shell-side-body:empty),
 .shell:not([data-mode='guided']) .shell-rail,
 .shell:not([data-mode='guided']) .guided-caption {
@@ -260,8 +286,52 @@
 }
 
 .shell-caption {
-  /* 608 px: clears the 176 px rail at 1024 wide, so the caption never covers a step. */
-  width: min(100%, calc(var(--space-4) * 19));
+  box-sizing: border-box;
+  margin-top: auto; /* hugs the monitor */
+  width: var(--dock-w);
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  font-size: var(--font-size-small);
+}
+
+/* Only the walkthrough step text / practice bar scroll when the dock is short: messages and the toast stay in view. */
+.shell-caption > * {
+  flex-shrink: 0;
+}
+.shell-caption > :is(.guided-caption, .practice-bar) {
+  flex-shrink: 1;
+  min-height: 0;
+}
+/* T862b: when even the fixed rows exceed the dock (640x400), the bar scrolls instead of spilling under the monitor. */
+.shell-caption > .practice-bar {
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.shell-caption > .practice-bar > * {
+  flex-shrink: 0; /* status, message and buttons stay; the step instruction scrolls */
+}
+.shell-caption > .practice-bar > .practice-step {
+  flex-shrink: 1;
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.guided-caption .guided-body {
+  min-height: 0;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+
+/* The shared action toast (wireM4 creates it with inline fixed placement) flows in the dock; hidden = no space. */
+.shell-caption #action-toast {
+  position: static !important;
+  transform: none !important;
+  max-width: none !important;
+}
+.shell-caption #action-toast[style*='visibility: hidden'] {
+  display: none;
 }
 
 /* Slots centred on the viewport; port chips in the left column. */
@@ -292,15 +362,13 @@
   max-width: var(--side-panel-width);
 }
 
-/* Below 1024 wide the caption bar reaches the rail's column, so the rail stays above the bottom row. */
-@media (max-height: 480px), (max-width: 1023px) {
-  .shell-rail {
-    grid-row: 2;
-  }
-}
-
 /* Short or narrow viewports: the side columns are too small for the chips, so they sit centred above the dock. */
 @media (max-height: 480px), (max-width: 1199px) {
+  /* T862b: the right column (practice bar / walkthrough buttons) stays above the centred chips and dock. */
+  .shell-right {
+    position: relative;
+    z-index: 1;
+  }
   .shell-dock {
     grid-template-columns: 1fr;
     gap: var(--space-1);
@@ -379,6 +447,32 @@
   color: var(--color-muted);
 }
 
+/* T881 U1: in Guided the compass sits in the right gutter (top of the side column, which reserves its height), and the
+   "reset view" hint is dropped (no manual scope control there). */
+.shell[data-mode='guided'] .scope-compass {
+  grid-column: 3;
+}
+
+.shell[data-mode='guided'] .scope-compass-hint {
+  display: none;
+}
+
+.shell[data-mode='guided'] .shell-right {
+  padding-top: calc(var(--space-4) * 2 + var(--space-6) + var(--space-1));
+  box-sizing: border-box;
+}
+
+/* T881 U2: a slimmer top bar so it ends above the central 85 % of the aperture (≥ 48 px down at 1024×640). */
+.shell[data-mode='guided'] .shell-top {
+  padding-block: 0;
+  border-block-width: 0;
+}
+
+/* T881 U2: view / ventilation / inspector (layers) are practice tools; Guided keeps the mode buttons only. */
+.shell[data-mode='guided'] :is(.shell-views, .shell-vents, .shell-inspector) {
+  display: none;
+}
+
 /* ---- Guided procedure (T203, §6.1 item 1). ---- */
 .guided-steps {
   margin: 0;
@@ -446,23 +540,61 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: var(--space-2);
+  padding: var(--space-1);
   background: var(--color-surface-overlay);
   border: var(--border-width) solid var(--color-border);
   border-radius: var(--radius-lg);
 }
 
-.guided-body {
-  max-height: 30vh; /* expanded "More" scrolls instead of pushing the rail/scope view up (T205) */
-  overflow-y: auto;
+.guided-body[hidden],
+.guided-msgs[hidden] {
+  display: none;
+}
+
+/* T862: rail sub-progress of the current step (e.g. step 1 parts "3/6"). */
+.guided-sub {
+  margin-left: auto;
+  color: var(--color-muted);
+  font-size: var(--font-size-small);
+  font-variant-numeric: tabular-nums;
+}
+
+.guided-meta {
   display: flex;
-  flex-direction: column;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-1);
 }
 
-/* T847a: the shared action toast (wireM4, inline-styled) sits below the topbar, clear of it and the compass. */
-#action-toast {
-  top: calc(var(--space-6) + var(--space-5)) !important;
+.guided-more,
+.guided-fold {
+  align-self: flex-start;
+  padding: 0 var(--space-1);
+}
+
+/* Side messages (walkthrough 'msg' events, e.g. a node sent for pathology). */
+.guided-msgs {
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space-1) / 2);
+  background: var(--color-surface-overlay);
+  border: var(--border-width) solid var(--color-border);
+  border-left: calc(var(--border-width) * 3) solid var(--color-accent);
+  border-radius: var(--radius-lg);
+}
+
+.shell:not([data-mode='guided']) .guided-msgs {
+  display: none;
+}
+
+.guided-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
 }
 
 .guided-details:not([hidden]) {
@@ -484,13 +616,13 @@
 
 .guided-head {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-1);
 }
 
 .guided-title {
-  margin: 0 auto 0 0;
+  flex: 1;
+  margin: 0;
   font-size: var(--font-size-body);
   font-weight: 600;
 }
@@ -508,19 +640,9 @@
   margin: 0;
 }
 
-/* Caption clamped to 2 lines until "More" opens the details. */
-.guided-body:has(> .guided-details[hidden]) .guided-text {
-  display: -webkit-box;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
-  line-clamp: 2;
-  overflow: hidden;
-}
-
 /* T847a: the step caption describes the scope view; outside (theatre) the title, controls and More stay
    (after the clamp rule: same specificity). */
-.shell[data-view='outside'] .guided-body .guided-text,
-.shell[data-view='outside'] .guided-caption .guided-demo-text {
+.shell[data-view='outside'] .guided-body .guided-text {
   display: none;
 }
 
@@ -540,11 +662,19 @@
 }
 
 .guided-controls {
-  margin-left: auto; /* right-aligned when the head wraps onto a second row */
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-1);
+  gap: calc(var(--space-1) / 2);
+}
+
+.guided-controls .panel-button {
+  padding: calc(var(--space-1) / 2) var(--space-1);
+  text-align: center;
+}
+
+.guided-nav:last-child {
+  margin-left: auto; /* Next at the right edge */
 }
 
 .guided-counter {
@@ -552,19 +682,18 @@
   font-variant-numeric: tabular-nums;
 }
 
-.guided-nav:disabled {
+.guided-nav:disabled,
+.guided-play:disabled {
   opacity: 0.5;
   cursor: default;
 }
 
-/* Practice bar (wireM5): bottom-left above the port chips, so the scope centre (where bleeding shows) stays clear. */
+/* Practice bar (wireM5): in the side dock above the monitor, so the scope centre (where bleeding shows) stays clear. */
 .practice-bar {
   box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  max-width: calc(var(--space-6) * 7);
-  margin-bottom: var(--space-1);
   padding: var(--space-2);
   background: var(--color-surface-overlay); /* 88%: muted text keeps AA over a bright scope (tokens.css) */
   border: var(--border-width) solid var(--color-border);
@@ -588,4 +717,9 @@
 .practice-vitals:not(:empty) {
   padding-left: var(--space-1);
   border-left: calc(var(--border-width) * 3) solid var(--color-danger);
+}
+
+/* T878: the Guided walkthrough is film-like and non-interactive: no practice hotbar, port chips or Hold/Release hints. */
+.shell[data-mode='guided'] :is(.shell-hotbar, .shell-ports, .shell-dock) {
+  display: none;
 }

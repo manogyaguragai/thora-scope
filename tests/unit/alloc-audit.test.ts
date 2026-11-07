@@ -36,6 +36,8 @@ const HOT: Record<string, string[]> = {
   'src/scene/stumps.ts': ['sync', 'syncSplits', 'cutAt', 'centroid', 'followMatrix'],
   'src/scene/staples.ts': ['reveal'], // T841 progressive staple line
   'src/ui/vitalsMonitor.ts': ['tick', 'stroke'],
+  'src/app/walkthrough/engine.ts': ['tick'], // T860 engine clock (guided.walk.tick)
+  'src/app/walkthrough/shots.ts': ['lerpRig'], // T860 camera moves, per frame
 };
 
 /** Known, documented exceptions (`file:name` → labels), each with its reason. Keep this short. */

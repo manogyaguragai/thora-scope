@@ -120,7 +120,7 @@ export function wireM5(ctx: M5Context): M5 {
     button('End run', () => void m5.endRun()),
   );
   bar.append(status, stepEl, msg, vitalsEl, row);
-  shell.ports.prepend(bar); // bottom-left, above the port chips: keeps the scope centre (the bleed) clear
+  shell.caption.prepend(bar); // T862: side dock above the vitals monitor: keeps the scope centre (the bleed) clear
 
   const say = (text: string): void => {
     msg.textContent = text;
@@ -268,15 +268,16 @@ export function wireM5(ctx: M5Context): M5 {
       return [];
     });
 
-  // M4 has no scene reset: a fresh case (retry, or re-entry after actions) reloads straight into practice.
+  // T860: a fresh case (retry, or re-entry after actions, e.g. from the walkthrough) is M4's in-place case reset — no
+  // page reload, no second loading screen.
   const restart = (): void => {
-    const u = new URL(location.href);
-    u.searchParams.set('mode', 'practice');
-    location.assign(u);
+    stop();
+    m4.walk.reset();
+    start();
   };
 
   function start(): void {
-    if (m4.staples.lineCount > 0 || m4.flags.size > 0 || m4.finish.specimens.length > 0) return restart();
+    if (m4.staples.lineCount > 0 || m4.flags.size > 0 || m4.finish.specimens.length > 0) m4.walk.reset();
     ctx.setStep(1, true);
     ctx.setView('scope', true);
     m3.scope.reset();

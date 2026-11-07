@@ -46,7 +46,7 @@ test('M4 actions: tools, port swap, vein + bronchus staple-divide, hands, PiP â€
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?view=scope&step=3');
+  await page.goto('/?mode=explore&view=scope&step=3');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   const programs = (): Promise<number> => page.evaluate(() => window.__perf.programs);
   const before = await programs();
@@ -79,7 +79,7 @@ test('M4 actions: tools, port swap, vein + bronchus staple-divide, hands, PiP â€
   expect((await m4State(page)).phase).toMatch(/withdrawing|parked/);
 
   // Vein (practice PA07â€“PA09): passage behind it with the peanut (the clamp only clamps), the retractor held (G) via
-  // the anterior working port, then moved to the access incision, which frees the anterior working port for the
+  // the posterior port, then moved to the access incision, which frees the posterior port for the
   // stapler (the v8 vein's stapling angle). Scope in the camera port.
   await page.evaluate(() => {
     window.__sim.m3?.scope.switchPort('port_camera_8ICS');
@@ -148,7 +148,7 @@ test('T847b clamp stays on; two held graspers persist under the cautery', async 
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?view=scope&step=3');
+  await page.goto('/?mode=explore&view=scope&step=3');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   await page.evaluate(() => {
     window.__sim.m3?.scope.switchPort('port_camera_8ICS');
@@ -175,7 +175,7 @@ test('T847b clamp stays on; two held graspers persist under the cautery', async 
   expect(await clamp()).toMatchObject({ clamped: null });
   await page.evaluate(() => window.__sim.m4?.withdraw());
 
-  // Two lung graspers left holding (anterior working port: RUL, access incision: RLL), then the cautery joins the
+  // Two lung graspers left holding (posterior port: RUL, access incision: RLL), then the cautery joins the
   // second one in the access incision (it takes two; the scope is in the camera port).
   for (const [lobe, port] of [
     ['lung_upper_lobe_right', 'port_retraction_8ICS'],

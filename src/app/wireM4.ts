@@ -18,6 +18,7 @@ import { createEffects, CutPool } from '../scene/effects';
 import type { FissureGuide, Segment } from '../scene/fissureGuide';
 import { buildHands } from '../scene/hands';
 import { buildInstruments, TOOL_IDS } from '../scene/instruments';
+import { buildRetrievalBag } from '../scene/retrievalBag';
 import type { ToolId } from '../scene/instruments';
 import { instrumentAnim, instrumentGeom, instrumentLook } from '../scene/instruments.config';
 import { registerWarmupHook, withAllVisible } from '../scene/loadingStages';
@@ -34,6 +35,7 @@ import { RETRACT_KEYS, Retract } from '../sim/actions/retract';
 import { ClipFire, closedJawFor, Encircle, jawPose, needsEncircle, StapleFire } from '../sim/actions/staple';
 import type { JawTool } from '../sim/actions/staple';
 import { getStumps, setStumpHeartbeat } from '../scene/stumps';
+import { parkDivisionPlanes } from '../scene/staples';
 import { STUMPS } from '../scene/stumps.config';
 import { SLOTS } from '../sim/hotbar';
 import { InstrumentController } from '../sim/instrumentControl';
@@ -48,7 +50,9 @@ import type { PracticeAttempt } from '../sim/practice';
 import type { ActionKind, PracticeTool } from '../sim/practiceActions';
 import { retractionConfig as R } from '../sim/retraction.config';
 import { startOLV, tweenTo } from '../sim/state';
-import { STEPS } from '../sim/steps';
+import { applyVisibility, STEPS } from '../sim/steps';
+import { asEngine, inputLocked, walkRate } from '../sim/walkLock';
+import { createWalkthrough } from './walkthrough/engine';
 import type { TweenKey } from '../sim/state';
 import { keyCap } from '../ui/helpOverlay';
 import { mountPortPicker, mountRetractionStrip } from '../ui/hotbar';
@@ -63,6 +67,8 @@ export interface M4Context extends M3Context {
   preset: QualityPreset;
   /** Post-FX lens-fog amount (uFog), driven by the effect pools. */
   fog: IUniform<number>;
+  /** T860 post-FX grade gain (uGain): the walkthrough's reduced-motion dip-to-black cuts. */
+  gain?: IUniform<Vector3>;
 }
 
 export interface M4 {
@@ -119,7 +125,7 @@ export interface M4 {
   /** T840: called when a node is taken out (hidden) with its name and bed point (shared vector: copy it). Starts
    *  with the node-bed ooze (startOoze); T844 may add practice hooks. */
   readonly onNodeRemoved: ((name: string, point: Vector3) => void)[];
-  /** Instruments left in ports drawn right now (+ the guided step's static grasper). */
+  /** Instruments left in ports drawn right now. */
   heldShown: () => number;
   /** Frame loop, after M3. Allocation-free. */
   update: (now: number) => void;
@@ -145,6 +151,31 @@ export interface M4 {
   bleedNear: ((p: Vector3) => boolean) | null;
   /** Show the action toast (T505: practice feedback); returns `msg`. */
   toast: (msg: string) => string;
+  /** T860 walkthrough engine hooks (src/app/walkthrough): instant case reset + end-state pieces for seek, and the
+   *  context actions without the key layer. */
+  walk: {
+    /** Fresh case in place: instruments out, holds and grips gone, divisions / nodes / staples / openings / fluid /
+     *  fissure fires undone, finish + flags cleared, step visibility re-applied. */
+    reset(): void;
+    /** Instant division (stumps + staple caps, branches hidden) as after a stapler fire. */
+    divided(name: string): void;
+    /** Instant removal (node / lobe out, sample recorded). */
+    removed(name: string): void;
+    /** A holding instrument placed instantly in `port` on `target` at world `at` (false: no room). */
+    hold(tool: ToolId, sub: string | null, port: string, target: string, at: Vector3): boolean;
+    /** Same as A (bronchus clamp test / leak test); 'ok' or the reason. */
+    ventilate(): string;
+    /** Same as B (bag out through the access incision); 'ok' or the reason. */
+    bag(): string;
+    /** A stapler / clip fire is still closing, firing or opening. */
+    busy(): boolean;
+    /** The instrument left in `port` on `target`: a setter sliding it out along its shaft (0 = on the target,
+     *  1 = out at the port: the hold is released and it is gone); null if there is none. Event time. */
+    heldOut(port: string, target: string): ((f: number) => void) | null;
+    /** T883: world tip (jaws) of the grasper left holding in `port` (any port when null) into `out`; false if none
+     *  is drawn. Event time. */
+    heldTip(port: string | null, out: Vector3): boolean;
+  };
 }
 
 const A = config.actions;
@@ -204,6 +235,8 @@ interface Held {
   slot: number;
   /** T853: left while parked (right click): selecting its kind again resumes it. */
   parked: boolean;
+  /** T860: walkthrough withdrawal, 0 = on its target … 1 = tip back at the port. */
+  out: number;
   port: Port | null;
   obj: Object3D | null;
   mesh: Mesh | null;
@@ -226,6 +259,15 @@ export function wireM4(ctx: M4Context): M4 {
   // Built once, in the scene before compile / warm-up.
   const inst = buildInstruments();
   const fx = createEffects(preset);
+  fx.surface = (p, d) => m3.picker.nearest(p, d); // T861: the node-bed rivulet runs down the visible surface
+  // T872 retrieval bag (walkthrough step 8: window.__sim.m4.fx.bag.play(lobe, port, t)), on the instruments' programs.
+  fx.bag = buildRetrievalBag(
+    inst.materials,
+    camera,
+    (n) => model.getObjectByName(n) ?? null,
+    (id) => ports.find((p) => p.id === id) ?? null,
+  );
+  fx.group.add(fx.bag.group);
   const cuts = new CutPool(openedLayers);
   // Dissected openings are looked through: hover / click reach the structure beneath (same attribute as the shader).
   m3.picker.skip = (m, p) => grab.meshes.includes(m) || cuts.inside(m, p); // T840: nor is a node in the jaws
@@ -335,14 +377,15 @@ export function wireM4(ctx: M4Context): M4 {
   toastEl.setAttribute('role', 'status');
   toastEl.style.cssText =
     'position:fixed;left:50%;top:var(--space-6);transform:translateX(-50%);max-width:60ch;padding:var(--space-1) var(--space-2);background:var(--color-surface-overlay);color:var(--color-text);border:var(--border-width) solid var(--color-border);border-radius:var(--radius-sm);pointer-events:none;z-index:6;visibility:hidden';
-  app.append(toastEl);
+  ctx.shell.caption.append(toastEl); // T862: side dock (R5), styles in panels.css
   let toastTimer = 0;
   const toast = (msg: string): string => {
+    m4.lastToast = msg;
+    if (getMode() === 'guided') return msg; // T878: the walkthrough shows its own captions
     toastEl.textContent = msg;
     toastEl.style.visibility = 'visible';
     window.clearTimeout(toastTimer);
     toastTimer = window.setTimeout(() => (toastEl.style.visibility = 'hidden'), A.toastMs);
-    m4.lastToast = msg;
     return msg;
   };
 
@@ -476,7 +519,7 @@ export function wireM4(ctx: M4Context): M4 {
   };
   let pickerScope: string | null = null;
 
-  // ── Instruments left in ports (T820 holds, T840 any placed tool) + the guided static grasper; clones built once ──
+  // ── Instruments left in ports (T820 holds, T840 any placed tool); clones built once ──
   const srcNodes: Record<string, Object3D[]> = {};
   for (const id of TOOL_IDS) {
     const list: Object3D[] = [];
@@ -502,6 +545,7 @@ export function wireM4(ctx: M4Context): M4 {
       ref: null,
       slot: -1,
       parked: false,
+      out: 0,
       port: null,
       obj: null,
       mesh: null,
@@ -511,16 +555,14 @@ export function wireM4(ctx: M4Context): M4 {
     };
   };
   const userHeld = Array.from({ length: I.maxLeft }, () => newHeld(TOOL_IDS));
-  const guidedHeld = newHeld(['grasper']);
-  const allHeld = [...userHeld, guidedHeld];
 
   // ── T847b lens exclusion: the scope's depth limit also keeps the lens I.lens.clearM off every instrument ──
   const heads = new Map<Object3D, Object3D>(); // stapler → its articulated head (knuckle + jaw direction)
-  for (const o of [inst.tools.stapler, ...allHeld.map((h) => h.clones.stapler)]) {
+  for (const o of [inst.tools.stapler, ...userHeld.map((h) => h.clones.stapler)]) {
     const head = o?.getObjectByName('stapler_head');
     if (o && head) heads.set(o, head);
   }
-  const segs = Array.from({ length: (allHeld.length + 1) * 2 }, () => new Line3());
+  const segs = Array.from({ length: (userHeld.length + 1) * 2 }, () => new Line3());
   const segClear = new Float64Array(segs.length);
   let nSegs = 0;
   /** Its distal shaft (from portSkipM past the pleura) to the tip, + the stapler's jaws (knuckle → jaw tip). */
@@ -545,7 +587,7 @@ export function wireM4(ctx: M4Context): M4 {
     nSegs = 0;
     const tool = m4.tool;
     if (tool && control.port && inst.tools[tool].visible) addTool(inst.tools[tool], control.port, tool);
-    for (const h of allHeld) if (h.obj?.visible && h.port) addTool(h.obj, h.port, h.tool ?? 'grasper'); // guided: grasper
+    for (const h of userHeld) if (h.obj?.visible && h.port) addTool(h.obj, h.port, h.tool ?? 'grasper');
     return nSegs;
   }
   /** Deepest lens depth along unit `dir` from `origin` (a port's pleura point) clear of the instruments, ≤ `max`. */
@@ -794,6 +836,7 @@ export function wireM4(ctx: M4Context): M4 {
       if (!coag && (tool === 'peanut' || TARGET_BY_ID.get(tid)?.tools.cautery !== undefined)) {
         // A manifest layer is judged when its dissection completes (onDissected): progress needs tip contact.
         if (!dissect.isLayer(tid) && !allowed('dissect', tool, tid, port)) return 'gated';
+        if (dissect.isLayer(tid)) reseat(tid);
         dissect.begin(tid, tool);
       }
       if (tool === 'cautery') {
@@ -1007,6 +1050,30 @@ export function wireM4(ctx: M4Context): M4 {
     toast(`${labelFor(tid).name}: divided between the clips`);
   }
 
+  /** T860c: the tip goes back onto layer `tid` where it is NOW. A snap made while a morph tween ran (the pick BVHs
+   *  re-bake only when the pose settles) can leave the tip on whatever the moving layer uncovered (e.g. the vein
+   *  under the reflected pleura): contact would never be the layer and its dissection could never progress.
+   *  Press time only; nearest current (morphed) vertex of the layer, no BVH, within contact.reseatMaxM. */
+  function reseat(tid: string): void {
+    if (m3.picker.nearest(control.tipPos, CAUTERY.contact.distM, true)?.nodeName === tid) return;
+    let best = Infinity;
+    for (const m of meshesOf(tid)) {
+      const pos = m.geometry.getAttribute('position');
+      for (let i = 0; i < pos.count; i++) {
+        const d = m.getVertexPosition(i, tT).applyMatrix4(m.matrixWorld).distanceToSquared(control.tipPos);
+        if (d < best) {
+          best = d;
+          tB.copy(tT);
+        }
+      }
+    }
+    if (best > CAUTERY.contact.reseatMaxM ** 2) return; // free space (T880): no snap onto tissue
+    control.aimAt(tB);
+    point.copy(tB);
+    anchorAt(tB, true, tid);
+    constrain();
+  }
+
   // ── T822 energised cautery: contact gating, sweep, openings / sear line (sampled at CAUTERY.contact.sampleHz) ──
   let sampleAcc = 0;
   let sweepDirty = false;
@@ -1039,7 +1106,10 @@ export function wireM4(ctx: M4Context): M4 {
     if (!energised) {
       // T852 peanut: a blunt sweep opens a dissectable layer (wider, soft torn edge; no smoke, no char).
       if (DISSECTABLE.test(hit.nodeName)) cuts.touch(hit.nodeName, hit.point, dt, true);
-      else cuts.lift();
+      else {
+        cuts.lift();
+        if (m4.tool === 'peanut') cuts.touchNear(hit.point); // T875: the fascia round a vessel tears open (tunnel)
+      }
       return void (m4.contact = true);
     }
     tN.subVectors(camera.position, hit.point).normalize(); // mark faces the scope side of the surface
@@ -1082,6 +1152,7 @@ export function wireM4(ctx: M4Context): M4 {
   function aim(obj: Object3D, port: Port, h: Held): void {
     if (!h.mesh) return;
     h.mesh.getVertexPosition(h.vi, tT).applyMatrix4(h.mesh.matrixWorld);
+    if (h.out > 0) tT.lerp(tA.copy(port.pleura).addScaledVector(port.axis, IC.depthM.min), h.out);
     obj.position.copy(tT);
     tN.subVectors(tT, port.pleura).normalize();
     tQ.setFromUnitVectors(Z, port.axis);
@@ -1180,6 +1251,7 @@ export function wireM4(ctx: M4Context): M4 {
     h.ref = null;
     h.slot = -1;
     h.parked = false;
+    h.out = 0;
     h.port = null;
   }
 
@@ -1465,6 +1537,103 @@ export function wireM4(ctx: M4Context): M4 {
     return toast(`${kindName(r.tool, r.sub)} released from the ${portLabel(r.port).toLowerCase()}${back}`);
   }
 
+  // ── T860 walkthrough: instant case reset + end-state pieces (seek rebuilds steps 1…N-1 in place, no reload) ──
+  function resetCase(): void {
+    stayPut = false;
+    fire.phase = 'idle'; // a fire in flight never lands on the fresh case
+    clipFire.phase = 'idle';
+    abort();
+    dropNode();
+    restoreSqueeze();
+    if (m3.hotbar.slot !== 0) asEngine(() => m3.hotbar.select(0)); // hand empty (a placed tool is left, then freed)
+    if (m4.tool) withdrawActive();
+    occupancy.releaseAll();
+    for (const h of userHeld) free(h);
+    retract.reset();
+    clamped = null;
+    squeeze.to = 0;
+    act.slot = -1;
+    act.target = null;
+    act.mesh = null;
+    disengage();
+    divideIn = 0;
+    clipsOn.clear();
+    enc.reset();
+    dissect.reset();
+    clearCautery();
+    for (const p of pending) p.at = -1;
+    for (const n of overrides.keys()) {
+      const o = model.getObjectByName(n);
+      if (o) o.visible = true;
+    }
+    overrides.clear();
+    staples.reset();
+    lineOn = false;
+    getStumps()?.reset();
+    for (const t of TARGETS)
+      for (const m of meshesOf(t.id)) {
+        const planes = getDivisionPlanes(m);
+        if (planes) parkDivisionPlanes(planes);
+      }
+    m4.fissure?.reset();
+    Object.assign(finish, F.createFinishState());
+    m4.flags.clear();
+    m4.errors.length = 0;
+    m4.samples.length = 0;
+    state.rmlDivided = false;
+    applyVisibility(ctx.vis, state);
+    m3.reapplyLayers();
+    syncJaw();
+    refreshPorts();
+  }
+  /** As onDivide after a stapler fire, without the fire (staples ride the stumps). */
+  function dividedNow(name: string): void {
+    const split = getStumps()?.divide(name, 'staple') === true;
+    setShown(name, false);
+    for (const n of divisionGroup(name))
+      if (n !== name && (!split || getStumps()?.isBranchOf(n, name) !== false)) setShown(n, false);
+    const tissue = ANATOMY.structures[name]?.tissue;
+    if (tissue === 'vein' || tissue === 'artery') F.noteDivided(finish, tissue);
+    m4.flags.add(`divided:${name}`);
+  }
+  function removedNow(name: string): void {
+    setShown(name, false);
+    if (isNode(name) && !m4.samples.includes(station(name))) m4.samples.push(station(name));
+  }
+  function holdNow(tool: ToolId, s: string | null, portId: string, target: string, at: Vector3): boolean {
+    const port = ports.find((p) => p.id === portId);
+    const h = userHeld.find((x) => x.tool === null);
+    if (!port || !h || !occupancy.hasRoom(portId)) return false;
+    occupancy.holds.push({ tool, sub: s, port: portId, target });
+    h.ref = occupancy.holds[occupancy.holds.length - 1] ?? null;
+    h.tool = tool;
+    h.sub = s;
+    h.port = port;
+    h.slot = -1;
+    h.parked = false;
+    model.updateMatrixWorld();
+    track(h, target, at);
+    // The clone takes the sub-option's parts with the jaws closed (copied from the hand's instrument).
+    inst.show(tool, Math.max(0, SUB_IDS[tool]?.indexOf(s ?? '') ?? 0));
+    inst.setJaw(0);
+    const src = srcNodes[tool] ?? NONE;
+    const dst = h.nodes[tool] ?? NONE;
+    for (let i = 0; i < dst.length; i++) {
+      const a = src[i];
+      const b = dst[i];
+      if (!a || !b) continue;
+      b.visible = a.visible;
+      b.quaternion.copy(a.quaternion);
+    }
+    inst.show(m4.tool, m3.hotbar.subOption());
+    const obj = h.clones[tool] as Object3D;
+    obj.visible = true;
+    h.obj = obj;
+    aim(obj, port, h);
+    syncHeld();
+    return true;
+  }
+
   // ── T842 irrigation (final step) + node-bed ooze coagulation ──
   const LAST_STEP = STEPS[STEPS.length - 1]?.step ?? 0;
   const atLastStep = (): boolean => getMode() !== 'practice' && guided.current === LAST_STEP;
@@ -1475,27 +1644,11 @@ export function wireM4(ctx: M4Context): M4 {
       ? toast('Saline in: ventilate (A) for the leak test, then suction')
       : m4.lastToast;
   }
-  const irrigateBtn = mountIrrigateButton(ctx.shell.ports, () => void irrigateNow());
+  const irrigateBtn = mountIrrigateButton(ctx.shell.ports, () => void (inputLocked() || irrigateNow()));
   irrigateBtn.setShown(irrigable()); // stepchange / mode change refresh it (clearCautery)
   /** A bleed to coagulate here: complications' (wireM5) or a node-bed ooze. */
   const bleedAt = (p: Vector3): boolean => m4.bleedNear?.(p) === true || fx.oozeNear(p);
 
-  let guidedAt: readonly number[] | null = null;
-  /** Guided steps 2–6: the authored static grasper (event time; the tip rides the authored lobe vertex). */
-  function showGuided(): void {
-    const a = getMode() === 'guided' ? R.guided[guided.current] : undefined;
-    const port = a && ports.find((p) => p.id === a.port);
-    if (!a || !port) return hide(guidedHeld);
-    if (guidedAt !== a.at || guidedHeld.target !== a.target) {
-      guidedAt = a.at; // steps 3 → 4 share target + port but not the point
-      model.updateMatrixWorld();
-      track(guidedHeld, a.target, tB.set(...a.at), true);
-    }
-    guidedHeld.port = port;
-    guidedHeld.obj = guidedHeld.clones.grasper ?? null;
-    if (guidedHeld.obj) guidedHeld.obj.visible = true;
-  }
-  guided.on('stepchange', showGuided);
   // T822: openings and marks belong to the case in progress: a new step / mode / run starts clean.
   let steelSoil: number = SOIL.steel.amount;
   let gauzeSoak: number = SOIL.gauze.amount;
@@ -1526,7 +1679,6 @@ export function wireM4(ctx: M4Context): M4 {
     else retract.letGoAll();
     syncJaw();
     refreshPorts();
-    showGuided();
   });
   // T850 "Insert via" picker (beside the port chips, instrument in hand), keys from K.insertVia1–3.
   const via = I.insertOrder.flatMap((id, i) => {
@@ -1534,7 +1686,7 @@ export function wireM4(ctx: M4Context): M4 {
     const k = INSERT_KEYS[i];
     return p && k ? [{ id, label: p.label, key: keyCap(k.code), code: k.code }] : [];
   });
-  const picker = mountPortPicker(ctx.shell.ports, via, (id) => void insertVia(id));
+  const picker = mountPortPicker(ctx.shell.ports, via, (id) => void (inputLocked() || insertVia(id)));
   function refreshPicker(): void {
     const tool = m4.tool;
     picker.setShown(tool !== null);
@@ -1545,10 +1697,13 @@ export function wireM4(ctx: M4Context): M4 {
   guided.on('stepchange', refreshPicker); // the recommended port follows the step
   const strip = mountRetractionStrip(
     ctx.shell.ports,
-    { hold: () => void hold(), release: () => void releaseHold(), sample: () => void recordSample() },
+    {
+      hold: () => void (inputLocked() || hold()),
+      release: () => void (inputLocked() || releaseHold()),
+      sample: () => void (inputLocked() || recordSample()),
+    },
     keyCap(K.recordSample.code),
   );
-  showGuided();
 
   // ── Keys: Esc withdraw, P instrument port, G hold, A / B / T context actions, I PiP ──
   window.addEventListener('keydown', (e) => {
@@ -1558,7 +1713,9 @@ export function wireM4(ctx: M4Context): M4 {
     const tool = m4.tool;
     if (pip.handleKey(e)) {
       if (!pip.shown) toast(pip.enabled ? "Surgeon's view shows in the scope view" : "Surgeon's view off");
-    } else if (tool && matchesKey(K.instrumentWithdraw, c)) withdrawActive();
+    } else if (inputLocked())
+      return; // T860: the walkthrough's instruments
+    else if (tool && matchesKey(K.instrumentWithdraw, c)) withdrawActive();
     else if (tool && !e.shiftKey && matchesKey(K.nextPort, c))
       nextToolPort(); // Shift+P: scope (M3)
     else if (tool && !e.shiftKey && via.some((v) => v.code === c))
@@ -1598,7 +1755,7 @@ export function wireM4(ctx: M4Context): M4 {
     !(m4.tool === 'clamp' && clamped !== null) &&
     fire.phase === 'idle' &&
     !(pressing && (m4.tool === 'cautery' || dissect.tool === 'peanut'));
-  const busy = (): boolean => !m4.tool || m3.onPick !== null;
+  const busy = (): boolean => !m4.tool || m3.onPick !== null || inputLocked();
   canvas.addEventListener('contextmenu', (e) => e.preventDefault());
   canvas.addEventListener('pointerdown', (e) => {
     if (busy()) return;
@@ -1644,7 +1801,7 @@ export function wireM4(ctx: M4Context): M4 {
     }
   });
   canvas.addEventListener('pointerup', (e) => {
-    if (e.button === 0 && pressing) release();
+    if (e.button === 0 && pressing && !inputLocked()) release();
   });
   canvas.addEventListener(
     'wheel',
@@ -1723,9 +1880,11 @@ export function wireM4(ctx: M4Context): M4 {
     },
     fissure: null,
     onNodeRemoved: [],
-    heldShown: () => allHeld.filter((h) => h.obj?.visible).length,
+    heldShown: () => userHeld.filter((h) => h.obj?.visible).length,
     update(now) {
-      const dt = last ? Math.min(now - last, A.maxDtMs) : 0;
+      // T860: the walkthrough's pause / timeScale run m4's own animations too (1 outside the walkthrough).
+      const realDt = (last ? now - last : 0) * walkRate.value;
+      const dt = Math.min(realDt, A.maxDtMs * walkRate.value);
       last = now;
       occupancy.scopePort = m3.scope.port.id;
       if (occupancy.scopePort !== pickerScope) {
@@ -1806,8 +1965,8 @@ export function wireM4(ctx: M4Context): M4 {
         grab.obj.matrixWorldNeedsUpdate = true;
       }
       updateSqueeze(dt);
-      for (let i = 0; i < allHeld.length; i++) {
-        const h = allHeld[i] as Held;
+      for (let i = 0; i < userHeld.length; i++) {
+        const h = userHeld[i] as Held;
         if (h.obj && h.port) aim(h.obj, h.port, h);
       }
       if (fire.update(dt)) onDivide();
@@ -1834,7 +1993,7 @@ export function wireM4(ctx: M4Context): M4 {
               ? Math.max(eng.closed, 1 - control.jaw)
               : 1 - control.jaw,
       );
-      retract.update(dt);
+      retract.update(realDt); // T860: a let-go grasp eases back over real time (slow frames must not stretch it)
       const peanut = dissect.tool === 'peanut';
       if ((fx.energised || peanut) && (sampleAcc += dt) >= SAMPLE_MS) {
         sampleContact(sampleAcc / 1000, fx.energised);
@@ -1897,7 +2056,71 @@ export function wireM4(ctx: M4Context): M4 {
     contactPoint,
     bleedNear: null,
     toast,
+    walk: {
+      reset: resetCase,
+      divided: dividedNow,
+      removed: removedNow,
+      hold: holdNow,
+      // T879: the walkthrough re-collapses on its own clock (step 5 'olv' beat); the practice re-collapse is timed on
+      // the wall clock, which made the clamp-test pose depend on pauses and load. Drop it here.
+      ventilate: () => {
+        if (!dispatch(F.ventilate(finish))) return m4.lastToast;
+        for (const p of pending) p.at = -1;
+        return 'ok';
+      },
+      bag: () => (dispatch(F.bagExtract(finish, FIN.accessPort)) ? 'ok' : m4.lastToast),
+      busy: () => fire.phase !== 'idle' || clipFire.phase !== 'idle',
+      heldOut(port, target) {
+        const h = userHeld.find((x) => x.ref && x.port?.id === port && x.target === target);
+        if (!h) return null;
+        return (f) => {
+          if (!h.ref) return;
+          h.out = Math.min(1, Math.max(0, f));
+          if (h.out < 1) return;
+          const i = occupancy.holds.indexOf(h.ref);
+          if (i >= 0) occupancy.holds.splice(i, 1);
+          syncHeld(); // drop: its grip lets go, the clone hides
+        };
+      },
+      heldTip(port, out) {
+        const h = userHeld.find(
+          (x) => x.tool === 'grasper' && x.obj?.visible && (!port || x.port?.id === port),
+        );
+        if (!h?.obj) return false;
+        out.copy(h.obj.position); // aim(): the clone's root sits on its tip, in world space (instruments root)
+        return true;
+      },
+    },
   };
   m4.onNodeRemoved.push((_name, p) => m4.startOoze(p)); // T842 node-bed ooze, sealed by cautery contact
+  // T860: Guided = the walkthrough (it starts on "ready"); window.__sim.walkthrough is its test / UI hook.
+  window.__sim.walkthrough = createWalkthrough({
+    guided,
+    state,
+    camera,
+    picker: m3.picker,
+    meshesOf,
+    onNodeRemoved: m4.onNodeRemoved,
+    gain: ctx.gain ?? null,
+    dock: ctx.shell.caption, // T876 Beat.inset docks here (R5 side dock)
+  });
+  // T890 (critic r2 C10): Guided-hidden nodes in config.scope.guidedFramedShow (the phrenic) show while the current
+  // beat's camera frames them (the step-1 phrenic beat), via the action overrides; event time only.
+  const walk = window.__sim.walkthrough;
+  walk.on('state', () => {
+    const cam = walk.currentBeat()?.cam;
+    const sub = cam && cam.k !== 'step' ? cam.subject : null;
+    let changed = false;
+    for (const n of config.scope.guidedFramedShow) {
+      const on = sub === n || (Array.isArray(sub) && sub.includes(n));
+      if (on === (overrides.get(n) === true)) continue;
+      if (on) overrides.set(n, true);
+      else overrides.delete(n);
+      changed = true;
+    }
+    if (!changed) return;
+    applyVisibility(ctx.vis, state);
+    m3.reapplyLayers(); // re-applies the overrides too
+  });
   return m4;
 }

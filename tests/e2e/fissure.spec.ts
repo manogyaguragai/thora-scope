@@ -12,7 +12,7 @@ const FIRE_MS = 2500; // stapler close + fire + open + margin
 async function open(page: Page, errors: string[]): Promise<void> {
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
-  await page.goto('/?step=7&view=scope');
+  await page.goto('/?mode=explore&step=7&view=scope');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   // Earlier steps done (bronchus, artery divided); the step pose holds the fissure open.
   await page.evaluate(() =>

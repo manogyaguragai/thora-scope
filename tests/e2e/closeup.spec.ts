@@ -47,7 +47,7 @@ async function sample(
   palette: string,
   shots: string[],
 ): Promise<{ row: Row; onFocus: number; dark: number }> {
-  await page.goto(`/?view=scope&step=${step}&palette=${palette}`);
+  await page.goto(`/?mode=explore&view=scope&step=${step}&palette=${palette}`);
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   await hideShell(page);
   await page.waitForFunction(

@@ -353,11 +353,15 @@ export const REALISTIC: Partial<Record<TissueClass, Partial<PaletteParams>>> = {
   collapsedLung: { color: '#a06e7c' }, // dusky pink-grey (04:29 #BC7B84; T831 #aa7682 read bright pink close up)
   fat: { color: '#f0c880' }, // rich yellow (01:17 #F8C899)
   // T846b: blood film + red back-scatter cut on the realistic vessels (they read crimson / saturated close up).
-  vein: { color: '#200a18', rim: '#e0a0b8', blood: 0.15, scatterStrength: 0.3 }, // dark plum-maroon (01:01 #64324A)
+  // T884 (critic S8): #56506a read lavender plastic → plum toward 01:01 #64324A (darkened: lit + graded on screen).
+  vein: { color: '#4a3850', rim: '#d8c4e0', blood: 0.06, scatterStrength: 0.2 }, // T872: muted violet-blue, pale bluish sheen (01:01 #64324A plum mid-field; 01:13 / 01:17 bluish-white under the light); was #200a18 (dark maroon)
   svc: { color: '#6e4a62', rim: '#e0c0d8' }, // preserved upper vein (05:21 #74455A)
-  artery: { color: '#c4a0a6', rim: '#f0d8e0', blood: 0.12 }, // pale grey-pink, faint blue cast (03:52 salmon under its blood film)
-  bronchus: { color: '#e0c6b6' }, // pale ivory-pink cartilage (03:18 #FFE8BF; T831 #eed4c4 clipped to white close up)
-  nerve: { color: '#f2ece0' }, // white-cream (01:01 #FFF1E0)
+  // T884 (critic S8): #c4a0a6 read pale white → salmon toward 03:52 #FF8F81 (saturation kept under closeup.spec's cap).
+  // T890 (critic r2 C6): the pale-pink read was the T807 focus self-glow (now off in Guided); a touch warmer, the
+  // saturation kept under closeup.spec's cap (#c8766c measured 0.43 on screen).
+  artery: { color: '#c48a81', rim: '#f8d8d0', blood: 0.12 }, // muted salmon (03:52 under its blood film)
+  bronchus: { color: '#ccae9c' }, // pale ivory-pink cartilage (03:18 #FFE8BF; T831 #eed4c4, T884 #e0c6b6 clipped to white close up)
+  nerve: { color: '#cdbfac' }, // white-cream (01:01 #FFF1E0); T890 (C10): #f2ece0 read flat white close up
   lymphNode: { color: '#5e5048' }, // grey-brown, anthracotic speckle
   pericardium: { color: '#a07888', rim: '#f0d0e0' }, // glossy pale pink-lavender (01:01 #965C74)
   pleuraWall: { color: '#9a7282', rim: '#f0d0e0' }, // violet-pink chest wall (04:29 #87536D)
@@ -473,7 +477,10 @@ export const look = {
     strength: 0.65, // rim emissive radiance at grazing angles
     self: 0.8, // emissive = albedo × self (keeps the structure's hue, lifts it above its neighbours)
     rimPower: 2, // T807c: wider rim so the outline stands out from the pink lung
-    modes: ['guided'] as readonly string[], // Layers checkbox default on in these modes, off elsewhere (practice, quiz)
+    // Layers checkbox default on in these modes, off elsewhere. T890 (critic r2 C1): off in Guided too — its unlit
+    // self term (albedo × self) flattened pale subjects (bronchus, phrenic, artery, specimen lobe) to white; the
+    // walkthrough's own glow (highlight.ts) marks the subject there. The Layers checkbox still turns it on.
+    modes: [] as readonly string[],
   },
   // T807: smoothstep(a, b, dot(vertex normal, derivative normal)): below a the shading uses the derivative normal.
   // T831: only on meshes without morph normals.

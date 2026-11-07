@@ -20,13 +20,14 @@ export const waterConfig = {
   suctionReachM: 0.03, // T852: the held sucker drains while its tip is under the surface or this far above it
   dryY: -1000, // tissue-shader water level when dry (no fragment is below it)
   surface: {
-    color: '#b9cfcb', // faint cavity tint
+    // T890 (critic r2 C8): softer, warmer surface toward 06:46's orange-pink haze (the grey grazing bands went)
+    color: '#e8b0a0',
     opacity: 0.16, // face-on; grazing views reach edgeOpacity (fresnel)
-    edgeOpacity: 0.6,
-    envIntensity: 0.35, // reflections of the room environment (glints, not a white sheet)
+    edgeOpacity: 0.35,
+    envIntensity: 0.12, // reflections of the room environment (glints, not a white sheet)
     roughness: 0.03,
     metalness: 0,
-    rippleAmp: 0.18, // normal tilt of the gentle ripples
+    rippleAmp: 0.06, // normal tilt of the gentle ripples (T890: 0.18 → hard banding at grazing angles)
     rippleFreq: 260, // rad per metre
     rippleSpeed: 1.6, // rad per second
   },
@@ -35,12 +36,12 @@ export const waterConfig = {
     /^(skin|subcutaneous_fat|chest_wall_muscle|intercostal_muscles|rib_|spine|sternum|scapula|clavicula|costal_cartilages|port_)|_left$/,
   /** Seen through the water (tissue shader): inside the surface disc's cylinder, along the view ray's wet path. */
   under: {
-    tint: [0.5, 0.8, 0.86] as const, // linear colour multiplier after a long wet path
+    tint: [0.9, 0.62, 0.55] as const, // linear colour multiplier after a long wet path (T890: warm haze, 06:46)
     attenPerM: 22, // exp(−wet path × this) toward the tint
     causticScale: 550, // rad per metre: the net repeats every 2π / this (≈ 11 mm)
     causticSpeed: 0.5,
     causticSharp: 8, // pow() of the net: thin bright lines
-    causticStrength: 1.1, // × lit colour
+    causticStrength: 0.45, // × lit colour (T890: 1.1 drew hard white streaks)
     causticFadeM: 0.004, // caustics fade in over this depth below the surface
   },
   /** setLeak(point): bubbles stream from a failed staple line while it is under water. */

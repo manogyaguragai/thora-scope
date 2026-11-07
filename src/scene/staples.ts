@@ -6,6 +6,7 @@ import { BoxGeometry, Group, InstancedMesh, Matrix4, MeshStandardMaterial, Vecto
 import type { BufferAttribute, Mesh, Plane } from 'three';
 import { config } from '../core/config';
 import { instrumentGeom } from './instruments.config';
+import { getInstrumentEnv } from './lights';
 import { STUMPS } from './stumps.config';
 
 export const STAPLES_CONFIG = config.staples; // values in src/core/config.ts
@@ -157,17 +158,23 @@ export class Staples {
   private readonly stash = new Float32Array(this.perLine * 16);
   private readonly shown = new Uint8Array(this.perLine);
   private readonly order = new Float32Array(this.perLine); // heel → tip position of each staple, 0 … 1
+  /** T884: optional per-staple placement fix applied as a line is laid out (fissure rows snap onto the lobe
+   *  surface); null = the straight line. Called at fire time only. */
+  snap: ((m: Matrix4) => void) | null = null;
   private readonly stashAt =
     (k: number) =>
-    (i: number, m: Matrix4): void =>
-      void m.toArray(this.stash, (k + i) * 16);
+    (i: number, m: Matrix4): void => {
+      this.snap?.(m);
+      m.toArray(this.stash, (k + i) * 16);
+    };
   private readonly side0 = this.stashAt(0);
   private readonly side1 = this.stashAt(this.perSide);
 
   constructor() {
     const C = STAPLES_CONFIG;
     const G = instrumentGeom.clip;
-    const mat = new MeshStandardMaterial({ ...C.look, name: 'staples:titanium' });
+    // T884: the instruments' neutral env (the cavity env made the titanium read maroon); set at load, never toggled.
+    const mat = new MeshStandardMaterial({ ...C.look, envMap: getInstrumentEnv(), name: 'staples:titanium' });
     // Local frame for both: x = along the line / across the vessel, y = legs, z = stump axis.
     this.staples = new InstancedMesh(
       new BoxGeometry(C.crown, C.wire, C.wire),

@@ -8,6 +8,9 @@ export const cauteryConfig = {
   contact: {
     distM: 0.0025,
     sampleHz: 30, // ≤ §6.10 hover rate; also the sweep re-aim rate (pointer drag while energised)
+    /** T880: energise re-seats the tip onto its layer's morphed surface only within this (stale-BVH error, T860c);
+     *  farther = free space, the tip stays put. */
+    reseatMaxM: 0.005,
   },
   smoke: {
     ratePerSec: 40, // wisps/s at the contact point while energised in contact + one perPuff burst on touch-down
@@ -16,8 +19,10 @@ export const cauteryConfig = {
    *  only ever raised until a step / mode reset). Field = 1 − d / (falloff × radius): discarded above 1 − 1/falloff. */
   dissect: {
     spacingM: 0.0014, // the tip within this of the stroke anchor = dwell (the opening widens)
-    startRadiusM: 0.0016,
-    maxRadiusM: 0.0034, // dwell on one spot widens the opening up to this
+    // T884 (critic S7): 1.6 / 3.4 mm openings barely nicked the strands over a guided sweep; wider cuts so the
+    // strands / pleura visibly part along the stroke.
+    startRadiusM: 0.0026,
+    maxRadiusM: 0.0048, // dwell on one spot widens the opening up to this
     growPerSec: 0.0012,
     edgeFactor: 0.75, // coarse layers (chest-wall pleura ≈ 7 mm edges): radius ≥ this × the layer's mean edge
     falloff: 2, // field reaches 0 at falloff × radius (the rim band lives in between)
@@ -64,14 +69,15 @@ export const cauteryConfig = {
    *  stays (slow passive clearing) until the sucker aspirates it. */
   haze: {
     max: 0.7, // murky view after ~30 s of cumulative energy
-    riseRate: 0.025, // per second of energised tissue contact
+    riseRate: 0.018, // per second of energised tissue contact (T890 C4: 0.025 left the walkthrough grey; ≥ 0.017 keeps
+    // practice murky after 30 s, effects.test)
     decayRate: 0.002, // per second, passive (port leak)
     /** Drifting smoke in the cavity around the last contact point; spawn rate ∝ density / max. */
     particles: {
       capScale: 0.5,
       color: [0.8, 0.79, 0.76] as const,
-      size: 0.02, // m, size-attenuated
-      opacity: 0.22,
+      size: 0.012, // m, size-attenuated (T890 C4: 20 mm read as white balls near the lens)
+      opacity: 0.18,
       lifeSec: 4,
       ratePerSec: 24, // at max density
       radiusM: 0.035, // spawn sphere around the field
@@ -88,9 +94,8 @@ export const cauteryConfig = {
     bloodShrinkPerSec: 0.004, // m of decal radius per second within radiusM
     bloodMinShare: 0.3, // a still-bleeding decal keeps this share of its size
   },
-  /** T842 lymph-node bed ooze (startOoze): small decal + drip; energised contact seals it (coag rule above). */
+  /** T842 lymph-node bed ooze (startOoze; T861 look: config.effects.bed); energised contact seals it (coag rule). */
   nodeBed: {
-    radiusM: 0.005,
     max: 4, // simultaneous node-bed oozes (fixed slots)
   },
 } as const;

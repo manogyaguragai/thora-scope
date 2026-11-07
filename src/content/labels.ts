@@ -196,19 +196,15 @@ const ENTRIES: Entry[] = [
   ['clavicula_right', 'Right clavicle', 'Right collarbone.'],
   ['costal_cartilages', 'Costal cartilages', 'Cartilage joining the front ends of the ribs to the sternum.'],
   // Ports
-  [
-    'port_camera_8ICS',
-    'Camera port (8th intercostal space)',
-    'Thoracoscope entry, just behind the anterior axillary line.',
-  ],
+  ['port_camera_8ICS', 'Inferior camera port', 'Thoracoscope entry, just behind the anterior axillary line.'],
   [
     'port_utility_5ICS',
-    'Access incision (5th intercostal space)',
+    'Anterior access incision (5th intercostal space)',
     'Main working incision at the front; the lobe comes out here.',
   ],
   [
     'port_retraction_8ICS',
-    'Posterior port (8th intercostal space)',
+    'Posterior port',
     'Extra port, often used for a retractor or a second instrument.',
   ],
 ];

@@ -2,6 +2,9 @@
 // rig move to the step camera, deflate/retract tweens (applyStep) and visibility fades. A mesh entering or leaving
 // the step's visible set swaps to its pre-compiled transparent variant, fades, then swaps back to opaque (or hides).
 // Input during a transition queues only the latest target. Per frame: no allocations (fixed fade slots).
+// T860: Guided mode is the walkthrough (src/app/walkthrough/engine.ts): entering a step seeks + plays it (the engine
+// listens to 'stepchange'), `walk.next/prev` take Next / Prev inside a step first (step 1 parts), `walk.tick` runs
+// the engine clock from this update.
 import { config } from '../core/config';
 import { ease } from './state';
 import type { AppState } from './state';
@@ -31,6 +34,8 @@ export interface Guided {
   update(now: number): void;
   on(ev: GuidedEvent, fn: GuidedListener): void;
   off(ev: GuidedEvent, fn: GuidedListener): void;
+  /** T860 walkthrough engine hooks (set at load): per-frame tick; next / prev inside a step (true = consumed). */
+  walk: { tick(now: number): void; next(): boolean; prev(): boolean } | null;
 }
 
 const FIRST = STEPS[0]?.step ?? 1;
@@ -121,10 +126,12 @@ export function createGuided(deps: GuidedDeps): Guided {
       return state.step;
     },
     transitioning: false,
-    next: () => goTo((pending !== NONE ? pending : state.step) + 1),
-    prev: () => goTo(state.step ? (pending !== NONE ? pending : state.step) - 1 : FIRST),
+    next: () => void (g.walk?.next() || goTo((pending !== NONE ? pending : state.step) + 1)),
+    prev: () =>
+      void (g.walk?.prev() || goTo(state.step ? (pending !== NONE ? pending : state.step) - 1 : FIRST)),
     goTo,
     update(now: number): void {
+      g.walk?.tick(now);
       if (!g.transitioning) return;
       if (start === NONE) start = now;
       const p = Math.min(1, (now - start) / G.transitionMs);
@@ -142,6 +149,7 @@ export function createGuided(deps: GuidedDeps): Guided {
       const i = listeners[ev].indexOf(fn);
       if (i >= 0) listeners[ev].splice(i, 1);
     },
+    walk: null as Guided['walk'],
   };
   return g;
 }

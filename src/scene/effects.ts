@@ -3,14 +3,18 @@
 // Wiring: scene.add(fx.group) before the compile stage; per frame fx.update(dt) then uFog.value = fx.fog.value.
 // T817/T822: cautery acts only at contact: smoke plume + haze at the touched point, a subtle char / sear line along
 // the path (CharPool). T842: dissection openings are a per-vertex attribute on each soft layer (CutPool, persistent
-// until reset); smoke density accumulates with energy time and the held sucker aspirates smoke / blood; node-bed ooze.
+// until reset); smoke density accumulates with energy time and the held sucker aspirates smoke / blood.
+// T861 node-bed ooze (BedFx): drop + gravity rivulet + pool (instanced blobs placed once, uniform-driven growth),
+// darkened to a coagulum by an energised touch; no decal circle, no particles.
 import {
   BufferAttribute,
   Triangle,
   BufferGeometry,
   CircleGeometry,
+  Color,
   DataTexture,
   Group,
+  InstancedBufferAttribute,
   InstancedMesh,
   LinearFilter,
   Matrix4,
@@ -19,6 +23,7 @@ import {
   Points,
   PointsMaterial,
   Quaternion,
+  SphereGeometry,
   SRGBColorSpace,
   Vector3,
   type Mesh,
@@ -26,8 +31,10 @@ import {
 } from 'three';
 import type { HitPointInfo, MeshBVH } from 'three-mesh-bvh';
 import type { QualityPreset } from '../core/quality';
+import type { BedFxApi } from '../app/walkthrough/types';
 import { config } from '../core/config';
 import { cauteryConfig as CAUTERY } from './cautery.config';
+import type { RetrievalBag } from './retrievalBag';
 
 export const EFFECTS_CONFIG = config.effects; // values in src/core/config.ts
 
@@ -300,6 +307,19 @@ export class BloodPool {
     if (changed) this.mesh.instanceMatrix.needsUpdate = true;
   }
 
+  /** T884 (critic S2): a sealed node bed takes the fresh-blood decals round it with it (within `r` of `p`). */
+  clearNear(p: Vector3, r: number): void {
+    let changed = false;
+    for (let i = 0; i < this.capacity; i++) {
+      if ((this.age[i] ?? -1) < 0 || _p.fromArray(this.pos, i * 3).distanceToSquared(p) > r * r) continue;
+      this.age[i] = -1;
+      this.bleeding[i] = 0;
+      this.mesh.setMatrixAt(i, _zero);
+      changed = true;
+    }
+    if (changed) this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
   get activeBleeds(): number {
     let n = 0;
     for (let i = 0; i < this.capacity; i++) n += this.bleeding[i] ?? 0;
@@ -529,6 +549,24 @@ export class CutPool {
     if (moved) this.anchor.copy(p);
   }
 
+  /** T875 blunt sweep on a structure the layers wrap (peanut on an artery): every layer's fascia within the widest
+   *  blunt reach of `p` tears open there (soft torn edge), so the tunnel shows round the vessel. Layers whose bounds
+   *  are out of reach are skipped; allocation-free. */
+  touchNear(p: Vector3): void {
+    const D = CAUTERY.dissect;
+    for (const layer of this.layers.values()) {
+      const r = Math.max(layer.minRadius, D.maxRadiusM) * D.blunt.radiusScale;
+      const g = pickGeometry(layer.mesh);
+      if (!g.boundingSphere) g.computeBoundingSphere();
+      const bs = g.boundingSphere;
+      if (!bs) continue;
+      const w = layer.mesh.matrixWorld;
+      const scale = w.getMaxScaleOnAxis();
+      if (_a.copy(bs.center).applyMatrix4(w).distanceTo(p) > bs.radius * scale + D.falloff * r) continue;
+      this.paint(layer, p, p, r, true);
+    }
+  }
+
   /** A stroke is in progress (touched since the last lift). */
   get stroking(): boolean {
     return this.last !== null;
@@ -590,8 +628,8 @@ export class CutPool {
       const v = 1 - d / reach;
       const was = o[i] ?? 0;
       if (v <= was) continue;
-      if (was <= OPEN_THRESHOLD && v > OPEN_THRESHOLD) this.count++;
       o[i] = v;
+      if (was <= OPEN_THRESHOLD && (o[i] ?? 0) > OPEN_THRESHOLD) this.count++; // the stored float32, as the shader
       bl[i] = blunt ? 1 : 0; // the latest (widest) opening sets the edge look
       if (lo < 0) lo = i;
       hi = i;
@@ -635,6 +673,185 @@ function meanEdge(mesh: Mesh): number {
   return n >= 3 ? (sum / (n / 3)) * mesh.matrixWorld.getMaxScaleOnAxis() : 0;
 }
 
+type BedState = BedFxApi['state'];
+
+/** Pure node-bed timeline (unit-tested): growth 0…1 over bed.oozeSec while oozing (frozen once sealed); coag 0…1
+ *  over bed.coagSec after the seal. */
+export class BedTimeline {
+  state: BedState = 'none';
+  grow = 0;
+  coag = 0;
+  ooze(): void {
+    this.state = 'oozing';
+    this.grow = this.coag = 0;
+  }
+  /** Cautery seal: the ooze stops where it is and darkens. Only an oozing bed coagulates. */
+  coagulate(): void {
+    if (this.state === 'oozing') this.state = 'coagulated';
+  }
+  /** Instant end-state (seek). */
+  set(s: 'none' | 'coagulated'): void {
+    this.state = s;
+    this.grow = s === 'coagulated' ? EFFECTS_CONFIG.bed.coagulatedGrow : 0;
+    this.coag = s === 'coagulated' ? 1 : 0;
+  }
+  update(dt: number): void {
+    const B = EFFECTS_CONFIG.bed;
+    if (this.state === 'oozing') this.grow = Math.min(1, this.grow + dt / B.oozeSec);
+    else if (this.state === 'coagulated') this.coag = Math.min(1, this.coag + dt / B.coagSec);
+  }
+}
+
+/** Nearest visible surface to `p` within `maxDist` (wireM4: the BVH picker); null = none. */
+export type SurfaceProbe = (
+  p: Vector3,
+  maxDist: number,
+) => { readonly point: Vector3; readonly normal: Vector3 } | null;
+
+const RIV = EFFECTS_CONFIG.bed.rivulet.steps;
+/** Blob instances per bed: drop, rivulet segments, pool. */
+const BED_BLOBS = RIV + 2;
+const _g = new Vector3();
+const _t = new Vector3();
+const _w = new Vector3();
+const _y = new Vector3();
+const _c = new Vector3();
+const _bn = new Vector3();
+const _o = new Vector3();
+
+/** Load time: the unit-sphere blob geometry shared by every bed, with each instance's growth span [start, end]. */
+function buildBedGeometry(): SphereGeometry {
+  const B = EFFECTS_CONFIG.bed;
+  const geo = new SphereGeometry(1, B.segments[0], B.segments[1]);
+  const span = new Float32Array(BED_BLOBS * 2);
+  span.set(B.drop.grow, 0);
+  const [r0, r1] = B.rivulet.grow;
+  for (let i = 0; i < RIV; i++)
+    span.set([r0 + ((r1 - r0) * i) / RIV, r0 + ((r1 - r0) * (i + 1)) / RIV], (i + 1) * 2);
+  span.set(B.pool.grow, (RIV + 1) * 2);
+  geo.setAttribute('aGrow', new InstancedBufferAttribute(span, 2));
+  return geo;
+}
+
+/** One node bed: an InstancedMesh of blobs (own material = own growth / coag uniforms; one shared program). */
+export class BedFx {
+  readonly mesh: InstancedMesh;
+  readonly timeline = new BedTimeline();
+  readonly at = new Vector3();
+  private readonly uGrow = { value: 0 };
+  private readonly uCoag = { value: 0 };
+
+  constructor(geo: SphereGeometry) {
+    const B = EFFECTS_CONFIG.bed;
+    const mat = new MeshPhysicalMaterial({
+      name: 'bedFx',
+      color: B.color,
+      roughness: B.roughness,
+      clearcoat: 1, // fixed (> 0 from load: the clearcoat define never toggles)
+      clearcoatRoughness: B.clearcoatRoughness,
+    });
+    const uClot = { value: new Color(B.clotColor) };
+    mat.onBeforeCompile = (sh) => {
+      Object.assign(sh.uniforms, { uGrow: this.uGrow, uCoag: this.uCoag, uClot });
+      sh.vertexShader = sh.vertexShader
+        .replace(
+          '#include <common>',
+          '#include <common>\nattribute vec2 aGrow;\nuniform float uGrow;\nuniform float uCoag;',
+        )
+        .replace(
+          '#include <begin_vertex>',
+          `#include <begin_vertex>
+          transformed *= smoothstep( aGrow.x, aGrow.y, uGrow ) * ( 1.0 - ${B.clotShrink.toFixed(3)} * uCoag );`,
+        );
+      sh.fragmentShader = sh.fragmentShader
+        .replace('#include <common>', '#include <common>\nuniform float uCoag;\nuniform vec3 uClot;')
+        .replace(
+          '#include <color_fragment>',
+          '#include <color_fragment>\ndiffuseColor.rgb = mix( diffuseColor.rgb, uClot, uCoag );',
+        )
+        .replace(
+          '#include <roughnessmap_fragment>',
+          `#include <roughnessmap_fragment>
+          roughnessFactor = mix( roughnessFactor, ${B.clotRoughness.toFixed(3)}, uCoag );`,
+        );
+    };
+    mat.customProgramCacheKey = () => 'bedFx';
+    this.mesh = new InstancedMesh(geo, mat, BED_BLOBS);
+    this.mesh.name = 'node_bed_ooze';
+    this.mesh.frustumCulled = false;
+    this.mesh.visible = false;
+  }
+
+  /** Event time: drop at `at`, rivulet traced down the surface along gravity (`probe` re-snaps each step), pool at
+   *  the low point. `ref` orients the surface normal (toward the viewer); allocation-free. */
+  place(at: Vector3, ref: Vector3 | null, probe: SurfaceProbe | null): void {
+    const B = EFFECTS_CONFIG.bed;
+    const R = B.rivulet;
+    this.at.copy(at);
+    _g.set(...B.gravity);
+    const h0 = probe?.(at, B.snapM);
+    if (h0) _bn.copy(h0.normal);
+    else if (ref) _bn.copy(ref);
+    else _bn.copy(_g).negate();
+    if (ref && _bn.dot(ref) < 0) _bn.negate();
+    _bn.normalize();
+    _p.copy(at);
+    this.blob(0, _p, _bn, null, B.drop.radiusM, B.drop.radiusM, B.drop.radiusM * B.drop.flat);
+    let i = 0;
+    for (; i < RIV; i++) {
+      _t.copy(_g).addScaledVector(_bn, -_g.dot(_bn));
+      if (_t.length() < B.minSlope) break; // low point
+      _w.copy(_p).addScaledVector(_t.normalize(), R.stepM);
+      if (probe) {
+        const h = probe(_w, B.snapM);
+        if (!h) break; // ran off the surface
+        _w.copy(h.point);
+        _n.copy(h.normal);
+        if (_n.dot(_bn) < 0) _n.negate();
+      } else _n.copy(_bn);
+      _c.addVectors(_p, _w).multiplyScalar(0.5);
+      _t.subVectors(_w, _p);
+      const half = (_t.length() / 2) * R.overlap;
+      this.blob(i + 1, _c, _bn, _t, half, R.widthM, R.widthM * R.flat);
+      _p.copy(_w);
+      _bn.copy(_n).normalize();
+    }
+    for (let k = i; k < RIV; k++) this.mesh.setMatrixAt(k + 1, _zero);
+    const P = B.pool;
+    this.blob(RIV + 1, _p, _bn, i > 0 ? _t : null, P.radiusM, P.radiusM, P.radiusM * P.flat);
+    this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /** Blob `i` centred at `c` (lifted off the surface), flattened along normal `n`, long axis `dir` (null = any). */
+  private blob(
+    i: number,
+    c: Vector3,
+    n: Vector3,
+    dir: Vector3 | null,
+    sx: number,
+    sy: number,
+    sz: number,
+  ): void {
+    if (dir && Math.abs(dir.dot(n)) < dir.length() * 0.999) _t.copy(dir);
+    else _t.set(n.y, n.z, n.x); // any direction not along n
+    _y.crossVectors(n, _t).normalize();
+    _t.crossVectors(_y, n);
+    _m.makeBasis(_t, _y, n).scale(_s.set(sx, sy, sz));
+    _m.setPosition(_o.copy(c).addScaledVector(n, EFFECTS_CONFIG.bed.liftM));
+    this.mesh.setMatrixAt(i, _m);
+  }
+
+  /** Per frame: timeline → uniforms (written only when changed). */
+  update(dt: number): void {
+    const tl = this.timeline;
+    tl.update(dt);
+    const show = tl.state !== 'none';
+    if (this.mesh.visible !== show) this.mesh.visible = show;
+    if (this.uGrow.value !== tl.grow) this.uGrow.value = tl.grow;
+    if (this.uCoag.value !== tl.coag) this.uCoag.value = tl.coag;
+  }
+}
+
 export interface Effects {
   /** Add to the scene and registerWarmupObject() it once at load. */
   readonly group: Group;
@@ -664,12 +881,20 @@ export interface Effects {
   suck(tip: Vector3 | null): void;
   /** The sucker is held. */
   readonly sucking: boolean;
-  /** T842 node-bed ooze at `point` (decal facing `normal` + drip); energised contact seals it (coag rule). */
-  startOoze(point: Vector3, normal: Vector3): void;
+  /** T842/T861 node-bed ooze at `point` (`normal` = toward the viewer); energised contact seals it (coag rule). */
+  startOoze(point: Vector3, normal: Vector3 | null): void;
   /** An unsealed node-bed ooze lies within coag.radiusM of `p` (the cautery placed there coagulates). */
   oozeNear(p: Vector3): boolean;
   /** Unsealed node-bed oozes. */
   readonly oozing: number;
+  /** T861 node beds (fixed slots, nodeBed.max). */
+  readonly beds: readonly BedFx[];
+  /** T861 the latest node bed (walkthrough: window.__sim.m4.fx.bed). */
+  readonly bed: BedFxApi;
+  /** T861 surface the rivulet follows (wireM4 sets the BVH picker's nearest()); null = a straight run. */
+  surface: SurfaceProbe | null;
+  /** T872 retrieval bag (wireM4 builds it from the instruments' materials at load; in `group`). */
+  bag: RetrievalBag | null;
   update(dt: number): void;
 }
 
@@ -706,14 +931,26 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
   const touchAt = new Vector3(); // last contact = the smoky field's centre
   let smokeAcc = 0;
   let hazeAcc = 0;
-  // Node-bed oozes: fixed slots (blood decal slot, point, seconds of energised contact; slot −1 = free).
-  const oozeSlot = new Int32Array(NB.max).fill(-1);
-  const oozeAt = new Float32Array(NB.max * 3);
+  // Node-bed oozes: fixed slots (ring), seconds of energised contact per slot.
+  const bedGeo = buildBedGeometry();
+  const beds = Array.from({ length: NB.max }, () => new BedFx(bedGeo));
   const oozeCoag = new Float32Array(NB.max);
   let oozeHead = 0;
-  const nearOoze = (i: number, p: Vector3): boolean =>
-    (oozeSlot[i] ?? -1) >= 0 &&
-    _p.fromArray(oozeAt, i * 3).distanceToSquared(p) < COAG.radiusM * COAG.radiusM;
+  let current = beds[0] as BedFx;
+  const nearOoze = (b: BedFx, p: Vector3): boolean =>
+    b.timeline.state === 'oozing' && b.at.distanceToSquared(p) < COAG.radiusM * COAG.radiusM;
+  const nextBed = (): BedFx => {
+    current = beds[oozeHead] as BedFx;
+    oozeCoag[oozeHead] = 0;
+    oozeHead = (oozeHead + 1) % NB.max;
+    return current;
+  };
+  const bedAt = new Vector3();
+  const onBed = (p: Vector3): boolean => {
+    for (const b of beds)
+      if (b.timeline.state !== 'none' && b.at.distanceToSquared(p) < COAG.radiusM * COAG.radiusM) return true;
+    return false;
+  };
   const contact = (p: Vector3 | null, normal?: Vector3, mark = false): void => {
     if (!p || !tip) {
       touching = fog.on = false;
@@ -726,14 +963,24 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
     }
     touching = fog.on = true;
     touchAt.copy(p);
-    if (!mark || !normal) char.release();
+    // T875: no sear mark on a node bed: the cautery's touch there leaves only the dark coagulum (the char decal read
+    // as a bright red flat patch beside it).
+    if (!mark || !normal || onBed(p)) char.release();
     else if (!char.near(p, CAUTERY.char.spacingM)) char.begin(p, normal);
   };
   const group = new Group();
   group.name = 'effects';
-  const objects = [smoke.points, haze.points, ooze.points, bubbles.points, blood.mesh, char.mesh];
+  const objects = [
+    smoke.points,
+    haze.points,
+    ooze.points,
+    bubbles.points,
+    blood.mesh,
+    char.mesh,
+    ...beds.map((b) => b.mesh),
+  ];
   group.add(...objects);
-  return {
+  const fx: Effects = {
     group,
     objects,
     smoke,
@@ -754,8 +1001,33 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
     },
     get oozing() {
       let n = 0;
-      for (let i = 0; i < NB.max; i++) if ((oozeSlot[i] ?? -1) >= 0) n++;
+      for (const b of beds) if (b.timeline.state === 'oozing') n++;
       return n;
+    },
+    beds,
+    surface: null,
+    bag: null,
+    bed: {
+      get state() {
+        return current.timeline.state;
+      },
+      ooze(at) {
+        fx.startOoze(bedAt.set(at.x, at.y, at.z), null);
+      },
+      coagulate() {
+        // T872: the walkthrough's one cautery beat seals every node bed (11R + 12R): an earlier bed left oozing kept
+        // welling into a wet, brightly lit pool that read as red patches into step 5.
+        for (const b of beds) b.timeline.coagulate();
+      },
+      set(st, at) {
+        if (st === 'none') {
+          for (const b of beds) b.timeline.set('none');
+          return;
+        }
+        const b = at ? nextBed() : current;
+        if (at) b.place(bedAt.set(at.x, at.y, at.z), null, fx.surface);
+        b.timeline.set('coagulated');
+      },
     },
     cautery(t) {
       tip = t;
@@ -775,25 +1047,24 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
       fog.suction = t !== null;
     },
     startOoze(point, normal) {
-      const i = oozeHead;
-      oozeHead = (i + 1) % NB.max;
-      oozeSlot[i] = blood.spawn(point, normal, NB.radiusM);
-      point.toArray(oozeAt, i * 3);
-      oozeCoag[i] = 0;
+      const b = nextBed();
+      b.place(point, normal, fx.surface);
+      b.timeline.ooze();
     },
     oozeNear(p) {
-      for (let i = 0; i < NB.max; i++) if (nearOoze(i, p)) return true;
+      for (const b of beds) if (nearOoze(b, p)) return true;
       return false;
     },
     update(dt) {
       // Node-bed ooze: continuous energised contact within coag.radiusM for coag.sec seals it (complications' rule).
       for (let i = 0; i < NB.max; i++) {
-        const slot = oozeSlot[i] ?? -1;
-        if (slot < 0) continue;
-        oozeCoag[i] = touching && nearOoze(i, touchAt) ? (oozeCoag[i] ?? 0) + dt : 0;
-        if ((oozeCoag[i] ?? 0) < COAG.sec) continue;
-        blood.stop(slot);
-        oozeSlot[i] = -1;
+        const b = beds[i] as BedFx;
+        oozeCoag[i] = touching && nearOoze(b, touchAt) ? (oozeCoag[i] ?? 0) + dt : 0;
+        if ((oozeCoag[i] ?? 0) >= COAG.sec) b.timeline.coagulate();
+        // Just sealed (coag still 0; a seek's instant set() starts at 1): fresh-blood decals round it clear.
+        if (b.timeline.state === 'coagulated' && b.timeline.coag === 0)
+          blood.clearNear(b.at, C.bed.clearDecalM);
+        b.update(dt);
       }
       blood.update(dt);
       char.update(dt);
@@ -829,4 +1100,5 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
       fog.update(dt);
     },
   };
+  return fx;
 }

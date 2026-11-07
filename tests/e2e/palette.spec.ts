@@ -53,7 +53,7 @@ test('colour palette toggle: recolours without compiling, persists', async ({ pa
     );
   };
 
-  await page.goto('/?view=scope&step=6'); // T844: arteries step (v8 artery names, T846b)
+  await page.goto('/?mode=explore&view=scope&step=6'); // T844: arteries step (v8 artery names, T846b)
   await ready();
   const at = await arteryPixel(page);
   expect(at, 'an artery under the central pick grid').not.toBeNull();

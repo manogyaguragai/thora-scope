@@ -18,10 +18,10 @@ export const instrumentLook = {
   // metalness 0.7: the near headlight then spreads into the frames' broad silver highlight (0.12 read dark brown).
   // T821: envMapIntensity only counts since the instruments got their own neutral env (env below); 8 then blew out.
   steel: {
-    color: '#dcdad6',
-    roughness: 0.16, // T823: 0.4 read matte grey plastic; T825 × streak map 0.75 … 1
+    color: '#c2c0bc', // T890 (critic r2 C2): #dcdad6 blew the stapler knuckle / jaws out white by the lens
+    roughness: 0.35, // T884 (critic S6): 0.16 glared white on the stapler collar close up; T825 × streak map 0.75 … 1
     metalness: 0.85,
-    envMapIntensity: 2,
+    envMapIntensity: 1.2, // T890 (critic r2 C2): 2 blew the stapler jaws out white close up
   },
   white: { color: '#e8e6e0', roughness: 0.45, metalness: 0 }, // depth bands, cautery collar, handle buttons
   accent: { roughness: 0.45, metalness: 0, glowColor: '#ff8a3c' }, // cartridge insert / cautery tip
@@ -33,7 +33,9 @@ export const instrumentLook = {
    * blue for vessels / bronchus, tan-white for parenchyma (user's reference photos). Real-world colour↔staple-height
    * mapping differs by manufacturer — PENDING CLINICIAN REVIEW (docs/ASSET_ISSUES.md).
    */
-  cartridge: ['#2f6fc4', '#2f6fc4', '#2f6fc4', '#ddd0b0'],
+  // T884 (critic S6, ref 05:50 grey green-tinted reload): #2f6fc4 read as flat pastel-blue plastic.
+  // T890 (C2): parenchyma grey-green too (05:50), not cream. Matte under the headlight: lighter washed out to grey.
+  cartridge: ['#4a5c50', '#4a5c50', '#4a5c50', '#5a6a5c'],
   cauteryTip: '#8d8f92',
   cauteryGlow: 1.6, // emissive intensity while the cautery is active
   /** T821: neutral grey reflection env for every instrument material (lights.ts; same shape as config.cavityEnv):
@@ -53,13 +55,13 @@ export const instrumentLook = {
   /** T825: soil (blood/tissue) mix per material, driven by a uniform: amount 0 … 1 grows over the map's alpha mask
    *  (setSoil). Soiled texels turn dielectric and wet (roughness → `roughness`). */
   soil: {
-    steel: { color: '#3a0806', amount: 0.12 }, // faint smudges near the tips by default
+    steel: { color: '#4a2e28', amount: 0.03 }, // faint smudges near the tips by default (T884: 0.12 dark-red blotches)
     gauze: { color: '#d89a90', amount: 0.3 }, // default slight pink soak
     edge: 0.15, // mask → coverage ramp width
     roughness: 0.35,
     /** T825b (wireM4): live soiling per second of contact, capped; reset to the defaults above on step / mode
      *  change. Steel: energised tip on tissue or a grasp. Gauze: sponge / peanut pressed on an active bleed. */
-    rise: { steelPerS: 0.03, steelMax: 0.4, gauzePerS: 0.2, gauzeMax: 0.85 },
+    rise: { steelPerS: 0.03, steelMax: 0.05, gauzePerS: 0.2, gauzeMax: 0.85 }, // T884: steelMax 0.4 blotched the stapler; T890: 0.15 still left dark-red blotches
   },
 } as const;
 
@@ -218,11 +220,13 @@ export const instrumentGeom = {
     reach: 0.012,
     bendRadius: 0.005,
     bendLength: 0.009, // straight bent part after the curve
-    jawWidth: 0.0017, // across X
-    jawThick: 0.0013, // each jaw, in the bend plane
-    taper: 0.4, // tip radius × base radius
+    // T884 (critic S9, ref 03:18 blunt curved clamp): 1.7 × 1.3 mm jaws tapering to 0.4 read as two thin wires.
+    // T890 (critic r2 C9): still read as thin bars → thicker, blunter polished jaws.
+    jawWidth: 0.0042, // across X
+    jawThick: 0.0028, // each jaw, in the bend plane
+    taper: 0.8, // tip radius × base radius (a blunt rounded tip)
     serrations: 16,
-    serrationDepth: 0.16, // × local radius, inner face only
+    serrationDepth: 0.08, // × local radius, inner face only
     segments: 40,
     open: 40 * deg,
   },
@@ -283,6 +287,26 @@ export const instrumentGeom = {
     tipRadius: 0.0018,
     lumen: 0.6, // inner radius × tip radius
   },
+} as const;
+
+/** T872 retrieval bag (step 8, ref 06:23): a pale translucent pouch hanging from a steel hoop in front of a shaft,
+ *  brought in through the access incision; `play(t)` phases are fractions of t (0 → 1). Metres. */
+export const retrievalBag = {
+  shaft: { radius: 0.005, length: 0.3 }, // 10 mm introducer
+  hoop: { radius: 0.022, tube: 0.0008 }, // open mouth, in the plane through the shaft
+  pouch: { depth: 0.05, rings: 10 }, // depth below the hoop (quarter-ellipse profile)
+  segments: { round: 32, tube: 8, hoop: 48 }, // shaft / pouch around, hoop wire around, hoop along
+  // T890 (critic r2 C7): opaque white pouch (06:20); at 0.8 it read as a clear ring. Silicone program, uniforms only.
+  look: { color: '#f0ece8', opacity: 0.97, roughness: 0.45 },
+  standoffM: 0.01, // the open pouch waits this far port-side of the lobe's centre
+  /** Phase ends: shaft in + hoop opens · lobe in · mouth closes · bag out (to 1). */
+  phase: { open: 0.25, lobeIn: 0.6, close: 0.72 },
+  openFrom: 0.4, // the hoop starts opening at this share of the shaft's way in
+  lobeDepth: 0.45, // the lobe's centre sits this share of the pouch depth below the hoop
+  folded: 0.12, // head scale inside the shaft before it opens
+  closed: 0.3, // mouth width share once cinched
+  fit: 0.7, // lobe radius share of the hoop radius once inside
+  outM: 0.04, // the bag ends this far outside the port (pleura)
 } as const;
 
 /** Rates for the control layer's animations (jaw open/close, cautery glow ramp), per second of 0..1 travel. */

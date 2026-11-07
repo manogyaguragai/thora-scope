@@ -46,7 +46,7 @@ export const interactionConfig = {
    *  from the stapler (its 5 cm jaws filled the 45° view at 3 cm), near-plane clear of the slim ones (two share the access incision). Shafts count
    *  from `portSkipM` inside their pleura point (two in the access incision share it); the scope's depth limit is
    *  sampled every `stepM`, settled at follow.hz. */
-  /** T850 "Insert via" picker order (Camera port · Anterior port · Access incision); keys K.insertVia1–3. */
+  /** T850 "Insert via" picker order (inferior camera port · posterior port · anterior access incision); keys K.insertVia1–3. */
   insertOrder: ['port_camera_8ICS', 'port_retraction_8ICS', 'port_utility_5ICS'] as readonly string[],
   /** T850 tissue-aware tip: a ray along the shaft (from `skipM` past the pleura, ≤ follow.hz) stops the tip `marginM`
    *  short of chest wall / mediastinum / vessels / heart / bronchus / nodes (unless it is within `anchorTolM` of the

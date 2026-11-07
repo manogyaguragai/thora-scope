@@ -12,7 +12,12 @@ test('help overlay: ? opens the binding list, Esc closes', async ({ page }) => {
   await page.keyboard.press('Shift+Slash');
   const dialog = page.getByRole('dialog', { name: 'Controls' });
   await expect(dialog).toBeVisible();
-  await expect(dialog.getByText('Horizon lock')).toBeVisible();
+  // T881 U5: Guided lists the walkthrough keys, not the practice scope / instrument keys.
+  await expect(dialog.getByText('Horizon lock')).toHaveCount(0);
+  await expect(dialog.getByText('Replay the current step')).toBeVisible();
+  // T862: the mode is "Guided walkthrough" (no bare "Guided" group); hover names structures there.
+  await expect(dialog.getByRole('heading', { name: 'Guided walkthrough' })).toBeVisible();
+  await expect(dialog.getByText('Guided walkthrough: name a structure')).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Mouse' })).toBeVisible();
   await expect(dialog.locator('kbd').first()).toBeVisible();
   // Credits footer: both names link to LinkedIn in a new tab (nothing fetched until clicked).

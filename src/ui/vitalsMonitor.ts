@@ -165,6 +165,9 @@ export function mountMonitor(state: AppState, host: HTMLElement): MonitorView {
   buttons.append(soundButton, collapseButton);
   el.append(canvas, nums, buttons);
   host.append(el);
+  // T862: the side dock (panels.css .shell-right) ends above the monitor; resize-driven, never per frame.
+  const sized = new ResizeObserver(() => root.setProperty('--vitals-h', `${el.offsetHeight}px`));
+  sized.observe(el);
 
   // Displayed strings (built ≤ textHz) — also reused by the mirror compositor.
   const shown: string[] = VITALS.map(() => NONE);
@@ -310,7 +313,9 @@ export function mountMonitor(state: AppState, host: HTMLElement): MonitorView {
     dispose(): void {
       mirrors.length = 0;
       mirrorDone.length = 0;
+      sized.disconnect();
       el.remove();
+      root.removeProperty('--vitals-h');
       root.removeProperty('--vitals-pip-h');
       root.removeProperty('--vitals-bg');
     },

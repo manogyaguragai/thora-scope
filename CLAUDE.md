@@ -13,7 +13,7 @@ Vite + TypeScript (strict) + three.js (pinned) + three-mesh-bvh. Static site, no
 6. Model integration: `src/content/anatomy.json` (manifest — single source of truth for the hilum model) + `docs/MODEL_INTEGRATION.md`; user feedback specs `docs/FEEDBACK_v7_LIVE.md`, `docs/FEEDBACK_v8_LIVE.md`; Blender contract `docs/BLENDER_PROMPT_v8.md`
 
 ## Hard rules
-- NEVER deploy anywhere. Deployment = notes only (`docs/DEPLOY_HOSTINGER_KVM.md`).
+- NEVER deploy anywhere. Hosting is the owner's business and is not documented in this repo.
 - NEVER edit anything in `assets_src/` (read-only inputs, gitignored).
 - NEVER paste book text/figures or transcript lines verbatim into the app. Paraphrase. (No "Pending clinician review" badges in the UI: removed by user request 2026-11-05.)
 - NEVER ship ref-frames (or anything from `assets_src/`) in the build. Only `public/models/thorax_sim.opt.glb` + decoders.
@@ -39,6 +39,15 @@ Vite + TypeScript (strict) + three.js (pinned) + three-mesh-bvh. Static site, no
 Status legend: `[ ]` todo · `[~]` in progress · `[w]` built, awaiting wiring · `[q]` awaiting QA · `[x]` done · `[!]` blocked · `[>]` deferred.
 Write status changes BEFORE moving on. Only non-MANDATORY items may be deferred.
 
+### Watchdog (long autonomous batches)
+- Orchestrator schedules a recurring CronCreate check every ~30 min (session-only, 7-day expiry) at batch start.
+- Each check: ListAgents + every background shell → progress since last check (log mtime/size, files changed).
+  No progress > 30 min, or an orphaned vite/playwright/flock waiter → stop it (TaskStop, or kill own PIDs only),
+  log it in PROGRESS, re-brief or respawn. Nothing running + unblocked work → start the next task immediately.
+- Builders: every long command writes to `qa/logs/<task>-<what>.log`, so a hang is visible from outside;
+  foreground runs only for fast gates; long runs (`check`, full e2e) in background with an EXIT line appended.
+- Agent reports must end with "background runs stopped: yes".
+
 ### Builder brief template
 ```
 TASK T### — <title>
@@ -55,6 +64,12 @@ Report: files, summary, commands + exit codes, perf delta, open issues (≤12 li
   + `npm run test:e2e` if UI changed; + `npm run perf:probe` if rendering/sim changed.
 - Looks for: §7 contract violations, magic numbers, dead code, console errors, §6.10 violations.
 - Output: PASS or FAIL + numbered defects (≤15 lines).
+- **Visual work is judged by SCREENSHOTS, not metrics (owner rule 2026-11-06).** Any step/beat/visual task is done
+  only when its key frames have been opened and judged right by eye: the named structure is recognisable, framed
+  with context at a working distance, the action is visible, it looks like the ref-frames. Metrics (framing, program
+  counts) are supporting evidence only. A metric PASS never overrides a visual FAIL. Builders look at every frame
+  they save; QA and the visual critic re-open them and return per-beat PASS/FAIL with reasons; the orchestrator
+  spot-checks frames before marking a visual task `[x]`. The owner must not be the one who finds a broken view.
 
 ## Token rules
 - Briefs pass paths and section names, not pasted content. Reports ≤12 lines. No full-file dumps.

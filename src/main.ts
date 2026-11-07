@@ -17,7 +17,14 @@ import { armReady } from './core/perf';
 import { pickQuality } from './core/quality';
 import type { QualityName, QualityPreset } from './core/quality';
 import { createRenderer, holdRendering, releaseRendering, requestRender, startLoop } from './core/renderer';
-import { registerWarmupObject, runLoadingStages } from './scene/loadingStages';
+import {
+  registerWarmupHook,
+  registerWarmupObject,
+  registerWarmupView,
+  runLoadingStages,
+} from './scene/loadingStages';
+import { beatWarmupViews } from './scene/beatViews';
+import { WALK_STEPS } from './app/walkthrough/steps';
 import { aimStepPoses, createCameraRig } from './scene/cameras';
 import type { CameraRig, ViewMode } from './scene/cameras';
 import { buildOtRoom } from './scene/otRoom';
@@ -51,6 +58,17 @@ const m3Chunk = import('./app/wireM3');
 const m4Chunk = import('./app/wireM4'); // M4 instruments + actions, own chunk
 const stumpsChunk = import('./scene/stumps'); // T834 division stumps (built at load)
 const fissureChunk = import('./scene/fissureGuide'); // T851 step-7 dotted fissure guide (built at load)
+// T863 (FEEDBACK_GUIDED_v1 §2.4): every other lazy chunk (modes, panels, debrief, vitals) is fetched now and awaited
+// in the warm-up stage, so nothing downloads after "ready"; they stay separate chunks (initial-JS budget).
+const lateChunks = Promise.all([
+  import('./app/wireM5'),
+  import('./app/wireM6'),
+  import('./ui/quiz'),
+  import('./ui/physiologyPanel'),
+  import('./ui/helpOverlay'),
+  import('./ui/debrief'),
+  import('./app/wireM7'),
+]);
 const debug = params.has('debug');
 const { holdFraction, stages } = config.loading;
 // ?view=scope|outside (?scope = legacy alias from T105) and ?step=N (implies a step camera for the scope).
@@ -95,6 +113,10 @@ declare global {
       stumps: Stumps | null;
       /** T851 step-7 fissure guide (segments fired = sim.fissure.fired); null until the model is loaded. */
       fissure: FissureGuide | null;
+      /** T860 guided walkthrough engine (wired with M4 at load; types.ts WalkthroughHook). */
+      walkthrough?: import('./app/walkthrough/types').WalkthroughHook;
+      /** T861 walkthrough highlight (types.ts HighlightApi); set at load. */
+      highlight?: import('./scene/highlight').Highlight;
     };
   }
 }
@@ -221,6 +243,7 @@ async function main(): Promise<void> {
     sim.m3?.update(now);
     sim.m4?.update(now);
     if (sim.m4) sim.fissure?.update(state, sim.m4.finish);
+    sim.highlight?.update(now);
     sim.m5?.update(now);
     sim.stumps?.sync();
   }
@@ -260,6 +283,8 @@ async function main(): Promise<void> {
     stumpsChunk,
     fissureChunk,
   ]);
+  const { buildHighlight } = await import('./scene/highlight'); // T861 (shares the fissure-guide chunk)
+  registerWarmupHook(async () => void (await lateChunks));
   const { axis } = await runLoadingStages(
     renderer,
     scene,
@@ -286,7 +311,14 @@ async function main(): Promise<void> {
           sim.m3?.reapplyLayers();
         },
       ));
-      aimStepPoses(r, m, readPorts(m)); // T830: steps 2–5 aimed from their port at the hilum
+      // T886: the Guided-only scope hides (config.scope.guidedHidden) follow the mode.
+      onModeChange(() => {
+        applyVisibility(v, state);
+        sim.m3?.reapplyLayers();
+      });
+      const ports = readPorts(m);
+      aimStepPoses(r, m, ports); // T830: steps 2–5 aimed from their port at the hilum
+      for (const c of beatWarmupViews(WALK_STEPS, ports, m, camera)) registerWarmupView(c); // T863
       const g = (sim.guided = createGuided({
         vis: v,
         state,
@@ -314,7 +346,15 @@ async function main(): Promise<void> {
       };
       const ctx = { ...ui, setView: (mode: ViewMode) => sim.setView(mode), onHover: showHover };
       const m3 = (sim.m3 = wireM3(ctx));
-      const m4 = (sim.m4 = wireM4({ ...ctx, m3, scene, renderer, preset, fog: post.uniforms.uFog }));
+      const m4 = (sim.m4 = wireM4({
+        ...ctx,
+        m3,
+        scene,
+        renderer,
+        preset,
+        fog: post.uniforms.uFog,
+        gain: post.uniforms.uGain, // T860 reduced-motion dips
+      }));
       // After picking (stumps are not pickable), before the compile stage (titanium program compiles at load).
       sim.stumps = buildStumps(m);
       const fg = (sim.fissure = buildFissureGuide(
@@ -324,6 +364,9 @@ async function main(): Promise<void> {
       m4.fissure = fg; // T853: the user's stapler seats on its next segment
       scene.add(fg.group);
       registerWarmupObject(fg.group);
+      const hl = (sim.highlight = buildHighlight(m, fg.segments)); // T861: after applyRealism (clipping arrays), before compile
+      scene.add(hl.group);
+      registerWarmupObject(hl.group);
       m5Ctx = { ...ui, m3, m4, gain: post.uniforms.uGain, setStep: sim.setStep, setView: sim.setView };
     },
     preset.textureDownscale,

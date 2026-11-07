@@ -5,7 +5,7 @@ import type { Object3D } from 'three';
 
 export interface Port {
   id: string;
-  /** Video-style role label (ADR-004). */
+  /** Anatomical-position label (ADR-004). */
   label: string;
   skin: Vector3;
   /** Fulcrum / remote centre of motion. */
@@ -14,11 +14,12 @@ export interface Port {
   axis: Vector3;
 }
 
-/** ADR-004 role labels; unknown ports fall back to their node name. */
+/** ADR-004 labels by anatomical position (verified from the extras, docs/VIDEO_STEP_MAP.md (b)); ids stay stable.
+ *  Unknown ports fall back to their node name. */
 export const PORT_LABELS: Readonly<Record<string, string>> = {
-  port_camera_8ICS: 'Camera port',
-  port_utility_5ICS: 'Access incision',
-  port_retraction_8ICS: 'Anterior working port',
+  port_camera_8ICS: 'Inferior camera port',
+  port_utility_5ICS: 'Anterior access incision (5th space)',
+  port_retraction_8ICS: 'Posterior port',
 };
 
 /** Minimum cos(pleura − skin, axis) for a port to count as consistent. */

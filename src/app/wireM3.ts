@@ -19,6 +19,7 @@ import { getMode } from '../sim/modes';
 import { readPorts } from '../sim/ports';
 import { ScopeRig } from '../sim/scopeRig';
 import { startOLV, tweenTo, TWEEN_KEYS } from '../sim/state';
+import { inputLocked } from '../sim/walkLock';
 import type { AppState, TweenKey } from '../sim/state';
 import { stepHidden } from '../sim/steps';
 import type { StepVisibility } from '../sim/steps';
@@ -26,6 +27,7 @@ import { mountHotbar, mountPortChips } from '../ui/hotbar';
 import { createAnchors, createLabels3D, stepFocus } from '../ui/labels3d';
 import type { Labels3D } from '../ui/labels3d';
 import { mountCompass } from '../ui/compass';
+import { mountHoverLabel } from '../ui/hoverLabel';
 import { LAYER_GROUPS, mountLayersPanel } from '../ui/layersPanel';
 import type { Layers } from '../ui/layersPanel';
 import { SHELL_VENTS, SHELL_VIEWS } from '../ui/shell';
@@ -60,6 +62,8 @@ export interface M3 {
   onPick: ((nodeName: string) => void) | null;
   /** Re-write the rig pose + port chips after mutating `scope` directly (probe). */
   syncScope: () => void;
+  /** T860: re-write the rig pose only (walkthrough camera moves, per frame; no chips, no collision settle). */
+  writeScope: () => void;
   /** Re-hide layer-panel-hidden nodes after a step/scope visibility pass. */
   reapplyLayers: () => void;
   /** M4 hooks (wireM4 sets them): extra port-chip text, why the scope may not move into a port ('' = it may), and
@@ -86,7 +90,6 @@ export interface M3 {
 const HANDS = 0; // hotbar slot driving the scope (§6.3 slot 1)
 const R = config.scopeRig;
 const SKIP_TARGETS = 'input, select, textarea, [contenteditable], dialog';
-const PORT_HINT = 'Click a port chip or press Shift+P to view from another port';
 const V = config.physiology.ventilation;
 const VENT_TOAST = {
   one: 'One-lung ventilation: the right lung collapses away from the hilum',
@@ -158,10 +161,17 @@ export function wireM3(ctx: M3Context): M3 {
     const x = portHooks.occupant(id);
     return s && x ? `${s} + ${x}` : s || x || '—';
   };
-  const chips = mountPortChips(shell.ports, scope.ports, occupant, (id) => void moveScope(id), {
-    can: (id) => portHooks.canWithdraw(id),
-    run: (id) => portHooks.withdraw(id),
-  });
+  // T860: port switching is the walkthrough's in Guided (inputLocked).
+  const chips = mountPortChips(
+    shell.ports,
+    scope.ports,
+    occupant,
+    (id) => void (inputLocked() || moveScope(id)),
+    {
+      can: (id) => portHooks.canWithdraw(id),
+      run: (id) => void (inputLocked() || portHooks.withdraw(id)),
+    },
+  );
   // Morph pose the picking BVHs were last baked at (update re-bakes when it settles).
   const poseKey = (): number => {
     let k = 0;
@@ -211,6 +221,14 @@ export function wireM3(ctx: M3Context): M3 {
     masked: () => rig.mode === 'scope',
   });
   app.append(shell.root); // keep the shell panels above the label layer
+  // T862: Guided walkthrough hover tooltip (fed by the throttled hover pick in update).
+  const hoverTip = mountHoverLabel(
+    app,
+    canvas,
+    camera,
+    model.parent ?? model,
+    (x, y) => picker.pick(x, y, camera)?.nodeName ?? null,
+  );
 
   snapStep();
   syncScope();
@@ -218,28 +236,22 @@ export function wireM3(ctx: M3Context): M3 {
   labels.setFocus(stepFocus(state.step));
   layers.setFocus(stepFocus(state.step)); // T807 step-focus highlight, fades over the guided window
   guided.on('stepchange', () => layers.setFocus(stepFocus(state.step)));
-  // Guided re-snaps to the step's authored port + view (teaching intent); Explore / Practice keep the user's port.
-  let hinted = false;
+  // Physiology / Quiz re-snap to the step's authored port + view; Explore / Practice keep the user's port; Guided is
+  // the walkthrough's (T860: it frames each beat from the step's video port).
   guided.on('stepchange', () => {
     const mode = getMode();
-    if (mode !== 'explore' && mode !== 'practice') {
-      snapStep();
-      if (mode === 'guided' && !hinted) {
-        hinted = true;
-        portHooks.toast(PORT_HINT);
-      }
-    }
+    if (mode === 'physiology' || mode === 'quiz') snapStep();
     syncScope();
     reapplyLayers();
     labels.setFocus(stepFocus(state.step));
   });
-  // T847a: the user entering a guided step (Next / Prev / rail click / PageDown / PageUp / Show me) goes Inside —
-  // the app opens on the theatre; a later Outside click holds until the next such input. User input only: scripted
-  // setStep calls (probe, tests, mode switches) keep the view. Capture: Show me relabels itself to Stop in its handler.
+  // T847a: the user entering a guided step (Next / Prev / rail click / PageDown / PageUp) goes Inside — the app
+  // opens on the theatre; a later Outside click holds until the next such input. User input only: scripted setStep
+  // calls (probe, tests, mode switches) keep the view.
   const enterScope = (): void => {
     if (rig.target !== 'scope' && shell.root.dataset.mode === 'guided') ctx.setView('scope');
   };
-  const ENTER_SCOPE = '.guided-step, .guided-nav, .guided-demo[aria-label="Show me this step"]';
+  const ENTER_SCOPE = '.guided-step, .guided-nav';
   for (const host of [shell.rail, shell.caption])
     host.addEventListener(
       'click',
@@ -275,6 +287,7 @@ export function wireM3(ctx: M3Context): M3 {
   let chosenTwo = false;
   guided.on('stepchange', () => (chosenTwo = false)); // guided steps re-apply their own OLV state
   const ventilate = (two: boolean): void => {
+    if (inputLocked()) return; // T860: the walkthrough ventilates (clamp / leak tests)
     chosenTwo = two;
     if (two === twoLung()) return;
     if (!two) startOLV(state);
@@ -317,6 +330,8 @@ export function wireM3(ctx: M3Context): M3 {
     } else if (matchesKey(K.toggleLabels, c)) {
       if (!e.repeat) labels.toggleAll();
     } else if (matchesKey(K.dismissLabel, c)) labels.dismiss();
+    else if (inputLocked())
+      return; // T860: scope keys + port switching belong to the walkthrough
     else if (arrowIndex(c) >= 0 && rig.target === 'scope') held[arrowIndex(c)] = true;
     else if (matchesKey(K.nextPort, c) && e.shiftKey) {
       if (!e.repeat) nextPort(); // Only Shift+P moves the scope (user choice 2026-11-05); plain P moves the instrument (M4)
@@ -388,7 +403,7 @@ export function wireM3(ctx: M3Context): M3 {
     lastX = e.clientX;
     lastY = e.clientY;
     travel += Math.abs(dx) + Math.abs(dy);
-    if (travel >= config.pick.clickSlopPx && hands() && rig.target === 'scope') {
+    if (travel >= config.pick.clickSlopPx && hands() && rig.target === 'scope' && !inputLocked()) {
       scope.drag(dx, dy);
       syncScope();
     }
@@ -397,6 +412,7 @@ export function wireM3(ctx: M3Context): M3 {
     if (!down || e.button !== 0) return;
     down = false;
     if (travel >= config.pick.clickSlopPx || (!hands() && !m3.onPick)) return;
+    if (inputLocked() && !m3.onPick) return; // T860 R2: hover labels only in the walkthrough
     setNdc(e);
     const hit = picker.pick(ndc.x, ndc.y, camera);
     if (m3.onPick) {
@@ -407,7 +423,7 @@ export function wireM3(ctx: M3Context): M3 {
   canvas.addEventListener(
     'wheel',
     (e) => {
-      if (!hands() || rig.target !== 'scope') return;
+      if (!hands() || rig.target !== 'scope' || inputLocked()) return;
       e.preventDefault();
       scope.insert(-e.deltaY * R.wheelMetersPerPx);
       syncScope();
@@ -430,6 +446,7 @@ export function wireM3(ctx: M3Context): M3 {
     pickAt: (x, y) => picker.pick(x, y, camera)?.nodeName ?? null,
     onPick: null,
     syncScope,
+    writeScope: () => scope.writePose(live.position, live.quaternion, live),
     reapplyLayers,
     portHooks,
     moveScope,
@@ -477,7 +494,7 @@ export function wireM3(ctx: M3Context): M3 {
           // T843: tissue moved onto the lens (re-inflation, retraction released): back off to its surface. T847a: the
           // load-time bake corrects the opening view instantly.
           syncScope();
-          if (baked) rig.easeScope();
+          if (baked && getMode() !== 'guided') rig.easeScope(); // T871: the walkthrough's camera never lags the rig
         }
         baked = true;
       }
@@ -491,6 +508,7 @@ export function wireM3(ctx: M3Context): M3 {
           m3.hover = name;
           ctx.onHover?.(name);
         }
+        hoverTip.tick(name, ndc.x, ndc.y);
       }
       labels.update(now);
       layers.update(now);

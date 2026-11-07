@@ -55,7 +55,7 @@ async function mean(png: Buffer, left: number, top: number, w: number, h: number
 
 test('cautery in free space: energy on, but no smoke, char, haze or dissection', async ({ page }) => {
   test.setTimeout(180_000); // SwiftShader
-  const { errors, programs } = await boot(page, '/?view=scope&step=2');
+  const { errors, programs } = await boot(page, '/?mode=explore&view=scope&step=2');
   const before = await programs();
   expect(await page.evaluate(() => window.__sim.placeTool?.('cautery', 'hilar_connective_tissue'))).toBe(
     'ok',
@@ -124,7 +124,7 @@ test('cautery contact sweep opens the hilar pleura (v7 sheet): openings, smoke, 
   page,
 }) => {
   test.setTimeout(240_000);
-  const { errors, programs } = await boot(page, '/?view=scope&step=2');
+  const { errors, programs } = await boot(page, '/?mode=explore&view=scope&step=2');
   const before = await programs();
   await page.addStyleTag({ content: '.shell, #action-toast { visibility: hidden !important; }' });
   await page.evaluate((m) => {
@@ -215,6 +215,7 @@ test('practice: energised contact on a minor bleed seals it ("Bleeding controlle
   await page.waitForFunction(() => window.__sim.m5?.complications != null, null, { timeout: 60_000 });
   const before = await programs();
   await page.evaluate(() => window.__sim.setStep(3, true));
+  await frames(page, 3); // T861: the step-3 pose (morphs, BVH refit) must land before the tip is placed on it
   expect(await page.evaluate(() => window.__sim.placeTool?.('cautery', 'hilar_connective_tissue'))).toBe(
     'ok',
   );
@@ -249,14 +250,14 @@ test('switching mode while energised releases the cautery: ECG interference clea
   page,
 }) => {
   test.setTimeout(180_000); // SwiftShader
-  const { errors, programs } = await boot(page, '/?view=scope&step=2');
+  const { errors, programs } = await boot(page, '/?mode=explore&view=scope&step=2');
   const before = await programs();
   expect(await page.evaluate(() => window.__sim.placeTool?.('cautery', 'hilar_connective_tissue'))).toBe(
     'ok',
   );
   expect(await page.evaluate(() => window.__sim.m4?.press(true))).toBe('ok');
   await expect.poll(() => page.evaluate(() => window.__vitals?.interference)).toBe(true);
-  await page.click('button[data-mode=explore]');
+  await page.click('button[data-mode=physiology]'); // T860: explore start (guided = the walkthrough)
   await expect
     .poll(() => page.evaluate(() => window.__vitals?.interference), { timeout: 500, intervals: [50] })
     .toBe(false);

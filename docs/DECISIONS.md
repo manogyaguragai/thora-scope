@@ -13,8 +13,13 @@ in config), letterboxed in the viewport. The loading screen keeps the circular "
 
 ## ADR-004 Port role mapping (see docs/VIDEO_STEP_MAP.md (b))
 port_camera_8ICS = camera / "former camera" port; port_utility_5ICS = access incision (capacity up to 3 instruments);
-port_retraction_8ICS = anterior working port (scope sits here for most of Practice). Guided mode uses the authored
-glTF cameras/ports from procedure_steps.json unchanged.
+port_retraction_8ICS = the video's third working port by role (scope sits here for most of Practice). Guided mode uses
+the authored glTF cameras/ports from procedure_steps.json unchanged.
+Update 2026-11-06 (T863, FEEDBACK_GUIDED_v1 §2.2): UI labels name the anatomical position verified from the port extras
+(numbers in VIDEO_STEP_MAP (b)): "Inferior camera port", "Anterior access incision (5th space)", "Posterior port"
+(src/sim/ports.ts PORT_LABELS; the old "anterior working port" was posterior). Internal ids stay unchanged: they are
+glTF node names (the glb, anatomy/procedure_steps json, practice_actions ports, saved test fixtures and the
+walkthrough PortId type all key on them), so renaming means a model re-export + data migration for no user-visible gain.
 
 ## ADR-005 Procedure order
 Scored Practice order follows ch.32 + video + procedure_steps: vein → bronchus (with mandatory ventilation test) →

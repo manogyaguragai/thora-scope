@@ -12,8 +12,8 @@ export const keybindings = {
   toggleView: { code: 'KeyO', label: 'Toggle outside / scope view' },
   help: { code: 'Slash', label: 'Show / hide this help' },
   toggleSound: { code: 'KeyM', label: 'Monitor pulse beep on / off' },
-  guidedNext: { code: 'PageDown', label: 'Guided: next step', group: 'Guided' },
-  guidedPrev: { code: 'PageUp', label: 'Guided: previous step', group: 'Guided' },
+  guidedNext: { code: 'PageDown', label: 'Next step / part', group: 'Guided walkthrough' },
+  guidedPrev: { code: 'PageUp', label: 'Previous step / part', group: 'Guided walkthrough' },
   // Scope view, any tool (T816): hold to pivot the scope about its port, in screen terms.
   scopeUp: { code: 'ArrowUp', label: 'Hold: angle the scope view up', group: 'Scope' },
   scopeDown: { code: 'ArrowDown', label: 'Hold: angle the scope view down', group: 'Scope' },
@@ -37,9 +37,13 @@ export const keybindings = {
   // Instruments (§6.4): active with a tool slot (2–9).
   instrumentWithdraw: { code: 'Escape', label: 'Withdraw the instrument to its port', group: 'Tools' },
   // T850: "Insert via" (the picker beside the port chips; order = interactionConfig.insertOrder) + node sample.
-  insertVia1: { code: 'KeyC', label: 'Insert the instrument via the camera port', group: 'Tools' },
-  insertVia2: { code: 'KeyN', label: 'Insert the instrument via the anterior working port', group: 'Tools' },
-  insertVia3: { code: 'KeyU', label: 'Insert the instrument via the access incision', group: 'Tools' },
+  insertVia1: { code: 'KeyC', label: 'Insert the instrument via the inferior camera port', group: 'Tools' },
+  insertVia2: { code: 'KeyN', label: 'Insert the instrument via the posterior port', group: 'Tools' },
+  insertVia3: {
+    code: 'KeyU',
+    label: 'Insert the instrument via the anterior access incision',
+    group: 'Tools',
+  },
   recordSample: { code: 'KeyS', label: 'Record the grasped lymph-node sample', group: 'Tools' },
   // Viewing aids (§6.5).
   toggleLabels: { code: 'KeyL', label: 'Toggle all structure labels', group: 'Views & labels' },

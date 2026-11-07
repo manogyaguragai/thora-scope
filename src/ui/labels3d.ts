@@ -15,6 +15,22 @@ const _box = new Box3();
 const _px = { x: 0, y: 0 };
 const M = config.postfx;
 
+/** Scope aperture (5:4 post-FX mask, letterboxed in a w×h viewport) as centre + half-size, CSS px. The side dock
+ *  (panels.css --dock-w) mirrors this fit. */
+export function apertureRect(
+  w: number,
+  h: number,
+  out: { cx: number; cy: number; hw: number; hh: number },
+): typeof out {
+  const mh = M.maskFill * Math.min(h, w / M.maskAspect);
+  out.cx = w / 2;
+  out.cy = h / 2;
+  out.hw = 0.5 * mh * M.maskAspect;
+  out.hh = 0.5 * mh;
+  return out;
+}
+const _ap = { cx: 0, cy: 0, hw: 0, hh: 0 };
+
 /**
  * World point → CSS pixels in a w×h viewport. False when behind the camera, off-screen, or (masked) outside the
  * 5:4 scope mask (same letterboxed fit as the post-FX pass; lens distortion ignored).
@@ -34,8 +50,8 @@ export function projectLabel(
   out.x = (_v.x + 1) * 0.5 * w;
   out.y = (1 - _v.y) * 0.5 * h;
   if (!masked) return true;
-  const mh = M.maskFill * Math.min(h, w / M.maskAspect);
-  return Math.abs(out.x - w / 2) <= 0.5 * mh * M.maskAspect && Math.abs(out.y - h / 2) <= 0.5 * mh;
+  const a = apertureRect(w, h, _ap);
+  return Math.abs(out.x - a.cx) <= a.hw && Math.abs(out.y - a.cy) <= a.hh;
 }
 
 /** Screen-space declutter inputs for pickNearest (allocated once by the caller). */

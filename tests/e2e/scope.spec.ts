@@ -36,7 +36,7 @@ const read = (page: Page) =>
 test('scope controls: drag, wheel, Z/X, H, +/-, P, V, R (Hands only)', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
-  await ready(page, '/?view=scope&step=1', errors);
+  await ready(page, '/?mode=explore&view=scope&step=1', errors);
   const vp = page.viewportSize() ?? { width: 640, height: 400 };
   const cx = vp.width / 2;
   const cy = vp.height / 2;
@@ -100,7 +100,7 @@ test('scope controls: drag, wheel, Z/X, H, +/-, P, V, R (Hands only)', async ({ 
 test('picking: hover and click report the node under the cursor', async ({ page }) => {
   test.setTimeout(300_000);
   const errors: string[] = [];
-  await ready(page, '/?view=scope&step=3', errors);
+  await ready(page, '/?mode=explore&view=scope&step=3', errors);
   const vp = page.viewportSize() ?? { width: 640, height: 400 };
   const cx = vp.width / 2;
   const cy = vp.height / 2;

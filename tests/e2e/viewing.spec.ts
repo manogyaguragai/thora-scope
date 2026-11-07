@@ -12,7 +12,7 @@ test('viewing aids: layers, opacity, X-ray, cut-away and labels compile no new p
   page.on('pageerror', (e) => errors.push(e.message));
   page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
 
-  await page.goto('/?view=scope&step=1');
+  await page.goto('/?mode=explore&view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
   await page.waitForTimeout(SAMPLE_WAIT_MS);
   const programs = (): Promise<number> => page.evaluate(() => window.__perf.programs);

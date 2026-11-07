@@ -1,6 +1,7 @@
 // Tool hotbar state (CONTEXT §6.3): 9 slots, keys 1–9 select, re-pressing the active key cycles its sub-option,
 // Q/E cycle slots (wrapping). Pure state + plain listeners; zero DOM. Slot indices are 0-based (key 1 = slot 0).
 import { CONTEXT_KEYS, HOTBAR_KEYS } from '../core/keybindings';
+import { inputLocked } from './walkLock';
 
 export interface HotbarSlot {
   readonly id: string;
@@ -110,6 +111,7 @@ export function createHotbar(): Hotbar {
     subOption: (i = slot) => subs[i] ?? 0,
     select(i) {
       const def = SLOTS[i];
+      if (inputLocked()) return; // T860: the walkthrough selects through asEngine()
       if (!def) return;
       if (i === slot) {
         if (hb.reselect?.(i)) return;
@@ -120,6 +122,7 @@ export function createHotbar(): Hotbar {
       emit();
     },
     cycle(dir) {
+      if (inputLocked()) return;
       slot = (slot + dir + SLOTS.length) % SLOTS.length;
       emit();
     },

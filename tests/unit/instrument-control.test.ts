@@ -9,7 +9,7 @@ import type { Port } from '../../src/sim/ports';
 
 const port: Port = {
   id: 'port_utility_5ICS',
-  label: 'Access incision',
+  label: 'Anterior access incision (5th space)',
   skin: new Vector3(0.1, 0.02, 0),
   pleura: new Vector3(0.08, 0.02, 0),
   axis: new Vector3(-1, 0, 0),

@@ -69,6 +69,12 @@ export interface InstrumentSet {
   setKnife(k: number): void;
   /** T841: the clip applier carries a clip (false once crimped on a vessel; reload = true). */
   setClipLoaded(on: boolean): void;
+  /** T872: the load-built materials other procedural tools reuse (same programs, no new variants). */
+  readonly materials: {
+    readonly shaft: Material;
+    readonly steel: Material;
+    readonly silicone: MeshStandardMaterial;
+  };
 }
 
 interface Jaw {
@@ -545,14 +551,24 @@ export function buildInstruments(): InstrumentSet {
   const cauteryTool = newTool('cautery');
   {
     const c = G.cautery;
+    // T890 (critic r2 C4): only the bend + hook glow (cautery material); the straight shank is plain steel.
+    put(
+      bag,
+      steel,
+      tube(
+        new LineCurve3(new Vector3(0, 0, -c.tipLength - c.collar * 0.3), new Vector3(0, 0, -c.bend)),
+        8,
+        c.wire,
+        seg / 2,
+      ),
+    );
     const path = new CurvePath<Vector3>();
-    path.add(new LineCurve3(new Vector3(0, 0, -c.tipLength - c.collar * 0.3), new Vector3(0, 0, -c.bend)));
     path.add(new QuadraticBezierCurve3(new Vector3(0, 0, -c.bend), new Vector3(), new Vector3(0, c.bend, 0)));
     path.add(new LineCurve3(new Vector3(0, c.bend, 0), new Vector3(0, c.hook, 0)));
     put(
       bag,
       cautery,
-      tube(path, 24, c.wire, seg / 2),
+      tube(path, 16, c.wire, seg / 2),
       new SphereGeometry(c.wire * 1.15, seg / 2, seg / 4).translate(0, c.hook, 0), // polished ball end
     );
     put(bag, white, cylZ(c.sheath, c.sheathLength, -c.tipLength)); // insulating sheath: a step down from the collar
@@ -643,7 +659,7 @@ export function buildInstruments(): InstrumentSet {
         [r * 0.86, zJ + step * (i + 0.8)],
       );
     kp.push([r * 0.8, -s.headLength]);
-    put(bag, shaftMat, lathe(kp)); // dark knuckle
+    put(bag, steel, lathe(kp)); // T875: steel knuckle (the shaft's near-black read as a hole filling the view)
     put(bag, steel, cylZ(r, s.shaftLength, zShaft, true)); // brushed-steel shaft
     const P = G.handle.pistol;
     const K = P.knob;
@@ -869,6 +885,7 @@ export function buildInstruments(): InstrumentSet {
   return {
     root,
     tools,
+    materials: { shaft: shaftMat, steel, silicone },
     get active() {
       return activeId;
     },

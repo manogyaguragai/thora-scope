@@ -4,13 +4,19 @@ import sharp from 'sharp';
 
 // T808: the scope moves between ports from the port chips (any tool / mode) and P; each port gives its own view;
 // a full port refuses with a toast; Explore keeps the chosen port across a step change, Guided re-snaps.
+// T863: chips are named by anatomical position (ADR-004; geometry in docs/VIDEO_STEP_MAP.md (b)).
+const LABELS: Record<string, string> = {
+  port_camera_8ICS: 'Inferior camera port',
+  port_retraction_8ICS: 'Posterior port',
+  port_utility_5ICS: 'Anterior access incision (5th space)',
+};
 test.use({ viewport: { width: 1280, height: 720 } });
 
 const SETTLE_MS = 2000; // ~1.5 s eased scope transition + margin
 const MIN_DIFF = 4; // mean |Δ| per channel (0–255) that counts as "a different view" (grain alone stays ~1)
 const SHOTS: Record<string, string> = {
   port_camera_8ICS: 'qa/screenshots/port-camera.png',
-  port_retraction_8ICS: 'qa/screenshots/port-anterior.png',
+  port_retraction_8ICS: 'qa/screenshots/port-posterior.png',
   port_utility_5ICS: 'qa/screenshots/port-access.png',
 };
 
@@ -39,6 +45,7 @@ test('ports: chips + Shift+P move the scope through every port in Explore; refus
 
   const ids = await page.$$eval('.port-chip', (els) => els.map((e) => (e as HTMLElement).dataset.port ?? ''));
   expect(ids).toHaveLength(3);
+  for (const id of ids) await expect(chip(page, id).locator('.port-chip-name')).toHaveText(LABELS[id] ?? '?');
   const start = await scopePort(page);
   await expect(chip(page, start ?? '')).toHaveAttribute('aria-pressed', 'true');
 
@@ -110,7 +117,9 @@ test('ports: chips + Shift+P move the scope through every port in Explore; refus
   expect(errors).toEqual([]);
 });
 
-test('ports: Guided step change re-snaps to the authored port, hint shown once', async ({ page }) => {
+test('ports: the Guided walkthrough owns the scope port (chips locked, T860); Explore moves it', async ({
+  page,
+}) => {
   test.setTimeout(180_000);
   await page.goto('/?view=scope&step=1');
   await page.waitForFunction(() => window.__perf?.ready === true, null, { timeout: 120_000 });
@@ -120,11 +129,9 @@ test('ports: Guided step change re-snaps to the authored port, hint shown once',
     authored,
   );
   await chip(page, other).press('Enter');
-  await expect.poll(() => scopePort(page)).toBe(other);
-  await page.evaluate(() => {
-    window.__sim.setStep(2, true);
-    window.__sim.setStep(1, true);
-  });
+  await page.waitForTimeout(500);
   expect(await scopePort(page)).toBe(authored);
-  await expect(page.locator('#action-toast')).toContainText('port chip');
+  await page.click('button[data-mode=explore]');
+  await chip(page, other).press('Enter');
+  await expect.poll(() => scopePort(page)).toBe(other);
 });
