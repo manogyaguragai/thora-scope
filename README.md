@@ -1,82 +1,164 @@
-# ThoraScope — VATS right middle lobectomy simulator
+# ThoraScope: VATS right middle lobectomy simulator
 
-A browser-based teaching simulator of a video-assisted thoracoscopic (VATS) right middle lobectomy via the
-anterior approach, aimed at medical students and junior surgical trainees. It runs as a static site
-(Vite + TypeScript + three.js) with no backend, no analytics and no network calls at runtime.
+ThoraScope is a browser simulator of a video-assisted thoracoscopic (VATS) right middle lobectomy through the
+anterior approach. It is meant for medical students and junior surgical trainees who want to see the operation
+step by step on a 3D model before they meet it in theatre. Everything runs in the browser: there is no backend,
+no analytics and no network traffic once the page has loaded.
 
-> **Pending clinician review.** All teaching text (step captions, learning points, tips, quiz and debrief
-> wording, labels) is the project's own paraphrase and has not yet been reviewed by a clinician. It is not
-> clinical guidance. The in-app review badges were removed by user request (2026-11-05).
+The teaching text (captions, learning points, tips, quiz and debrief) is our own paraphrase of a thoracic surgery
+textbook and a recorded operation. It has not been reviewed by a clinician and is not clinical guidance.
 
-Modes: **Guided** (steps 1–7 with captions and learning points), **Practice** (perform the operation with
-instruments; scored), **Explore** (free orbit, layers, cut-away) and **Physiology lab** (one-lung ventilation,
-bronchus clamp test).
+## What you can do
 
-## Run locally
+- **Guided walkthrough.** A narrated, film-like run through the operation on the live model. Each step plays its
+  camera moves, instrument insertions and tissue changes on its own; you move between steps with Next and Prev,
+  pause or replay a step, and hover over any structure to see its name. The structure being discussed glows. Where
+  the collapsed lung hides something from every port, a small outside view shows it next to the scope image.
+- **Practice.** Do the operation yourself with the instruments, in the right order, and get a scored debrief with
+  the mistakes and complications you caused.
+- **Explore.** Free view of the anatomy with layers and a cut-away.
+- **Physiology lab.** One-lung ventilation, the bronchus clamp test and the heartbeat and breathing controls.
+- **Quiz.** Short questions on the anatomy and the order of the steps.
 
-Requires Node 22+ and a desktop browser with WebGL2 (latest Chrome, Edge, Firefox or Safari).
+### The nine steps
+
+1. Inspect the chest: the three lobes, both fissures and the phrenic nerve.
+2. Expose the hilum: a grasper takes the middle lobe and reflects the lung; the mediastinal pleura is opened.
+3. Middle lobe vein: hook cautery on the hilar strands, peanut dissection, then a vascular stapler.
+4. Lymph nodes 11R and 12R: ring forceps take each node out; the oozing node bed is sealed with cautery.
+5. Bronchus: a blunt clamp makes a passage, the stapler closes on the bronchus, a test breath confirms the right
+   airway (upper and lower lobes inflate, the middle lobe stays down), then the stapler fires.
+6. Middle lobe arteries (A4/A5): peanut dissection behind the artery, then a vascular stapler.
+7. Fissures: four stapler fires along a dotted guide free the lobe.
+8. Lobe out: the lobe goes into a retrieval bag and leaves through the access incision.
+9. Irrigation, leak test under saline, and suction.
+
+The ports are named by where they sit on this patient: the inferior camera port, the anterior access incision
+(5th intercostal space) and the posterior port.
+
+## Running it
+
+You need Node 22 or newer and a desktop browser with WebGL2 (a current Chrome, Edge, Firefox or Safari).
 
 ```sh
-npm i
-npm run dev       # dev server with hot reload
-npm run build     # type-check + production build into dist/
+npm install
+npm run dev       # development server with hot reload
+npm run build     # type check and production build into dist/
 npm run preview   # serve dist/ on http://localhost:4173
 ```
 
-Checks: `npm run lint`, `npm test` (unit), `npm run test:e2e` (Playwright), `npm run perf:probe`, or
-`npm run check` for all of them.
+Tests and checks:
+
+```sh
+npm run lint        # ESLint and Prettier
+npm test            # unit tests (Vitest)
+npm run test:e2e    # browser tests (Playwright, Chromium)
+npm run perf:probe  # scripted performance run; fails if a shader compiles after loading
+npm run check       # all of the above
+```
+
+The browser tests use software rendering when no GPU is available, so they are slow. Frame rates from them are
+not meaningful; see "Measuring frame rate" below.
 
 ## Controls
 
-Bindings live in one file, `src/core/keybindings.ts`; press `?` in the app for the full, current list.
+Press `?` in the app for the complete, current list. All bindings live in `src/core/keybindings.ts`.
 
-| Input                                | Action                                                                                   |
-| ------------------------------------ | ---------------------------------------------------------------------------------------- |
-| `O`                                  | Toggle outside / scope view                                                              |
-| `→` / `PageDown`, `←` / `PageUp`     | Guided: next / previous step                                                             |
-| `1`–`9`, `Q` / `E`                   | Select a tool slot / cycle previous–next (press the active key again for its sub-option) |
-| Left-drag, wheel                     | Hands: pivot the scope about its port, insert / withdraw                                 |
-| `Z` / `X`, `H`, `+` / `-`            | 30° optic rotation, horizon lock, digital zoom                                           |
-| `P`, `V`, `R`                        | Cycle scope port (`Shift+P` with a tool), snap to the step view, reset view              |
-| Port chip (click / Enter)            | Any tool or mode: move the scope to that port                                            |
-| Right-drag, wheel, left-click / hold | Tool: steer the tip, set depth, snap to a structure / close, fire, activate              |
-| `?`                                  | Help overlay                                                                             |
+| Input                                | Action                                                                     |
+| ------------------------------------ | -------------------------------------------------------------------------- |
+| `O`                                  | Switch between the outside view and the scope view                         |
+| `PageDown` / `PageUp`                | Guided walkthrough: next / previous step (in step 1: next / previous part) |
+| Hover (touch: long press)            | Guided walkthrough: name a structure                                       |
+| `1` to `9`, `Q` / `E`                | Practice: pick an instrument (press again for its options)                 |
+| Left drag, wheel                     | Pivot the scope about its port, move it in and out                         |
+| Arrow keys                           | Angle and pan the scope view                                               |
+| `Z` / `X`, `H`, `+` / `-`            | Rotate the 30° optic, horizon lock, digital zoom                           |
+| `Shift+P`, `V`, `R`                  | Move the scope to the next port, snap to the step view, reset the view     |
+| Right drag, wheel, left click / hold | Instrument: steer the tip, set depth, grasp, close, fire, activate         |
 
-Some of these arrive with later modules.
+## How the project is organised
 
-## Measuring real frame rate
+```
+src/core      renderer, frame loop, config, key bindings, quality presets
+src/scene     model loading, materials, morphs, cameras, lights, post-processing, effects, instruments
+src/sim       app state, steps, physiology, scope rig, ports, actions, practice scoring
+src/app       glue modules and the walkthrough engine (src/app/walkthrough: engine, shots, framing, one file per step)
+src/ui        loading screen, panels, side dock, hover labels, help
+src/content   step text, labels, quiz, practice action table, anatomy manifest
+scripts/      asset inspection, optimisation and verification, performance probe, paraphrase check
+tests/        unit and browser tests
+docs/         specifications and records (see below)
+```
 
-Headless test runs (`npm run perf:probe`, e2e) are driven by scripts, so their fps and frame-time numbers are
-indicative only (on this project's dev machine they run on the Intel iGPU via ANGLE/Vulkan; on machines without a
-GPU they fall back to SwiftShader software rendering). To measure on your own machine:
+Tunable values live in config files (`src/core/config.ts`, `src/scene/*.config.ts`,
+`src/app/walkthrough/walkthrough.config.ts`) rather than in the code. The anatomy model is described in one manifest,
+`src/content/anatomy.json`: tissue type, lobe, and which step divides or dissects each structure.
+
+Performance rules are strict: everything the app will ever draw is built and compiled during the loading screen,
+so no shader is compiled afterwards (the performance probe checks this on every run). The frame loop allocates
+nothing, picking uses a bounding volume hierarchy, and the post-processing is a single full-screen pass.
+
+## Assets
+
+The optimised scene, `public/models/thorax_sim.opt.glb`, is in the repository, so the app runs from a fresh clone.
+The source material is not: the Blender models, the frames taken from the reference operation video and the
+textbook stay outside the repository for copyright reasons. With those files in `assets_src/`,
+`npm run assets:optimize` rebuilds the optimised scene. `docs/ASSETS.md` and `docs/MODEL_INTEGRATION.md` describe the
+inputs and the build.
+
+## Known limitations
+
+- On this model the fully collapsed upper lobe and the oblique fissure cannot be seen from any port. The walkthrough
+  shows them in the outside view instead.
+- Lymph node 11R lies under the lower lobe and only comes into view as it is removed.
+- The horizontal fissure guide and its staple lines are placed on the side the camera can see, which is an
+  approximation of the real anatomy.
+- The ports, and some of the instrument routes, differ from the reference video because the scope views the video
+  uses are blocked by the collapsed lobes on this model. The walkthrough uses the port that gives a clear,
+  square approach for each step.
+- Wet gloss and the subsurface look are added at runtime, not baked into the model. Nerve paths, retraction and the
+  mediastinal shift are approximations.
+- The patient in the reference video had a tumour, and an extra margin of upper lobe was taken. That is not
+  modelled.
+
+Model defects are listed in `docs/ASSET_ISSUES.md`.
+
+## Measuring frame rate
 
 1. `npm run build && npm run preview`
-2. Open `http://localhost:4173/?perf` in Chrome or Edge, full screen at 1080p, plugged in.
-3. Optional: add `&quality=medium` (or `low` / `high`) to pin a quality preset; otherwise the device check picks
-   one and adaptive resolution may change the pixel ratio.
-4. Let it reach the scene, do a full Guided walk (steps 1–7) and one Practice run, and read the overlay: fps, p95
-   frame time, draw calls, triangles, shader programs, textures, pixel ratio and preset.
-5. Record the values in the "User measured" column of the budget table in `docs/PERF.md` (target ≥ 45 fps
-   sustained on a mid-range integrated GPU at Medium).
+2. Open `http://localhost:4173/?perf` in Chrome or Edge, full screen at 1080p, on mains power.
+3. Optionally add `&quality=low`, `medium` or `high` to fix the quality preset.
+4. Play the guided walkthrough and one practice run, and read the overlay: fps, frame time, draw calls, triangles,
+   shader programs, pixel ratio and preset.
 
-## Known limitations of the model
+The target is at least 45 fps on a mid-range integrated GPU at the medium preset. Budgets and measurements are in
+`docs/PERF.md`.
 
-- The middle lobe's vessel and bronchus branches sit inside the lobe; there is no opened fissure in the mesh.
-- Wet gloss and subsurface look are added at runtime, not baked into the model.
-- Nerve paths, retraction amounts and the small mediastinal shift are approximations.
-- Vessel trees are trimmed inside the lung, so the outside view with lungs hidden shows hilar vessels only.
-- Semi-transparent pleura can show sorting artefacts.
-- The patient in the reference video had a tumour and an extra upper-lobe margin was taken; that is not
-  modelled (Guided step 6 notes it).
-- Port positions differ from the video; ports are mapped by role.
+## How it was built
 
-Asset defects are logged in `docs/ASSET_ISSUES.md`.
+ThoraScope was built with Claude Code. An orchestrating agent planned the work into small tasks and handed each to
+a builder agent. A separate reviewer checked every change against its acceptance criteria, module auditors and a
+visual critic compared screenshots with frames from a real operation, and a performance probe checked the
+rendering budgets. The 3D anatomy was modelled in Blender, driven by Claude through the Blender MCP server. The
+working files of that process are kept: `CLAUDE.md` (the rules every agent read), `tasks.md` (the task board),
+`docs/PROGRESS.md` (the running log) and `docs/DECISIONS.md` (design decisions).
 
-## Deployment
+### Documents
 
-None. This project is not deployed anywhere. Hosting notes (for the owner to act on, not automation) belong in
-`docs/DEPLOY_HOSTINGER_KVM.md`. Only `public/models/thorax_sim.opt.glb` and the KTX2 decoders ship in `dist/`;
-nothing from `assets_src/` does (guarded by `tests/unit/dist-contents.test.ts`).
+| File                                          | What it holds                                                        |
+| --------------------------------------------- | -------------------------------------------------------------------- |
+| `docs/CONTEXT.md`                             | Product specification, data contracts, look and performance rules    |
+| `docs/DECISIONS.md`                           | Design decisions and the reasons for them                            |
+| `docs/VIDEO_STEP_MAP.md`                      | The reference video mapped to steps, ports and practice actions      |
+| `docs/REFERENCE_FRAMES.md`                    | The reference frames and the colours sampled from them               |
+| `docs/BOOK_NOTES.md`                          | Paraphrased notes from the textbook, with page references            |
+| `docs/ASSETS.md`, `docs/MODEL_INTEGRATION.md` | Model inventory, optimisation pipeline and how the hilum model fits  |
+| `docs/BLENDER_PROMPT_v8.md`                   | The brief given to the Blender modelling agent for the current model |
+| `docs/ASSET_ISSUES.md`                        | Known model defects                                                  |
+| `docs/PERF.md`                                | Performance budgets and measurements                                 |
+| `docs/WIRING.md`                              | Module interfaces and how they are connected                         |
+| `docs/FEEDBACK_*.md`                          | Feedback from live testing and how each item was resolved            |
+| `CLAUDE.md`, `tasks.md`, `docs/PROGRESS.md`   | Agent rules, task board and development log                          |
 
 ## Credits
 
