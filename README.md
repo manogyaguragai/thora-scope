@@ -5,6 +5,9 @@ anterior approach. It is meant for medical students and junior surgical trainees
 step by step on a 3D model before they meet it in theatre. Everything runs in the browser: there is no backend,
 no analytics and no network traffic once the page has loaded.
 
+**Try it live at [thorascope.com](https://thorascope.com/).** A desktop browser with WebGL2 works best (a current
+Chrome, Edge, Firefox or Safari).
+
 The teaching text (captions, learning points, tips, quiz and debrief) is our own paraphrase of a thoracic surgery
 textbook and a recorded operation. It has not been reviewed by a clinician and is not clinical guidance.
 
