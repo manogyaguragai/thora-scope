@@ -7,6 +7,7 @@ import {
   addOpenedAttribute,
   createEffects,
   BLUNT_ATTR,
+  CharPool,
   CutPool,
   EFFECTS_CONFIG,
   LensFog,
@@ -145,6 +146,32 @@ describe('smoke density (T842)', () => {
     expect(fog.value).toBeCloseTo(H.max - 11 * H.decayRate - CAUTERY.suction.hazeClearPerSec);
     for (let i = 0; i < 10; i++) fog.update(1);
     expect(fog.value).toBe(0);
+  });
+
+  it('a sweep fills sample gaps with sear marks (one line); a jump beyond joinMaxM does not (T893a)', () => {
+    const K = CAUTERY.char;
+    const pool = new CharPool(64);
+    const up = new Vector3(0, 0, 1);
+    pool.trail(new Vector3(0, 0, 0), up);
+    pool.trail(new Vector3(K.spacingM * 4, 0, 0), up);
+    expect(pool.count).toBe(5);
+    pool.trail(new Vector3(K.joinMaxM * 3, 0, 0), up);
+    expect(pool.count).toBe(6);
+  });
+
+  it('clearOver(ms) clears the density linearly over ms; energy on cancels it (T893a)', () => {
+    const fog = new LensFog();
+    fog.value = 0.4;
+    fog.clearOver(1000);
+    fog.update(0.5);
+    expect(fog.value).toBeCloseTo(0.2);
+    fog.update(0.6);
+    expect(fog.value).toBe(0);
+    fog.value = 0.4;
+    fog.clearOver(1000);
+    fog.on = true;
+    fog.update(0.5);
+    expect(fog.value).toBeCloseTo(0.4 + 0.5 * CAUTERY.haze.riseRate);
   });
 
   it('cavity smoke drifts in with density; the held sucker pulls particles to the tip and aspirates them', () => {

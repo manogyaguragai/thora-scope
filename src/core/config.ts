@@ -222,6 +222,7 @@ export const config = {
     labelGapPx: 2, // declutter: min gap between tags
     labelNudges: 1, // declutter: rows tried above/below an overlapping tag before it is skipped
     compassHz: 10, // T816: orientation compass DOM updates per second (max)
+    compassHoldLen: 0.3, // T893a: an axis whose in-plane share is below this holds its last direction (no flip)
     // T843: patient axes in glTF world space (left lateral decubitus, right side up): +X cranial, +Z anterior
     // (+Y = patient right, up). Checked against the heart / spine / lobe centroids in tests/unit/compass.test.ts.
     compassAxes: { head: [1, 0, 0], anterior: [0, 0, 1] } as const,
@@ -417,8 +418,9 @@ export const config = {
       // T890 (critic r2 C4): 12 mm × 0.5 read as hard white discs near the lens → small soft wisps at the tip
       size: 0.005, // m, point size (size-attenuated); T410: 0.008 read too thin (from the far step view)
       opacity: 0.25, // T817: 0.35 was faint against pink tissue (single wisps; the plume overlaps them)
-      lifeSec: 1.6,
-      riseSpeed: 0.012, // m/s along +Y (gravity is −Y, §7.1)
+      // T893a (critic r3): 1.6 s × 12 mm/s left clumps floating ~15 mm off the hook tip
+      lifeSec: 0.8,
+      riseSpeed: 0.004, // m/s along +Y (gravity is −Y, §7.1)
       jitter: 0.004, // m/s random lateral/vertical velocity
       perPuff: 8, // wisps per cautery emit() call
     },
@@ -464,11 +466,11 @@ export const config = {
       coagSec: 1.2, // dark-down after the seal
       coagulatedGrow: 0.5, // growth shown by an instant set('coagulated') (seek end-state)
       color: 0x4c2200, // glossy dark blood after ACES + grade (T861 0x420707 → body #58001c, magenta; T872: green offsets ACES' red→magenta skew + the blue lift; target #5a0a0a…#8a1414)
-      clotColor: 0x2e0e08, // coagulum (dark red-brown; T890: 0x1c0a06 read as a black char fleck on the bronchus)
+      clotColor: 0x4a2414, // coagulum (red-brown; T890: 0x1c0a06 read as a black char fleck; T893a: 0x2e0e08 barely changed)
       roughness: 0.15, // T890 (C5): wet specular
-      clotRoughness: 0.55,
+      clotRoughness: 0.85, // T893a: matte, so the seal reads (0.55 kept the wet sheen)
       clearcoatRoughness: 0.05,
-      clotShrink: 0.15, // coagulum sits a little lower than the wet blood
+      clotShrink: 0.5, // coagulum shrinks to half the wet blood (T893a: 0.15 was invisible)
       // T884 (critic S2): 2.6 mm × 0.45 read as a ball; a thin film welling up, a flat trickle and a flat pool
       drop: { radiusM: 0.0015, flat: 0.15, grow: [0, 0.25] as const }, // grow = [start, end] of the growth range
       rivulet: {

@@ -450,8 +450,9 @@ export function buildInstruments(): InstrumentSet {
       new Vector3(),
     );
     const sx = r.width / r.thick;
-    put(bag, steel, tube(curve, r.segments, r.thick / 2).scale(sx, 1, 1));
-    put(bag, steel, new SphereGeometry(r.thick / 2, seg, seg / 2).scale(sx, 1, 1)); // rounded blade end
+    // T893a: dark insulated blade (the shaft's look), not bare steel
+    put(bag, shaftMat, tube(curve, r.segments, r.thick / 2).scale(sx, 1, 1));
+    put(bag, shaftMat, new SphereGeometry(r.thick / 2, seg, seg / 2).scale(sx, 1, 1)); // rounded blade end
     stem(bag, -r.length, -r.rise, { handle: 'scissor' });
     flush(bag, retractor);
   }

@@ -12,13 +12,13 @@ const tC = new Quaternion();
 const tV = new Vector3();
 
 /** out ← unit screen directions (x right, y up) of head [0,1] and anterior [2,3]; feet/posterior are the negatives.
- *  An axis along the view axis keeps its last direction. */
+ *  An axis near the view axis (in-plane length < compassHoldLen) keeps its last direction: no Head/Feet flip. */
 export function projectAxes(cam: Quaternion, out: Float32Array): void {
   tC.copy(cam).invert();
   for (let i = 0; i < 2; i++) {
     tV.copy(i === 0 ? HEAD : ANTERIOR).applyQuaternion(tC);
     const len = Math.hypot(tV.x, tV.y);
-    if (len < 1e-6) continue;
+    if (len < config.viewing.compassHoldLen) continue;
     out[2 * i] = tV.x / len;
     out[2 * i + 1] = tV.y / len;
   }

@@ -327,7 +327,8 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
   };
   let occluders: MeshBVH[] | null = null;
   const snapNb: ((m: Matrix4) => void)[] = []; // per segment: onto its neighbour lobe
-  for (const f of C.fissures) {
+  const segFissure: number[] = []; // per segment: its fissure's index (dot colour)
+  for (const [fi, f] of C.fissures.entries()) {
     const nb = model.getObjectByName(f.neighbour);
     if (!nb) continue;
     const nbRest = flatten(posedPositions(nb, REST));
@@ -362,6 +363,7 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
     const toNb = surfaceSnap(posed(f.neighbour));
     for (const seg of splitPath(path, f.segments)) {
       segments.push(seg);
+      segFissure.push(fi);
       snapNb.push(toNb);
       eyes.push(fEye);
       const n = nbCentre.clone().sub(lobeCentre);
@@ -379,7 +381,7 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
     const e = eyes[k] ?? eye;
     for (const p of dots) centres.push(p.addScaledVector(_n.subVectors(e, p).normalize(), D.liftM));
   });
-  const dotMat = new MeshBasicMaterial({ color: new Color(D.color), name: 'fissureGuide:dots' });
+  const dotMat = new MeshBasicMaterial({ name: 'fissureGuide:dots' }); // colour per instance (fissure)
   // Nearer than refDepthM a dot keeps its screen size (shrinks in the world): no big blobs by the lens. Load-time
   // program (compiled at warm-up), no runtime uniform.
   dotMat.onBeforeCompile = (sh) => {
@@ -396,6 +398,11 @@ export function buildFissureGuide(model: Object3D, eye: Vector3): FissureGuide {
   dots.name = 'fissure_guide_dots';
   dots.count = centres.length;
   centres.forEach((p, i) => dots.setMatrixAt(i, _m.makeTranslation(p.x, p.y, p.z)));
+  const dotColors = D.colors.map((c) => new Color(c));
+  ranges.forEach(([a, b], k) => {
+    const col = dotColors[segFissure[k] ?? 0] ?? (dotColors[0] as Color);
+    for (let i = a; i < b; i++) dots.setColorAt(i, col);
+  });
   dots.computeBoundingSphere();
   dots.matrixAutoUpdate = false;
   dots.frustumCulled = false;

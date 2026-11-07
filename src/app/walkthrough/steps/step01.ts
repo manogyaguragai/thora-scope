@@ -24,7 +24,7 @@ export const step01: WalkStep = {
       cam: { k: 'scopePort', port: CAM, subject: RML },
       glow: RUL,
       inset: 'lungs',
-      say: "Upper lobe, seen from outside (inset). Collapsed, it lies behind the middle lobe (pale, in front) and the lower lobe, out of the scope's sight.",
+      say: "Upper lobe, seen from outside (inset). Collapsed, it lies behind the middle lobe (the wedge on the right of the view) and the lower lobe, out of the scope's sight.",
     },
     {
       id: 'rml',

@@ -18,8 +18,11 @@ export const instrumentLook = {
   // metalness 0.7: the near headlight then spreads into the frames' broad silver highlight (0.12 read dark brown).
   // T821: envMapIntensity only counts since the instruments got their own neutral env (env below); 8 then blew out.
   steel: {
-    color: '#c2c0bc', // T890 (critic r2 C2): #dcdad6 blew the stapler knuckle / jaws out white by the lens
-    roughness: 0.35, // T884 (critic S6): 0.16 glared white on the stapler collar close up; T825 × streak map 0.75 … 1
+    // T890 (critic r2 C2): #dcdad6 blew the stapler knuckle / jaws out white by the lens; T893a (r3): #c2c0bc still did
+    color: '#a4a29e',
+    // T884 (critic S6): 0.16 glared white on the stapler collar close up; T893a (r3): 0.35 still blew the stapler head
+    // out under the co-located headlight (specular peak ∝ 1/roughness⁴). T825 × streak map 0.75 … 1
+    roughness: 0.5,
     metalness: 0.85,
     envMapIntensity: 1.2, // T890 (critic r2 C2): 2 blew the stapler jaws out white close up
   },
@@ -183,7 +186,8 @@ export const instrumentGeom = {
     open: 38 * deg,
   },
   /** Curved blade: rises `rise` over `length` toward the tip (shaft sits `rise` below the tip line). */
-  retractor: { length: 0.04, rise: 0.012, width: 0.006, thick: 0.0018, segments: 20 },
+  // T893a (critic r3): a 1.8 mm steel blade read as a thin cream cable when held → a dark ~5 mm insulated blade.
+  retractor: { length: 0.04, rise: 0.012, width: 0.006, thick: 0.005, segments: 20 },
   /** Folded gauze swab: welded sphere, squashed by `shape`, displaced by lumps + fold creases (× radius). */
   gauze: {
     radius: 0.006, // T823: 9 mm read as oversized blobs
@@ -293,8 +297,9 @@ export const instrumentGeom = {
  *  brought in through the access incision; `play(t)` phases are fractions of t (0 → 1). Metres. */
 export const retrievalBag = {
   shaft: { radius: 0.005, length: 0.3 }, // 10 mm introducer
-  hoop: { radius: 0.022, tube: 0.0008 }, // open mouth, in the plane through the shaft
-  pouch: { depth: 0.05, rings: 10 }, // depth below the hoop (quarter-ellipse profile)
+  // T893a (critic r3): 22 mm hoop × 50 mm pouch shrank the lobe to a 2 cm ball (fitScale); lobe-sized now (06:23)
+  hoop: { radius: 0.04, tube: 0.0008 }, // open mouth, in the plane through the shaft
+  pouch: { depth: 0.09, rings: 10 }, // depth below the hoop (quarter-ellipse profile)
   segments: { round: 32, tube: 8, hoop: 48 }, // shaft / pouch around, hoop wire around, hoop along
   // T890 (critic r2 C7): opaque white pouch (06:20); at 0.8 it read as a clear ring. Silicone program, uniforms only.
   look: { color: '#f0ece8', opacity: 0.97, roughness: 0.45 },

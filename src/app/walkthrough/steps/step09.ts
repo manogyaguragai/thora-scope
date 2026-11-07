@@ -37,11 +37,12 @@ export const step09: WalkStep = {
       id: 'leak-test',
       kind: 'result',
       act: { k: 'ventilate', mode: 'two' },
-      ms: 3000,
+      ms: 5000, // T893b: as the step-5 clamp test, long enough to see the lobes fill in the inset
       glow: BR,
+      inset: 'lungs',
       msg: 'Leak test at ~20 cmH₂O: no bubbles',
       ghost: GHOST,
-      say: 'Both lungs ventilated under saline: no bubbles from the stumps, so no air leak.',
+      say: 'Both lungs ventilated under saline (inset: the remaining lobes fill): no bubbles from the stumps, so no air leak.',
     },
     {
       id: 'olv',
@@ -71,6 +72,8 @@ export const step09: WalkStep = {
       id: 'sucker-out',
       kind: 'withdraw',
       act: { k: 'withdraw' },
+      cam: { k: 'step' }, // T893b: back to the readable saline view once the sucker is out
+      ghost: GHOST,
       say: 'Sucker out: the field is dry and the case is complete.',
     },
   ],

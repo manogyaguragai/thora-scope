@@ -66,13 +66,22 @@ export class LensFog {
   value = 0;
   on = false;
   suction = false;
+  private clearRate = 0; // per second while a clearOver() runs (0 = none)
   clear(): void {
     this.value = 0;
   }
+  /** T893a: clear the current density linearly over `ms` (walkthrough beat ends; energy on cancels it). */
+  clearOver(ms: number): void {
+    if (ms <= 0) this.value = 0;
+    this.clearRate = ms > 0 ? (this.value * 1000) / ms : 0;
+  }
   update(dt: number): void {
     const H = CAUTERY.haze;
-    const v = this.on ? Math.min(H.max, this.value + H.riseRate * dt) : this.value - H.decayRate * dt;
+    if (this.on) this.clearRate = 0;
+    const decay = Math.max(H.decayRate, this.clearRate);
+    const v = this.on ? Math.min(H.max, this.value + H.riseRate * dt) : this.value - decay * dt;
     this.value = Math.max(0, this.suction ? v - CAUTERY.suction.hazeClearPerSec * dt : v);
+    if (this.value === 0) this.clearRate = 0;
   }
 }
 
@@ -220,6 +229,8 @@ const _s = new Vector3();
 const _n = new Vector3();
 const _z = new Vector3(0, 0, 1);
 const _zero = new Matrix4().makeScale(0, 0, 0);
+const _j0 = new Vector3(); // CharPool.trail
+const _j1 = new Vector3();
 
 /** Growing glossy blood decals (one InstancedMesh) with ooze sources; slots reused ring-buffer style. */
 export class BloodPool {
@@ -441,6 +452,19 @@ export class CharPool {
     this.held = i;
     this.heldAge = 0;
     this.write(i, CAUTERY.char.startRadiusM);
+  }
+
+  /** T893a: begin() at `point`, first filling the gap from the growing mark (≤ char.joinMaxM away) with marks every
+   *  char.spacingM: a quick sweep sears one continuous line, not a row of separate rings. */
+  trail(point: Vector3, normal: Vector3): void {
+    const K = CAUTERY.char;
+    if (this.held >= 0) {
+      _j0.fromArray(this.pos, this.held * 3);
+      const d = _j0.distanceTo(point);
+      const n = d <= K.joinMaxM ? Math.floor(d / K.spacingM) : 0;
+      for (let k = 1; k < n; k++) this.begin(_j1.lerpVectors(_j0, point, k / n), normal);
+    }
+    this.begin(point, normal);
   }
 
   release(): void {
@@ -966,7 +990,7 @@ export function createEffects(preset: Pick<QualityPreset, 'particleCap'>): Effec
     // T875: no sear mark on a node bed: the cautery's touch there leaves only the dark coagulum (the char decal read
     // as a bright red flat patch beside it).
     if (!mark || !normal || onBed(p)) char.release();
-    else if (!char.near(p, CAUTERY.char.spacingM)) char.begin(p, normal);
+    else if (!char.near(p, CAUTERY.char.spacingM)) char.trail(p, normal);
   };
   const group = new Group();
   group.name = 'effects';

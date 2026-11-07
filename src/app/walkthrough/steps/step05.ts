@@ -21,7 +21,7 @@ export const step05: WalkStep = {
     {
       id: 'bronchus',
       kind: 'result',
-      cam: { k: 'frame', subject: HILUM },
+      cam: { k: 'frame', subject: BR }, // T893b: the bronchus alone, close (ref 03:18)
       glow: BR,
       say: 'With the nodes gone, the middle lobe bronchus is bare.',
     },
@@ -35,9 +35,11 @@ export const step05: WalkStep = {
       id: 'passage',
       kind: 'working',
       act: { k: 'sweep' },
-      cam: { k: 'frame', subject: HILUM },
+      cam: { k: 'frame', subject: BR },
       glow: BR,
-      say: 'Its jaws open and close behind the bronchus to make room for the stapler.',
+      // T893b LIMIT: the clamp is straight and its tip stops on the bronchus's near wall (reach point + 2 mm), so no
+      // view or ghost shows jaws behind it; the caption says what is shown.
+      say: 'Its jaws open and close against the bronchus, freeing the tissue around it to make room for the stapler.',
     },
     {
       id: 'clamp-out',
@@ -109,7 +111,7 @@ export const step05: WalkStep = {
     {
       id: 'stumps',
       kind: 'result',
-      cam: { k: 'frame', subject: HILUM },
+      cam: { k: 'frame', subject: BR }, // T893b: both stumps and their staple rows, close
       glow: BR,
       say: 'Two stapled stumps: the airway side stays, the lobe side goes out with the specimen.',
     },

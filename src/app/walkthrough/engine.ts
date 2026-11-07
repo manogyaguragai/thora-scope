@@ -758,7 +758,8 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
       // T871: a pause beat keeps its glow until Next (the last part: until the next step's seek clears it).
       const keep = bt.pause === true && !ff;
       if (g && !keep) hl()?.hide(k.dur(W.reducedMs));
-      if (bt.ghost && !keep) ghostOff();
+      // T893b: the step's last beat keeps its ghost into the held end pose (the next seek clears it).
+      if (bt.ghost && !keep && b < st.beats.length - 1) ghostOff();
       if (bt.inset && !keep && !st.beats[b + 1]?.inset) insetShow(false); // next inset beat: re-aims
       done++;
       emit('state');

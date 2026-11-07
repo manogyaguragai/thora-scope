@@ -32,7 +32,7 @@ export const step07: WalkStep = {
       kind: 'result',
       cam: { k: 'frame', subject: RML },
       glow: H,
-      say: 'The dotted line marks the horizontal fissure, where the middle lobe meets the upper lobe.',
+      say: 'The dotted line marks the fissures still to divide; its left part is the horizontal fissure, where the middle lobe meets the upper lobe.',
     },
     {
       id: 'stapler-in',

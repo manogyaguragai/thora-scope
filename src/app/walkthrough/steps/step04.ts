@@ -71,9 +71,8 @@ export const step04: WalkStep = {
       id: 'out-12r',
       kind: 'withdraw',
       act: { k: 'node', id: 'LN_12R' },
-      // T892a: the scope eases back (wide) meanwhile, so the carry heads up toward the incision, clear of the side
-      // dock (the close view sent it out under the dock's edge).
-      cam: { k: 'wide', subject: NODE12, back: 0.03 },
+      // T893b: no ease-back (it widened the optic to 72° and left 12R a speck in the rings); the node act's camera
+      // follows the carry out instead, as for 11R.
       msg: 'Lymph node 12R sent for pathology',
       say: 'Teased off the bronchus, it is carried up and out through the access incision.',
     },
@@ -104,7 +103,7 @@ export const step04: WalkStep = {
       id: 'cautery-out',
       kind: 'withdraw',
       act: { k: 'withdraw' },
-      say: 'The bed is dry and the bronchus lies clear.',
+      say: 'Hook out: the ooze has stopped, and the blood left on the bed has set into a thin, dark clot.',
     },
   ],
   end: {

@@ -271,6 +271,7 @@ export const walkthroughConfig = {
       // T885b: in on the jaws, so the overview can ease back; T891 G9: deeper options keep the stapler ≤ widthMax.
       's05:close': { depthsM: [0.0225, 0.03, 0.04], zooms: [1] },
       's05:fire': { depthsM: [0.0225, 0.03, 0.04], zooms: [1] }, // T892b: the close view's options (centred there)
+      's07:seg-2': { depthsM: [0.02, 0.015, 0.01, 0.03], zooms: [1] }, // T893b: unzoomed, the lobe in context
       's07:seg-3': { depthsM: [0.02, 0.015, 0.01, 0.03], zooms: [1] }, // T885b: lobe + stump + jaws
       's07:underside': { depthsM: [0.02, 0.015, RIG.depthM.min] }, // T892b: lens short of the see-through lower lobe
       's07:look-under': { depthsM: [RIG.depthM.min] }, // T892b: shallow before the move under the ghosted lobe

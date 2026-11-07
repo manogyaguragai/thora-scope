@@ -33,7 +33,8 @@ export const fissureGuideConfig = {
     radiusM: 0.0009,
     refDepthM: 0.09, // nearer to the lens than this a dot keeps its screen size (the far fissure's, step-7 lens)
     liftM: 0.0012, // toward the scope, so the dots sit on (not in) the surface
-    color: '#ffd23f', // guide yellow (sRGB), unlit
+    // Per fissure, in fire order (sRGB, unlit): guide yellow horizontal; T893a: cyan oblique so the two lines differ.
+    colors: ['#ffd23f', '#3fd8ff'] as const,
     segmentGapM: 0.0035, // dot-free gap marking where one fire ends and the next begins
   },
   /** T884 (critic S3): each fired staple snaps onto its lobe's surface (step-7 pose, nearest point within snapM),

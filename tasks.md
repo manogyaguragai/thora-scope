@@ -169,6 +169,7 @@ Fast gates BEFORE any long run: `rtk proxy npx prettier --check .` (plain `npx p
 - [x] T890 LAST scene round (C1 root cause: T807 look.focus albedo term in Guided → off; C2/C3-s07/C9 partial) (qa/critic-r2.md C1–C10)
 - [x] T891 LAST engine round (G3 LIMIT: posterior shaft 69–79° vs 45° articulation) (qa/critic-r2.md G1–G9)
 - [x] T892 (a: s1–4, b: s5–9) LAST step-data round (qa/critic-r2.md step list) after T890/T891 → full check #3 → critic r3 → final report
+- [x] T893 FINAL polish from critic r3 (a: scene/config/compass; b: engine/steps) → targeted re-run + orchestrator frame check → full check #4 → report
 - [x] T862b UI fix: review-badge.spec:43 — vitals panel covers the practice "End run" button at 640×400 | files: src/ui/* (vitals/dock css) | QA: orchestrator (CSS-only ~12 lines; 9/9 e2e incl. review-badge:43; screenshot layout-practice-1024x640 inspected: End run clear) 
 - [w] T864 Author A steps 1–2 (inspect parts + framing, fissure bands; expose hilum) + e2e/screenshots | files: steps/step01.ts, step02.ts, tests/e2e/walkthrough-s01-02.spec.ts | QA: —
 - [w] T865 Author B step 3 (vein) | files: steps/step03.ts, tests/e2e/walkthrough-s03.spec.ts | QA: —

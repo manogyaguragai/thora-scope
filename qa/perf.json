@@ -1,5 +1,5 @@
 {
-  "date": "2026-11-07T04:04:04.695Z",
+  "date": "2026-11-07T07:12:17.598Z",
   "headless": true,
   "gl": "real GPU (ANGLE/Vulkan)",
   "note": "Headless Chromium on the real GPU, driven by a test script (page.evaluate round-trips, GC calls): fps, frame times and long frames are NOT representative of a user session.",
@@ -9,8 +9,8 @@
     "width": 1280,
     "height": 720
   },
-  "fcpMs": 156,
-  "readyMs": 5389,
+  "fcpMs": 112,
+  "readyMs": 5573,
   "transferMB": 10.67,
   "programs": {
     "before": 55,
@@ -22,32 +22,32 @@
     "ready": {
       "drawCalls": 105,
       "triangles": 1476443,
-      "longFrames": 1,
-      "frameTimeP95Ms": 33.3
+      "longFrames": 2,
+      "frameTimeP95Ms": 49.9
     },
     "orbit": {
       "drawCalls": 104,
       "triangles": 1476442,
-      "longFrames": 6,
-      "frameTimeP95Ms": 49.9
+      "longFrames": 3,
+      "frameTimeP95Ms": 33.4
     },
     "scope-step1": {
       "drawCalls": 61,
       "triangles": 1200073,
       "longFrames": 0,
-      "frameTimeP95Ms": 16.7
+      "frameTimeP95Ms": 33.4
     },
     "scope-step2": {
       "drawCalls": 50,
       "triangles": 663538,
       "longFrames": 0,
-      "frameTimeP95Ms": 33.5
+      "frameTimeP95Ms": 16.8
     },
     "scope-step3": {
       "drawCalls": 53,
       "triangles": 676377,
       "longFrames": 0,
-      "frameTimeP95Ms": 16.8
+      "frameTimeP95Ms": 16.7
     },
     "scope-step4": {
       "drawCalls": 54,
@@ -57,55 +57,55 @@
     },
     "scope-step5": {
       "drawCalls": 54,
-      "triangles": 650754,
-      "longFrames": 0,
-      "frameTimeP95Ms": 33.4
+      "triangles": 649826,
+      "longFrames": 1,
+      "frameTimeP95Ms": 50
     },
     "scope-step6": {
       "drawCalls": 56,
-      "triangles": 623435,
-      "longFrames": 0,
-      "frameTimeP95Ms": 16.7
+      "triangles": 622507,
+      "longFrames": 1,
+      "frameTimeP95Ms": 49.9
     },
     "scope-step7": {
       "drawCalls": 62,
       "triangles": 707152,
-      "longFrames": 0,
-      "frameTimeP95Ms": 33.3
+      "longFrames": 1,
+      "frameTimeP95Ms": 50
     },
     "scope-step8": {
       "drawCalls": 60,
-      "triangles": 706048,
+      "triangles": 705120,
       "longFrames": 0,
       "frameTimeP95Ms": 16.7
     },
     "scope-step9": {
-      "drawCalls": 34,
-      "triangles": 512257,
+      "drawCalls": 35,
+      "triangles": 512258,
       "longFrames": 0,
-      "frameTimeP95Ms": 16.8
+      "frameTimeP95Ms": 16.7
     },
     "scope-rig": {
       "drawCalls": 36,
-      "triangles": 525382,
+      "triangles": 512350,
       "longFrames": 0,
       "frameTimeP95Ms": 16.7
     },
     "outside": {
-      "drawCalls": 105,
-      "triangles": 1496436,
-      "longFrames": 0,
-      "frameTimeP95Ms": 16.7
-    },
-    "olv": {
       "drawCalls": 99,
       "triangles": 1101528,
       "longFrames": 0,
       "frameTimeP95Ms": 16.7
     },
+    "olv": {
+      "drawCalls": 105,
+      "triangles": 1496436,
+      "longFrames": 1,
+      "frameTimeP95Ms": 33.3
+    },
     "clamp": {
-      "drawCalls": 100,
-      "triangles": 1101529,
+      "drawCalls": 105,
+      "triangles": 1496436,
       "longFrames": 0,
       "frameTimeP95Ms": 16.7
     },
@@ -113,62 +113,118 @@
       "drawCalls": 105,
       "triangles": 1496436,
       "longFrames": 0,
-      "frameTimeP95Ms": 33.4
+      "frameTimeP95Ms": 49.9
     },
     "opacity-cutaway": {
       "drawCalls": 105,
       "triangles": 1496436,
       "longFrames": 0,
-      "frameTimeP95Ms": 33.4
+      "frameTimeP95Ms": 50
     },
     "m4-scope": {
-      "drawCalls": 56,
-      "triangles": 709405,
+      "drawCalls": 113,
+      "triangles": 1419220,
       "longFrames": 0,
-      "frameTimeP95Ms": 16.7
+      "frameTimeP95Ms": 33.3
     },
     "m4-tools": {
-      "drawCalls": 56,
-      "triangles": 696464,
-      "longFrames": 1,
-      "frameTimeP95Ms": 33.3
+      "drawCalls": 113,
+      "triangles": 1406279,
+      "longFrames": 0,
+      "frameTimeP95Ms": 33.4
     },
     "m4-cautery": {
-      "drawCalls": 51,
-      "triangles": 666564,
+      "drawCalls": 103,
+      "triangles": 1346379,
       "longFrames": 0,
-      "frameTimeP95Ms": 33.3
+      "frameTimeP95Ms": 33.4
     },
     "m4-staple": {
       "drawCalls": 110,
       "triangles": 1347883,
-      "longFrames": 2,
-      "frameTimeP95Ms": 50.1
+      "longFrames": 1,
+      "frameTimeP95Ms": 33.4
     },
     "m4-outside-hands": {
       "drawCalls": 99,
       "triangles": 976775,
-      "longFrames": 0,
-      "frameTimeP95Ms": 33.4
+      "longFrames": 1,
+      "frameTimeP95Ms": 50
     }
   },
   "peak": {
-    "phase": "m4-staple",
-    "drawCalls": 110,
-    "triangles": 1347883
+    "phase": "m4-scope",
+    "drawCalls": 113,
+    "triangles": 1419220
   },
-  "longFrames": 10,
-  "maxFrameMs": 133,
+  "longFrames": 11,
+  "maxFrameMs": 200,
   "heapMB": {
     "before": 15.3,
-    "after": 16.9
+    "after": 16.8
   },
   "fpsHeadless": 39.6,
-  "frameTimeP95Ms": 33.4,
+  "frameTimeP95Ms": 50,
   "practice": {
     "runs": [
       {
-        "runMs": 48810,
+        "runMs": 48547,
+        "programs": {
+          "ready": 55,
+          "after": 55
+        },
+        "phases": {
+          "practice": {
+            "drawCalls": 72,
+            "triangles": 712087,
+            "longFrames": 51,
+            "frameTimeP95Ms": 50
+          },
+          "practice-complication": {
+            "drawCalls": 67,
+            "triangles": 690496,
+            "longFrames": 1,
+            "frameTimeP95Ms": 33.4
+          }
+        },
+        "longFrames": 52,
+        "maxFrameMs": 367,
+        "heapMB": {
+          "start": 15.1,
+          "end": 17.3,
+          "growthPct": 14.6
+        }
+      },
+      {
+        "runMs": 48864,
+        "programs": {
+          "ready": 55,
+          "after": 55
+        },
+        "phases": {
+          "practice": {
+            "drawCalls": 70,
+            "triangles": 712087,
+            "longFrames": 38,
+            "frameTimeP95Ms": 50
+          },
+          "practice-complication": {
+            "drawCalls": 67,
+            "triangles": 690496,
+            "longFrames": 2,
+            "frameTimeP95Ms": 33.4
+          }
+        },
+        "longFrames": 40,
+        "maxFrameMs": 467,
+        "heapMB": {
+          "start": 15.3,
+          "end": 17.4,
+          "growthPct": 13.5
+        }
+      },
+      {
+        "runMs": 48745,
         "programs": {
           "ready": 55,
           "after": 55
@@ -177,7 +233,7 @@
           "practice": {
             "drawCalls": 71,
             "triangles": 712087,
-            "longFrames": 43,
+            "longFrames": 55,
             "frameTimeP95Ms": 50
           },
           "practice-complication": {
@@ -187,78 +243,22 @@
             "frameTimeP95Ms": 33.4
           }
         },
-        "longFrames": 44,
+        "longFrames": 56,
         "maxFrameMs": 350,
         "heapMB": {
-          "start": 15.1,
+          "start": 15.3,
           "end": 17.4,
-          "growthPct": 14.9
-        }
-      },
-      {
-        "runMs": 48818,
-        "programs": {
-          "ready": 55,
-          "after": 55
-        },
-        "phases": {
-          "practice": {
-            "drawCalls": 71,
-            "triangles": 712088,
-            "longFrames": 50,
-            "frameTimeP95Ms": 50
-          },
-          "practice-complication": {
-            "drawCalls": 67,
-            "triangles": 690496,
-            "longFrames": 3,
-            "frameTimeP95Ms": 49.9
-          }
-        },
-        "longFrames": 53,
-        "maxFrameMs": 383,
-        "heapMB": {
-          "start": 15.3,
-          "end": 17.3,
-          "growthPct": 13.5
-        }
-      },
-      {
-        "runMs": 48578,
-        "programs": {
-          "ready": 55,
-          "after": 55
-        },
-        "phases": {
-          "practice": {
-            "drawCalls": 70,
-            "triangles": 712087,
-            "longFrames": 46,
-            "frameTimeP95Ms": 50
-          },
-          "practice-complication": {
-            "drawCalls": 66,
-            "triangles": 690495,
-            "longFrames": 0,
-            "frameTimeP95Ms": 33.4
-          }
-        },
-        "longFrames": 46,
-        "maxFrameMs": 383,
-        "heapMB": {
-          "start": 15.3,
-          "end": 17.3,
-          "growthPct": 13.5
+          "growthPct": 13.7
         }
       }
     ],
     "heapMethod": "Each practice run starts on a freshly reloaded page (by choice: in-place restart exists since T860): heap (after CDP HeapProfiler.collectGarbage) is read at the same points of each reloaded run — practice ready (start) and after the debrief closed (end). Gate: acrossRunGrowthPct = run-3 end vs run-1 end. perRunGrowthPct (end vs start; includes the lazy debrief chunk) is informational.",
     "perRunGrowthPct": [
-      14.9,
+      14.6,
       13.5,
-      13.5
+      13.7
     ],
-    "acrossRunGrowthPct": -0.6
+    "acrossRunGrowthPct": 0.6
   },
   "pass": {
     "programs": true,

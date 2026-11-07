@@ -40,6 +40,7 @@ export const step08: WalkStep = {
       id: 'bag-in',
       kind: 'insert',
       act: { k: 'insert', tool: 'bag', port: UTIL, target: RML },
+      ms: 5000, // T893b: the open bag stays in view after it comes in (the beat's middle shows it)
       say: 'A retrieval bag comes in through the access incision.',
     },
     {

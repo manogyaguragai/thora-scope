@@ -47,10 +47,11 @@ export const cauteryConfig = {
     segments: 20,
     textureSize: 64, // px, procedural radial texture built once at load
     coreRgb: [86, 52, 40] as const, // thin dark-brown centre line
-    rimRgb: [236, 214, 206] as const, // pinkish-white coagulated edge
-    coreEnd: 0.22, // radius share where the core starts blending into the rim
+    rimRgb: [150, 98, 90] as const, // T893a: muted brown coagulated edge ([236,214,206] read as white rings)
+    coreEnd: 0.3, // radius share where the core starts blending into the rim
     rimPeak: 0.5, // radius share where the rim is palest
-    edgeStart: 0.62, // radius share where the decal fades out to the tissue
+    edgeStart: 0.45, // T893a: 0.62 drew a ring per mark; softer edge lets marks join into a seared line
+    // (was 0.62) // radius share where the decal fades out to the tissue
     coreAlpha: 0.72, // < 1: tissue texture shows through
     mottle: 0.25, // ± brightness noise in the core (0 = flat)
     roughness: 0.6,
@@ -58,6 +59,7 @@ export const cauteryConfig = {
     maxRadiusM: 0.0018, // after growSec of dwell on one spot
     growSec: 2,
     spacingM: 0.0009, // next mark along a sweep (overlapping → a continuous seared line)
+    joinMaxM: 0.006, // T893a: a sample gap up to this is filled with marks (larger = a lift / jump, not a sweep)
     normalOffset: 0.0003, // m, lift off the surface (plus polygon offset)
   },
   /** Coagulation of bleeding (complications.ts): energised contact within radiusM of an active bleed. */
@@ -71,13 +73,15 @@ export const cauteryConfig = {
     max: 0.7, // murky view after ~30 s of cumulative energy
     riseRate: 0.018, // per second of energised tissue contact (T890 C4: 0.025 left the walkthrough grey; ≥ 0.017 keeps
     // practice murky after 30 s, effects.test)
-    decayRate: 0.002, // per second, passive (port leak)
+    // T893a (critic r3): 0.002 left a milky veil across beats (black floor 67–87); clears a short stroke in ~2 s and
+    // stays < 0.5 s-share of a 30 s practice build-up (effects.test).
+    decayRate: 0.045, // per second, passive (port leak)
     /** Drifting smoke in the cavity around the last contact point; spawn rate ∝ density / max. */
     particles: {
       capScale: 0.5,
       color: [0.8, 0.79, 0.76] as const,
       size: 0.012, // m, size-attenuated (T890 C4: 20 mm read as white balls near the lens)
-      opacity: 0.18,
+      opacity: 0.08, // T893a: 0.18 read as a milky veil
       lifeSec: 4,
       ratePerSec: 24, // at max density
       radiusM: 0.035, // spawn sphere around the field

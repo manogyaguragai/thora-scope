@@ -77,6 +77,8 @@ const RIG = config.scopeRig;
 const IC = config.instrumentControl;
 const BRONCHUS = config.finish.bronchus[0] as string;
 const STOPPED = 'stopped';
+/** T893b: lobes the leak-test breath re-inflates (the middle lobe is out). */
+const LEAK_INFLATE = ['deflate_RUL', 'deflate_RLL'] as const;
 
 // ── Rig interpolation (allocation-free per frame) ──
 const A = newSnap(); // camera move: from
@@ -172,6 +174,7 @@ async function easeTo(c: ShotCtx, b: RigSnap, ms: number): Promise<boolean> {
   c.k.dip(1);
   if (ok) {
     loadRig(s, b);
+    if (!s.horizonLock) levelRig(s, false); // T893b: the settled pose on the step horizon too (not only the move)
     m3.syncScope();
   }
   return ok;
@@ -623,6 +626,9 @@ async function withdraw(c: ShotCtx): Promise<string> {
   saveRig(s, Ret);
   followOut(c, s, port, ctl.tipPos);
   asEngine(() => m4.press(false));
+  // T893b: the cautery's smoke clears while the hook comes out (T893a LensFog.clearOver; m4 clock ≈ engine clock).
+  if (m4.tool === 'cautery')
+    (m4.fx as { fog?: { clearOver?: (ms: number) => void } }).fog?.clearOver?.(c.k.dur(I.tipMs));
   from.copy(ctl.tipPos);
   to.copy(port.pleura).addScaledVector(port.axis, IC.depthM.min);
   const ok = await c.k.move(c.k.dur(I.tipMs * I.withdrawFrac), (e) => {
@@ -740,12 +746,26 @@ async function node(c: ShotCtx): Promise<string> {
   from.copy(ctl.tipPos);
   to.copy(from).lerp(port.pleura, N.tugM / Math.max(N.tugM, from.distanceTo(port.pleura)));
   if (!(await c.k.move(c.k.dur(N.tugMs), (e) => ctl.aimAt(tA.lerpVectors(from, to, e))))) return STOPPED;
-  from.copy(to);
+  // T893b: the camera follows the node out (as a withdrawal, G2), then comes back: it is seen leaving, not lost
+  // under the side dock at the frame's edge.
+  const m3 = sim.m3 as NonNullable<Sim['m3']>;
+  const s = m3.scope;
+  saveRig(s, Ret);
+  tH.copy(to);
+  followOut(c, s, port, tH);
+  from.copy(tH);
   to.copy(port.pleura).addScaledVector(port.axis, IC.depthM.min);
-  if (!(await c.k.move(c.k.dur(N.carryMs), (e) => ctl.aimAt(tA.lerpVectors(from, to, e))))) return STOPPED;
+  const carried = await c.k.move(c.k.dur(N.carryMs), (e) => {
+    ctl.aimAt(tA.lerpVectors(from, to, e));
+    followCam(c, s, e);
+    m3.writeScope();
+  });
+  if (!carried) return STOPPED;
   const n = m4.samples.length;
   asEngine(() => m4.withdraw());
   hands(sim);
+  loadRig(s, FOLLOW[I.followKeys] as RigSnap);
+  if (!(await easeTo(c, Ret, I.pushMs * I.withdrawFrac))) return STOPPED;
   return m4.samples.length > n ? 'ok' : m4.lastToast;
 }
 
@@ -1000,10 +1020,19 @@ export async function act(c: ShotCtx, a: Act, ms: number): Promise<string> {
       bedFx(m4)?.coagulate();
       return ok ? 'ok' : STOPPED;
     }
-    case 'ventilate':
-      if (a.mode === 'two') return m4.walk.ventilate();
+    case 'ventilate': {
+      if (a.mode === 'two') {
+        const leakTest = m4.finish.fluidFilled === true;
+        const r = m4.walk.ventilate();
+        // T893b: the leak test under saline ventilates both lungs too (the sim's water test only checks for bubbles):
+        // the remaining lobes re-inflate; the next 'one' beat collapses them again.
+        if (r === 'ok' && leakTest)
+          for (const key of LEAK_INFLATE) tweenTo(sim.state, key, 0, c.k.dur(config.finish.inflateMs));
+        return r;
+      }
       if (sim.state.deflate_RUL < 1 || sim.state.deflate_RLL < 1) startOLV(sim.state);
       return 'ok';
+    }
     case 'segment':
       return segment(c, a.port);
     case 'irrigate':
