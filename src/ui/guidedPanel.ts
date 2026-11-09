@@ -104,6 +104,18 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     if (w?.state().status === 'playing') w.pause();
     else w?.play();
   });
+  const voiceBtn = button('guided-play', '', 'Narration', () => {
+    const v = attach()?.voice;
+    if (!v) return;
+    v.muted = !v.muted;
+    showVoice(v.muted);
+  });
+  voiceBtn.hidden = true; // until a walkthrough with narration attaches
+  const showVoice = (muted: boolean): void => {
+    voiceBtn.textContent = muted ? '🔇' : '🔊';
+    voiceBtn.setAttribute('aria-pressed', String(!muted));
+    voiceBtn.title = muted ? 'Narration off' : 'Narration on';
+  };
 
   // Learning points, video note and model note sit behind "More" (T205).
   const details = h(
@@ -137,7 +149,7 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
     { className: 'guided-caption' },
     h('div', { className: 'guided-head' }, title, fold),
     h('div', { className: 'guided-meta' }, port, counter),
-    h('div', { className: 'guided-controls' }, prev, replay, play, next),
+    h('div', { className: 'guided-controls' }, prev, replay, play, voiceBtn, next),
     body,
   );
   bar.setAttribute('aria-label', 'Guided walkthrough');
@@ -212,6 +224,10 @@ export function mountGuidedPanel(shell: Shell, guided: GuidedNav, steps: readonl
       caption.textContent = text;
     });
     walk.on('msg', (_s, text) => pushMsg(text));
+    if (walk.voice) {
+      voiceBtn.hidden = false;
+      showVoice(walk.voice.muted);
+    }
     walk.on('state', (s) => onState(s));
     onState(walk.state());
     return walk;

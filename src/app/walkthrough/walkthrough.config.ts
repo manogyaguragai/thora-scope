@@ -288,4 +288,13 @@ export const walkthroughConfig = {
       >
     >,
   },
+  /** Narration (voice.ts): one clip per beat, `<dir><sNN>_<beat id>.mp3`, started with the beat's caption; the beat
+   *  holds until its clip ends. Off under automation (navigator.webdriver) and at timeScale ≠ 1. */
+  voice: {
+    dir: `${import.meta.env.BASE_URL}audio/narration/`,
+    /** Beats that share one clip (same caption). */
+    alias: { 's08_olv-upper': 's08_olv', 's08_olv-lower': 's08_olv' } as Readonly<Record<string, string>>,
+    volume: 1,
+    storageKey: 'thorascope.voice', // localStorage: '0' = muted
+  },
 } as const;

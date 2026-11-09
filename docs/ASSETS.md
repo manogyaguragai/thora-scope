@@ -282,3 +282,6 @@ Loader notes: mesh nodes carry the KHR_mesh_quantization dequantisation in their
 - Cameras and ports are scene roots, not children of `thorax_root` (see Nodes); apply any root transform to them separately. `cam_anterior_hilum` (v7) reference view only, not a step camera (it aims the step 2–5 port views).
 - `rib_R5` + `rib_R6` are two halves of anatomical rib 5 (CONTEXT §7.2) — mesh names are not anatomical labels.
 - Asset defects found here are logged in `docs/ASSET_ISSUES.md`.
+
+## Narration audio
+- `public/audio/narration/sNN_<beat id>.mp3`: 84 clips, one per Guided walkthrough beat (owner-recorded in ElevenLabs v3 from the exact caption text, MP3 128 kbps mono 44.1 kHz, 7.9 MB total). `s08_olv` serves both `olv-upper` and `olv-lower` (alias in `walkthroughConfig.voice`). Fetched per beat at runtime (never at load), next clip prefetched.

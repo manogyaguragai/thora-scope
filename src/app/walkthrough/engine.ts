@@ -50,6 +50,7 @@ import type {
   WalkStep,
   WalkthroughHook,
 } from './types';
+import type { Voice } from './voice';
 import { walkthroughConfig as W } from './walkthrough.config';
 
 export interface WalkDeps {
@@ -66,7 +67,13 @@ export interface WalkDeps {
   gain?: IUniform<Vector3> | null;
   /** T876: side dock the Beat.inset frame goes in (null = no inset). */
   dock?: HTMLElement | null;
+  /** Narration (voice.ts): each beat's clip starts with its caption and the beat holds until it ends. */
+  voice?: Voice | null;
 }
+
+/** Narration clip of a beat (voice.ts file stem), null past the last beat. */
+const clipOf = (s: WalkStep | undefined, b: Beat | undefined): string | null =>
+  s && b ? `s${String(s.step).padStart(2, '0')}_${b.id}` : null;
 
 const RML = fissureGuideConfig.lobe;
 /** Lobe collapse morph prefix (src/scene/morphs.ts: collapse_<lobe> ← deflate_<lobe>). */
@@ -122,6 +129,7 @@ const NSLOTS = 6;
 export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
   const { guided, state } = deps;
   const STEPS = deps.steps ?? WALK_STEPS;
+  const voice = deps.voice ?? null;
   const sim = (): Window['__sim'] => window.__sim;
   const slots: Slot[] = Array.from({ length: NSLOTS }, () => ({
     kind: FREE,
@@ -152,6 +160,7 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
   let started = false;
   let selfNav = false;
   let nextRes: ((v: boolean) => void) | null = null;
+  let skipHold = false; // Next pressed while a pause beat still plays: no second Next needed
   const listeners: Record<WalkEvent, ((s: WalkState, text: string) => void)[]> = {
     caption: [],
     msg: [],
@@ -209,6 +218,8 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
     const r = nextRes;
     nextRes = null;
     r?.(false);
+    skipHold = false;
+    voice?.stop();
     hl()?.hide(0);
     ghostOff(true);
     insetShow(false);
@@ -607,6 +618,7 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
   }
   function fail(r: string): void {
     error = r;
+    voice?.stop();
     setStatus('error');
   }
 
@@ -723,6 +735,11 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
       }
       emit('state');
       if (!ff) emit('caption', bt.say);
+      if (!ff && scale === 1)
+        voice?.play(
+          clipOf(st, bt) as string,
+          clipOf(st, st.beats[b + 1]) ?? clipOf(STEPS[n + 1], STEPS[n + 1]?.beats[0]),
+        );
       if (bt.msg && !ff) emit('msg', bt.msg); // T883 E8: §2.1-2, shown when the beat starts
       const g = ff ? null : glowOf(bt);
       if (bt.ghost && !ff) ghostOn(bt.ghost);
@@ -753,6 +770,8 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
         return fail(`step ${st.step} beat ${bt.id}: ${r}`);
       }
       if (!(await k.wait((bt.ms ?? W.beatMs) - (clock - t0)))) return;
+      // The narration sets the beat's floor: no deadline (it pauses with the walkthrough; errors end it).
+      if (voice?.busy && !(await k.until(() => !voice.busy, Infinity))) return;
       const subject = cameraSubject(bt);
       if (subject && bt.kind !== 'insert' && bt.kind !== 'withdraw') measureNow(c, subject);
       // T871: a pause beat keeps its glow until Next (the last part: until the next step's seek clears it).
@@ -764,9 +783,12 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
       done++;
       emit('state');
       if (keep && b < st.beats.length - 1) {
-        setStatus('waiting');
-        if (!(await new Promise<boolean>((res) => (nextRes = res)))) return;
-        if (me0 !== token) return;
+        if (skipHold) skipHold = false;
+        else {
+          setStatus('waiting');
+          if (!(await new Promise<boolean>((res) => (nextRes = res)))) return;
+          if (me0 !== token) return;
+        }
         if (g) hl()?.hide(k.dur(W.reducedMs));
         if (bt.ghost) ghostOff();
         if (bt.inset) insetShow(false);
@@ -799,7 +821,20 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
 
   /** Next: the next part of a step with pause beats, else the next step (via the guided controller). */
   function nextPart(): boolean {
-    if (getMode() !== 'guided' || status !== 'waiting' || !nextRes) return false;
+    if (getMode() !== 'guided') return false;
+    const st = STEPS[si] as WalkStep;
+    if (
+      status === 'playing' &&
+      !ff &&
+      (skipHold || voice?.busy) &&
+      st.beats[beat]?.pause &&
+      beat < st.beats.length - 1
+    ) {
+      skipHold = true; // a step-1 part still speaking: cut its clip, go on to the next part (silent: next step)
+      voice?.stop();
+      return true;
+    }
+    if (status !== 'waiting' || !nextRes) return false;
     const r = nextRes;
     nextRes = null;
     setStatus('playing'); // now, so a second Next before the beat starts goes nowhere else
@@ -873,13 +908,17 @@ export function createWalkthrough(deps: WalkDeps): WalkthroughHook {
       const b = st?.beats[beat];
       return st && b ? { ...b, step: st.step, index: beat } : null;
     },
+    voice,
     play() {
-      if (status === 'paused') setStatus(resume);
-      else if (status === 'idle' || status === 'error') void seek((STEPS[si] as WalkStep).step);
+      if (status === 'paused') {
+        voice?.resume();
+        setStatus(resume);
+      } else if (status === 'idle' || status === 'error') void seek((STEPS[si] as WalkStep).step);
     },
     pause() {
       if (status !== 'playing' && status !== 'waiting') return;
       resume = status;
+      voice?.pause();
       setStatus('paused');
     },
     replay: () => void seek((STEPS[si] as WalkStep).step),

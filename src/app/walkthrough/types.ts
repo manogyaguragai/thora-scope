@@ -1,6 +1,7 @@
 // T860 FROZEN INTERFACE — Guided walkthrough (docs/FEEDBACK_GUIDED_v1.md). Step files (steps/stepNN.ts) are pure data
 // against these types; the engine (engine.ts) + primitives (shots.ts) interpret them. Changing this file needs the
 // orchestrator (every step author depends on it). Additive optional fields are OK; renames/removals are not.
+import type { Voice } from './voice';
 import type { FinishState } from '../../sim/actions/finish';
 import type { TweenKey } from '../../sim/state';
 
@@ -181,6 +182,8 @@ export interface WalkthroughHook {
   seek(step: number, beat?: number): Promise<void>;
   /** Playback speed (1 = real time). Specs use 4–20. */
   timeScale: number;
+  /** Narration (null = none, e.g. under automation); the guided panel's voice toggle mutes it. */
+  readonly voice: Voice | null;
   state(): WalkState;
   currentBeat(): (Beat & { readonly step: number; readonly index: number }) | null;
   play(): void;

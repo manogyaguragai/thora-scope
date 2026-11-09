@@ -53,6 +53,7 @@ import { startOLV, tweenTo } from '../sim/state';
 import { applyVisibility, STEPS } from '../sim/steps';
 import { asEngine, inputLocked, walkRate } from '../sim/walkLock';
 import { createWalkthrough } from './walkthrough/engine';
+import { createVoice } from './walkthrough/voice';
 import type { TweenKey } from '../sim/state';
 import { keyCap } from '../ui/helpOverlay';
 import { mountPortPicker, mountRetractionStrip } from '../ui/hotbar';
@@ -2094,6 +2095,17 @@ export function wireM4(ctx: M4Context): M4 {
   };
   m4.onNodeRemoved.push((_name, p) => m4.startOoze(p)); // T842 node-bed ooze, sealed by cautery contact
   // T860: Guided = the walkthrough (it starts on "ready"); window.__sim.walkthrough is its test / UI hook.
+  // Narration starts with the scope view: the app opens on the theatre and the first Next takes the scope in.
+  const voice = navigator.webdriver ? null : createVoice();
+  if (voice && ctx.shell.root.dataset.view !== 'scope') {
+    voice.gate(false);
+    const seen = new MutationObserver(() => {
+      if (ctx.shell.root.dataset.view !== 'scope') return;
+      seen.disconnect();
+      voice.gate(true);
+    });
+    seen.observe(ctx.shell.root, { attributes: true, attributeFilter: ['data-view'] });
+  }
   window.__sim.walkthrough = createWalkthrough({
     guided,
     state,
@@ -2103,6 +2115,7 @@ export function wireM4(ctx: M4Context): M4 {
     onNodeRemoved: m4.onNodeRemoved,
     gain: ctx.gain ?? null,
     dock: ctx.shell.caption, // T876 Beat.inset docks here (R5 side dock)
+    voice, // narration; null under automation (e2e / perf runs stay silent and unpaced)
   });
   // T890 (critic r2 C10): Guided-hidden nodes in config.scope.guidedFramedShow (the phrenic) show while the current
   // beat's camera frames them (the step-1 phrenic beat), via the action overrides; event time only.
