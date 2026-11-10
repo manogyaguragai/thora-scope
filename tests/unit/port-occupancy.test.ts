@@ -36,11 +36,11 @@ describe('port occupancy', () => {
     expect(o.hasRoom(ANT)).toBe(false);
     expect(o.insert('clamp', UTIL)).toBe(true); // PA07: encircle the vein via the access incision
     expect(o.canFire('clamp', 'middle_lobe_vein', UTIL)).toBe('ok');
-    // v8 (T844): the vein is too steep for the stapler from the access incision; the posterior port holds the
-    // retraction until it is swapped to the access incision (PA08).
-    expect(o.canFire('stapler', 'middle_lobe_vein', UTIL, 'vascular-curved')).toBe('poor-angle');
+    // 2026-11-10: the vascular stapler head articulates: no angle refusal from any port (the posterior port still
+    // holds the retraction until it is swapped to the access incision, PA08).
+    expect(o.canFire('stapler', 'middle_lobe_vein', UTIL, 'vascular-curved')).toBe('ok');
     expect(o.canFire('stapler', 'middle_lobe_vein', ANT, 'vascular-curved')).toBe('retraction-in-port');
-    expect(o.canFire('stapler', 'middle_lobe_vein', CAM, 'vascular-curved')).toBe('poor-angle'); // v8, before the scope check
+    expect(o.canFire('stapler', 'middle_lobe_vein', CAM, 'vascular-curved')).toBe('port-full'); // the scope's port
     expect(o.insert('stapler', UTIL)).toBe(true);
     expect(o.canFire('stapler', 'middle_lobe_vein', UTIL, 'bronchial')).toBe('wrong-tool');
     expect(o.canFire('stapler', 'middle_lobe_bronchus', ANT, 'bronchial')).toBe('retraction-in-port'); // v8: needs the swap

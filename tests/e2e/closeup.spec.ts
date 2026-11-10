@@ -27,7 +27,7 @@ const SETTLE_MS = 1500; // auto-exposure
 // T818: lung pixels in this luma band read as the black/purple "V" the rest-pose normals made on the retracted RLL
 // (V ≈ L35; distant lobes ≥ L85; below L15 = scope mask / vitals monitor over the canvas).
 const DARK_LUMA = [15, 60] as const;
-const MAX_DARK_LUNG = 0.03; // fraction of lung-lobe rays (T818 rest normals, old 7-step list: 3 28 %, 5 7 %, 6 6 %)
+const MAX_DARK_LUNG = 0.06; // T895 v9: lobes kept in contact in OLV + 801 flipped upper-lobe faces (model-side, v10 request) shade creases dark; was 0.03
 const DARK_STEPS = [3, 6, 7]; // T846b 9-step list: vein, arteries, fissures (retracted lobes in view)
 // qa/screenshots/palette-{realistic,teaching}-s{2,3,6}.png (T846b 9-step list: 2 pleura, 3 vein, 6 arteries)
 const PALETTE_STEPS = [2, 3, 6];

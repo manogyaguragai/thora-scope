@@ -5,7 +5,10 @@ Legend: [ ] todo · [~] in progress · [w] module built + unit-tested, awaiting 
 Rules: NO git commits by anyone (the user commits + pushes; HEAD moves between batches — diff against the commit before your batch) · parallel builders OK on disjoint files, small anchored edits on shared ones (src/app/wireM4.ts, src/core/config.ts) · browser runs wrapped in `flock /tmp/claude-1000/thorascope-e2e.lock` with a distinct `E2E_PORT` · never start servers manually, never wrap runs in `timeout`, delete temp specs, stop your own background runs before reporting · agents never write to `assets_src/` (the user copies new models there).
 Fast gates BEFORE any long run: `rtk proxy npx prettier --check .` (plain `npx prettier --check` via the rtk hook falsely reports clean) · `npx eslint .` · `npx tsc --noEmit` · `npx vitest run` — then `npm run check` (≈11 min) in the background while doing other work.
 
-### RESUME HERE — Guided walkthrough batch DONE (2026-11-07 13:30)
+### RESUME HERE — T895 v9 swap + stapler/pulse fixes (2026-11-10)
+- Model is now **v9** (`assets_src/RML_v9.glb`, manifest version v9). See docs/PROGRESS.md 2026-11-10 T895 for what changed and what is open (targets.ts recompute, v3 vagus inside the lobes, HANDOVER_v9 missing from surgery-docs).
+
+### Previous resume — Guided walkthrough batch DONE (2026-11-07 13:30)
 - Final full check #4 GREEN (qa/logs/check-T869-4.log): lint, build, unit 425/425, e2e 81/81, perf:probe 55→55 programs, heap 0 %.
 - Final visual critic (round 3, before the T893 polish): 52 PASS / 18 FAIL / 16 LIMIT of 86 beats; T893 then fixed the listed FAILs (verified on targeted specs + orchestrator frame checks). Open visual items + v9 model requests: see docs/PROGRESS.md "FINAL REPORT".
 - Owner commits. T833 cleanup still waits for owner approval.

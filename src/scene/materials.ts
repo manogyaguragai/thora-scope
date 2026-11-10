@@ -537,6 +537,12 @@ export function setFade(mesh: Mesh, f: number): void {
   apply(mesh, v);
 }
 
+/** Heartbeat pulse on / off for one mesh (its manifest weight, or 0 once it is off the circulation); a uniform write. */
+export function setPulseOn(mesh: Mesh, on: boolean): void {
+  const v = variants.get(mesh);
+  if (v) v.own.uPulse.value = on ? (PULSE[mesh.name] ?? 0) * look.pulse.amplitudeM : 0;
+}
+
 /** T807 step-focus highlight weight (0 = off … 1 = full rim); a uniform write, never a program change. */
 export function setFocusHighlight(mesh: Mesh, k: number): void {
   const v = variants.get(mesh);

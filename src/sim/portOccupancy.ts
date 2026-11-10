@@ -198,7 +198,7 @@ export class PortOccupancy {
   }
 
   /** Can `tool` (sub-option `sub`, e.g. stapler cartridge) act on `targetId` through `port`? The angle check applies
-   *  to the stapler only. The active tool's own port counts as free for it. */
+   *  to the stapler only, except articulated (vascular) cartridges. The active tool's own port counts as free for it. */
   canFire(
     tool: ToolId,
     targetId: string,
@@ -213,6 +213,7 @@ export class PortOccupancy {
     if (!subs || (sub !== null && subs.length > 0 && !subs.includes(sub))) return 'wrong-tool';
     if (
       tool === 'stapler' &&
+      !(sub !== null && PORT_CONFIG.articulatedCartridges.includes(sub)) &&
       this.approachDeg(targetId, port, point) > (t.maxApproachDeg ?? PORT_CONFIG.maxApproachDeg)
     )
       return 'poor-angle';

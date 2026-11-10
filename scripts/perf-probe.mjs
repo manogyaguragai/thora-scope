@@ -192,7 +192,15 @@ function practiceSteps(page) {
   const press = async (ms = 0) => {
     const r = await page.evaluate(() => window.__sim.m4?.press(true) ?? 'not wired');
     if (ms) await sleep(ms);
-    await page.evaluate(() => window.__sim.m4?.press(false));
+    await page.evaluate(() => {
+      const m4 = window.__sim.m4;
+      m4?.press(false);
+      // A vessel takes two clicks (close, then fire); the bronchus waits for its ventilation test.
+      if (m4 && m4.stapleClosedOn === m4.target && m4.target !== 'middle_lobe_bronchus') {
+        m4.press(true);
+        m4.press(false);
+      }
+    });
     return r;
   };
   const retract = async (target, port) => {

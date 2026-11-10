@@ -144,13 +144,13 @@
       "camera": "cam_5_RML_arteries",
       "lens_mm": 28.0,
       "sensor_width_mm": 36,
-      "port": "port_utility_5ICS",
+      "port": "port_camera_8ICS",
       "scope_angle_deg": 28.4,
       "state": {
         "deflate_RUL": 1.0,
         "deflate_RML": 1.0,
         "deflate_RLL": 1.0,
-        "retract_hilum": 0.0,
+        "retract_hilum": 1.0,
         "retract_RML_lateral": 0.0,
         "retract_fissure": 1.0
       },

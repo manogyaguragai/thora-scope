@@ -121,6 +121,8 @@ export interface M4 {
   withdrawPort: (port: string) => string;
   /** T840: structure the clamp is closed on (in hand or left in its port), null = open. */
   readonly clamped: string | null;
+  /** Structure the stapler is closed on, awaiting the fire click (vessels, bronchus); null = none. */
+  readonly stapleClosedOn: string | null;
   /** T840: lymph node in the jaws (it follows the tip until withdrawn), null = none. */
   readonly grasped: string | null;
   /** T840: called when a node is taken out (hidden) with its name and bed point (shared vector: copy it). Starts
@@ -581,7 +583,8 @@ export function wireM4(ctx: M4Context): M4 {
     lK.subVectors(lT, port.pleura);
     const len = lK.length();
     if (len <= I.lens.portSkipM) return;
-    segClear[nSegs] = clear;
+    // The shaft is slim (only the stapler's jaws fill the view): a stapler alongside the scope must not push it out.
+    segClear[nSegs] = I.lens.defaultClearM;
     (segs[nSegs++] as Line3).set(lK.multiplyScalar(I.lens.portSkipM / len).add(port.pleura), lT);
   }
   function collectTools(): number {
@@ -865,20 +868,22 @@ export function wireM4(ctx: M4Context): M4 {
   }
 
   function staple(tid: string, port: string | null): string {
-    // Second activation on the clamped bronchus fires (armed if the jaws are still closing).
-    if ((fire.phase === 'closed' || fire.phase === 'closing') && fire.result.target === BRONCHUS) {
-      if (!allowed('fire', 'stapler', tid, port)) return 'gated';
-      if (!dispatch(F.fireBronchus(finish))) return m4.lastToast;
+    // Second activation on the vessel / bronchus the jaws are closed on fires (armed if they are still closing).
+    const held = fire.result.target;
+    if (closedOn() !== null && (held === tid || held === BRONCHUS)) {
+      if (!allowed('fire', 'stapler', held, port)) return 'gated';
+      if (held === BRONCHUS && !dispatch(F.fireBronchus(finish))) return m4.lastToast;
       fire.fire();
       return 'ok';
     }
     const c = occupancy.canFire('stapler', tid, port ?? '', sub, point);
     if (c !== 'ok') return toast(REASONS[c] ?? c);
     const bronchus = tid === BRONCHUS;
-    if (!allowed(bronchus ? 'close' : 'fire', 'stapler', tid, port)) return 'gated';
+    const across = needsEncircle(tid);
+    // A vessel is closed on first (no gate: the fire is the practice action), fired on the next activation.
+    if ((bronchus || !across) && !allowed(bronchus ? 'close' : 'fire', 'stapler', tid, port)) return 'gated';
     if (sub === 'vascular-leader') enc.pass(tid, 'stapler', sub);
     // T841: vessels / bronchus: jaws across the planned cut, closing onto the compressed structure.
-    const across = needsEncircle(tid);
     if (across && (eng.tool !== 'stapler' || eng.target !== tid)) engage('stapler', tid);
     fire.closedJaw = across ? closedJawFor('stapler', eng.radius) : 0;
     const s = fire.close(tid, sub, enc, across ? eng.centre : point);
@@ -902,9 +907,19 @@ export function wireM4(ctx: M4Context): M4 {
       return m4.lastToast;
     }
     if (bronchus) return toast('Stapler closed on the bronchus: test ventilation (A) before firing');
+    if (across) {
+      toast(`Stapler closed on the ${labelFor(tid).name.toLowerCase()}: click again to fire`);
+      return 'ok';
+    }
     fire.fire();
     return 'ok';
   }
+
+  /** Target the stapler jaws are closed (or closing) on, waiting for the fire; null = none. */
+  const closedOn = (): string | null =>
+    (fire.phase === 'closed' || fire.phase === 'closing') && !fire.armed && needsEncircle(fire.result.target)
+      ? fire.result.target
+      : null;
 
   function release(): void {
     olvGrasp = null;
@@ -1875,6 +1890,9 @@ export function wireM4(ctx: M4Context): M4 {
     withdrawPort,
     get clamped() {
       return clamped;
+    },
+    get stapleClosedOn() {
+      return closedOn();
     },
     get grasped() {
       return grab.name;

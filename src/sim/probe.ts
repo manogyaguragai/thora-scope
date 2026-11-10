@@ -315,8 +315,10 @@ async function m4Phases(
     m3.scope.switchPort('port_retraction_8ICS');
     m3.syncScope();
     await placeTool(sim, scene, 'stapler', vein, 'vascular-curved');
-    m4.press(true);
-    m4.press(false);
+    for (let k = 0; k < 2; k++) {
+      m4.press(true); // close, then fire
+      m4.press(false);
+    }
     await waitMs(config.staple.closeMs + config.staple.fireMs + config.staple.openMs);
   });
   await run('m4-outside-hands', () => sim.setView('outside', true));

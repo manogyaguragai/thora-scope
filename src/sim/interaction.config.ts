@@ -42,8 +42,9 @@ export const interactionConfig = {
   follow: { hz: 30, ratePerS: 14, backM: 0.001, epsM: 1e-5, instantM: 0.03 },
   /** Clamp jaws closed on a structure: it flattens by `squeeze` across the jaws, eased at `perS`. */
   clamp: { squeeze: 0.12, perS: 6 },
-  /** T847b lens exclusion: the scope lens stays `clearM` off the centre-line of each instrument in the chest: far
-   *  from the stapler (its 5 cm jaws filled the 45° view at 3 cm), near-plane clear of the slim ones (two share the access incision). Shafts count
+  /** T847b lens exclusion: the scope lens stays `clearM` off each instrument's jaws (far from the stapler's: its 5 cm
+   *  jaws filled the 45° view at 3 cm) and `defaultClearM` off every shaft (2026-11-10: the stapler's whole shaft at
+   *  4.5 cm pushed the scope out of the chest from the access incision; near-plane clear of the slim ones). Shafts count
    *  from `portSkipM` inside their pleura point (two in the access incision share it); the scope's depth limit is
    *  sampled every `stepM`, settled at follow.hz. */
   /** T850 "Insert via" picker order (inferior camera port · posterior port · anterior access incision); keys K.insertVia1–3. */

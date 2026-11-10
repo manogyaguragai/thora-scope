@@ -113,7 +113,8 @@ export class StapleFire {
   /** T841: jaw value the closing stops at (the compressed structure between the jaws); set before close(). */
   closedJaw = 0;
   private t = 0;
-  private armed = false;
+  /** fire() came while the jaws were still closing: it fires once they are closed. */
+  armed = false;
 
   /** T841: firing sub-progress, 0 … 1 each: compression pause, staples formed (heel → tip), knife travel. */
   get compress(): number {

@@ -123,6 +123,11 @@ const ENTRIES: Entry[] = [
     'Fine strands binding the middle lobe vessels and airway; divided to free them.',
   ],
   [
+    'fissure_connective_tissue',
+    'Peri-arterial tissue in the fissure',
+    'Loose tissue around the middle lobe arteries; opened to make the passage behind them.',
+  ],
+  [
     'mediastinal_fat',
     'Mediastinal fat',
     'Fat pads around the hilum and node stations (hidden in this model).',

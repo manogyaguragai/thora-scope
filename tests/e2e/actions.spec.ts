@@ -21,6 +21,11 @@ const press = (page: Page): Promise<string> =>
     if (!m4) return 'not wired';
     const r = m4.press(true);
     m4.press(false);
+    // A vessel takes two clicks (close, then fire); the bronchus waits for its ventilation test.
+    if (r === 'ok' && m4.stapleClosedOn === m4.target && m4.target !== 'middle_lobe_bronchus') {
+      m4.press(true);
+      m4.press(false);
+    }
     return r;
   });
 const m4State = (page: Page) =>

@@ -133,7 +133,7 @@ export const GUIDED_STEPS: readonly GuidedStep[] = [
       to: '5:00',
       text: 'In the reference video: two artery branches appear, a silicone leader guides the stapler through a long tunnel and both branches are divided together.',
     },
-    portLabel: ACCESS_INCISION,
+    portLabel: CAMERA_PORT,
   },
   {
     step: 7,

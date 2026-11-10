@@ -719,11 +719,15 @@ async function sweep(c: ShotCtx, ms: number, strokes: number): Promise<string> {
 
 async function fire(c: ShotCtx, target: string): Promise<string> {
   const m4 = c.sim().m4 as M4;
-  const r = asEngine(() => {
-    const x = m4.press(true);
-    m4.press(false);
-    return x;
-  });
+  const click = (): string =>
+    asEngine(() => {
+      const x = m4.press(true);
+      m4.press(false);
+      return x;
+    });
+  let r = click();
+  // A vessel takes two clicks (close, then fire); the bronchus was closed by its own beat.
+  if (r === 'ok' && m4.stapleClosedOn === target) r = click();
   if (r !== 'ok') return r;
   if (!(await c.k.until(() => m4.flags.has(`divided:${target}`), W.waitMs)))
     return c.k.alive() ? `${target} was not divided` : STOPPED;

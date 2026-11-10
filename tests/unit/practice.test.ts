@@ -187,9 +187,9 @@ describe('practice engine', () => {
       actionId: 'PA07',
     });
     playUntil('PA09'); // the retraction moved to the access incision (PA08)
-    // v8: the vein is too steep for the stapler from the access incision; the posterior port takes it.
+    // 2026-11-10: the vascular stapler articulates, so the access incision takes it too (no poor-angle).
     const e = play(m('x', 'stapler', 'vascular-curved', VEIN, UTIL, 'fire'));
-    expect(e).toMatchObject({ error: 'poor-angle', actionId: 'PA09', fire: 'poor-angle' });
+    expect(e).toMatchObject({ type: 'action', actionId: 'PA09' });
   });
 
   test('accepted alternatives: PA09 by branch, PA18 by clips, PA04 with the peanut', () => {

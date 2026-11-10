@@ -221,6 +221,13 @@ export const walkthroughConfig = {
       // T891 G9: with the stapler capped at widthMax the lens stays back, where the lobe edge overlaps the bronchus
       // (0.56 unoccluded) and the jaws sit left of centre (0.30); jaws, bronchus and the holding grasper read clearly.
       's05:fire': { unoccludedMin: 0.5, offsetMax: 0.35 },
+      // T895 v9: the OLV lobes stay in contact (the separated-lobes fix), so the upper/lower lobes overlap the middle
+      // lobe's edges (0.41 unoccluded); the wedge in front reads clearly by eye (s01-b01-rml).
+      's01:rml': { unoccludedMin: 0.35 },
+      // T895 v9: closed stapler + bronchus + inset read well at 0.139 big-band coverage (s05-b06-overview).
+      's05:overview': { min: 0.12 },
+      // T895 v9: see-through lower lobe, stump clear of the jaws; subject at the 0.12 offset edge (s07-b06-underside).
+      's07:underside': { offsetMax: 0.18 },
     } as Readonly<
       Record<
         string,

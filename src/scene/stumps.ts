@@ -40,6 +40,7 @@ import type { V3 } from './staples';
 import { STUMPS } from './stumps.config';
 import { specimenCarrier } from './retrievalBag';
 import { getInstrumentEnv } from './lights';
+import { setPulseOn } from './materials';
 
 interface Structure {
   group: string;
@@ -654,6 +655,8 @@ export interface Split {
   cut: DivideMode | null;
   divided: boolean;
   carried: boolean;
+  /** Its pieces ride the heartbeat: false once divided / carried (the specimen side is off the circulation). */
+  pulsing: boolean;
   /** T886 short-trunk pair: once divided, its specimen side (distal piece + cap + the branches it carries) shifts
    *  this far (parent-local) away from the stump, so the cut reads as two stapled ends; null = no shift. */
   retract: Vector3 | null;
@@ -840,10 +843,7 @@ export function buildStumps(
     const cg = buildStumpGeometry(plan.cap, across(plan.cap), capShape);
     copyMorphDeltas(cg, segment.geometry, segBvh);
     cg.applyMatrix4(inv.copy(segment.matrixWorld).invert());
-    const capMetal = pulsingMetal(
-      ((PULSE[segName] ?? 0) * look.pulse.amplitudeM) / segment.matrixWorld.getMaxScaleOnAxis(),
-      'stumps:titanium',
-    );
+    const capMetal = pulsingMetal(0, 'stumps:titanium'); // shown once divided = off the body: no pulse
     const capMats: Material[] = [segment.material, capMetal, NONE];
     const cap = new Mesh(cg, capMats);
     cap.name = `stump_cap_${segName}`;
@@ -895,6 +895,7 @@ export function buildStumps(
       cut: null,
       divided: false,
       carried: false,
+      pulsing: true,
       retract: null,
       shift: null,
       inf,
@@ -977,6 +978,8 @@ export function buildStumps(
       s.carried = anc !== null && (anc.divided || anc.carried);
       s.divided = !s.carried && (s.cut !== null || (!segV && topV));
       s.shift = s.divided ? s.retract : s.carried ? (anc?.shift ?? null) : null;
+      // After the cut the segment's material only draws specimen-side pieces (the stump uses the parent's).
+      if (s.pulsing === (s.divided || s.carried)) setPulseOn(s.segment, (s.pulsing = !s.pulsing));
       const specimen = topV && (s.lobe ? s.lobe.visible : true);
       s.proximal.visible = s.carried ? specimen : segV && !s.divided;
       const home = s.carried && s.carrier ? s.carrier : s.segment.parent; // a carried branch leaves with the lobe

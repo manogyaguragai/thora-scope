@@ -97,9 +97,11 @@ export const config = {
         target: [-0.0368, 0.029, -0.0134],
       },
       {
+        // T895 v9: the collapsed middle lobe covers the arteries from the access incision; lens re-picked from
+        // the camera port (as the walkthrough), retract_hilum + retract_fissure, ≈ 7 % artery pixels.
         camera: 'cam_5_RML_arteries',
-        position: [-0.0707, 0.069, 0.0215],
-        target: [-0.0353, 0.0375, -0.0036],
+        position: [-0.0928, 0.0657, -0.0051],
+        target: [-0.032, 0.045, 0.004],
       },
     ] as readonly { camera: string; position: readonly number[]; target: readonly number[] }[],
     // T830 port-aimed step views (steps with `aimAtHilum`): the reference camera's (anatomy.json referenceCameras[0])
@@ -402,6 +404,9 @@ export const config = {
      *  asset's geometry 45° lets the vein/artery staplers through the camera port but not the access incision
      *  (≈84°/77°), which is what forces the video's retraction swap. Pending clinician review. */
     maxApproachDeg: 45,
+    /** Cartridges whose head articulates enough to meet a vessel from any working port (user 2026-11-10: a real
+     *  vascular stapler's tip angles): no approach-angle refusal for them. */
+    articulatedCartridges: ['vascular-curved', 'vascular-leader'] as readonly string[],
     /** VIDEO_STEP_MAP (b): access incision carries up to 3 instruments, 1 cm ports one. */
     capacity: { port_camera_8ICS: 1, port_utility_5ICS: 3, port_retraction_8ICS: 1 } as Readonly<
       Record<string, number>
@@ -614,7 +619,7 @@ export const config = {
   },
   // Grasp & retract (src/sim/actions/retract.ts, §7.3).
   retract: {
-    dragPerPx: 1 / 250, // morph influence per pixel of drag (direction blend: src/sim/actions/retract.ts)
+    dragPerPx: 1 / 190, // T895 v9 (was 1/250: v9 retract keys move the lobes less per unit) morph influence per pixel of drag (direction blend: src/sim/actions/retract.ts)
     minDeflate: 0.9, // §7.3: retraction morphs were authored on the collapsed lung; all right lobes must be ≥ this
     springBack: false as boolean, // default; the Retract constructor can override (optional spring-back, §6.4)
     springPerSec: 1.5, // influence per second back to the pre-grasp value on release (spring-back on, not held)

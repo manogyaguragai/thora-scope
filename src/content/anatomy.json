@@ -1,8 +1,8 @@
 {
   "$comment": "Single source of truth for the RML hilum model. v8+ drop-in = new file in assets_src + bump `source`; names/keys are the Blender contract (docs/BLENDER_PROMPT_v8.md). Read by scripts/optimize-assets.mjs, materials.config, morphs/state, steps, content.",
-  "version": "v8",
+  "version": "v9",
   "collapseGain": 1,
-  "source": "assets_src/RML_v8.glb",
+  "source": "assets_src/RML_v9.glb",
   "base": "assets_src/thorax_sim_v3.glb",
   "morphs": [
     "collapse_RUL",
@@ -119,6 +119,12 @@
       "tissue": "connective",
       "group": "softTissue",
       "dissectStep": 3,
+      "dissectable": true
+    },
+    "fissure_connective_tissue": {
+      "tissue": "connective",
+      "group": "softTissue",
+      "removedAfterStep": 6,
       "dissectable": true
     },
     "mediastinal_fat": { "tissue": "fat", "group": "softTissue", "hidden": true },
